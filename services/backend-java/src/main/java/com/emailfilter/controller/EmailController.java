@@ -104,6 +104,27 @@ public class EmailController {
         return ResponseEntity.ok(Map.of("syncing", syncing));
     }
 
+    @PostMapping("/sync/full")
+    public ResponseEntity<Map<String, Object>> syncAllEmails(
+            Authentication auth,
+            @RequestBody Map<String, String> body) {
+        var userId = getUserId(auth);
+        var provider = body.get("provider");
+        if (provider == null || provider.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "provider is required"));
+        }
+        var user = userDetailsService.loadUserEntityById(userId);
+        emailService.syncAllEmails(user, provider);
+        return ResponseEntity.accepted().body(Map.of("status", "syncing", "mode", "full"));
+    }
+
+    @GetMapping("/count")
+    public ResponseEntity<Map<String, Object>> emailCount(Authentication auth) {
+        var userId = getUserId(auth);
+        var count = emailService.getEmailCountByUser(userId);
+        return ResponseEntity.ok(Map.of("count", count));
+    }
+
     private UUID getUserId(Authentication auth) {
         return UUID.fromString(auth.getName());
     }

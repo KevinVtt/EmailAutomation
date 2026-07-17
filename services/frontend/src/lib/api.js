@@ -121,8 +121,15 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ provider }),
       }),
+    syncFull: (provider) =>
+      request('/api/emails/sync/full', {
+        method: 'POST',
+        body: JSON.stringify({ provider }),
+      }),
     syncStatus: () =>
       request('/api/emails/sync/status').catch(() => ({ syncing: false })),
+    count: () =>
+      request('/api/emails/count').catch(() => ({ count: 0 })),
   },
   chat: {
     send: (message, conversationId = '') =>

@@ -1,8 +1,8 @@
-import { RefreshCw, Inbox, Download, ChevronLeft, ChevronRight, X, AlertCircle, Check, Loader2 } from 'lucide-react';
+import { RefreshCw, Inbox, Download, ChevronLeft, ChevronRight, X, AlertCircle, Check, Loader2, Database } from 'lucide-react';
 import EmailCard from './EmailCard';
 
 export default function EmailList({
-  emails, loading, error, syncStatus, selectedId, onSelect, onRefresh, onSync,
+  emails, loading, error, syncStatus, syncProgress, syncMode, selectedId, onSelect, onRefresh, onSync,
   page, totalPages, onPageChange,
   dateFrom, dateTo, onDateFromChange, onDateToChange, onClearDates
 }) {
@@ -12,7 +12,7 @@ export default function EmailList({
         <h2 className="text-lg font-semibold text-gray-900">Bandeja de entrada</h2>
         <div className="flex gap-1">
           <button
-            onClick={() => onSync?.('google')}
+            onClick={() => onSync?.('google', syncStatus === 'syncing' ? undefined : 'incremental')}
             disabled={loading || syncStatus === 'syncing'}
             className={`p-2 rounded-lg transition-colors ${
               syncStatus === 'syncing'
@@ -30,7 +30,7 @@ export default function EmailList({
                 ? 'Sincronizado correctamente'
                 : syncStatus === 'error'
                 ? 'Error al sincronizar'
-                : 'Sincronizar Gmail'
+                : 'Sincronizar nuevos emails'
             }
           >
             {syncStatus === 'syncing' ? (
@@ -42,6 +42,14 @@ export default function EmailList({
             ) : (
               <Download className="w-5 h-5" />
             )}
+          </button>
+          <button
+            onClick={() => onSync?.('google', 'full')}
+            disabled={loading || syncStatus === 'syncing'}
+            className="p-2 text-gray-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors disabled:opacity-30"
+            title="Sincronizar todo el historial"
+          >
+            <Database className="w-5 h-5" />
           </button>
           <button
             onClick={onRefresh}
@@ -82,6 +90,26 @@ export default function EmailList({
           </button>
         )}
       </div>
+
+      {syncStatus === 'syncing' && syncProgress.total > 0 && (
+        <div className="mb-3 px-1">
+          <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+            <span>
+              {syncMode === 'full' ? 'Descargando historial completo' : 'Sincronizando nuevos emails'}
+            </span>
+            <span>{syncProgress.current.toLocaleString()} / {syncProgress.total.toLocaleString()}</span>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full transition-all duration-300"
+              style={{ width: `${Math.min((syncProgress.current / syncProgress.total) * 100, 100)}%` }}
+            />
+          </div>
+          <div className="text-xs text-gray-400 mt-1 text-center">
+            Esto puede tardar unos minutos para buzones grandes...
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto space-y-2 -mx-4 px-4">
         {loading ? (

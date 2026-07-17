@@ -21,6 +21,8 @@ export default function Dashboard() {
   const [wsError, setWsError] = useState(null);
   const [activeCriteria, setActiveCriteria] = useState(null);
   const [syncStatus, setSyncStatus] = useState(null); // null | 'syncing' | 'success' | 'error'
+  const [syncProgress, setSyncProgress] = useState({ current: 0, total: 0 }); // for full sync progress
+  const [syncMode, setSyncMode] = useState(null); // null | 'incremental' | 'full'
 
   const buildFilters = useCallback((overrides = {}) => {
     const filters = {};
@@ -62,14 +64,26 @@ export default function Dashboard() {
   }, []);
 
   const onNotifications = useCallback((data) => {
-    if (data.type === 'notification' && data.message === 'sync_complete') {
+    if (data.type !== 'notification') return;
+
+    const msg = data.message;
+    if (msg === 'sync_complete') {
       setSyncStatus('success');
-      setTimeout(() => setSyncStatus(null), 3000);
+      setSyncMode(null);
+      setTimeout(() => { setSyncStatus(null); setSyncProgress({ current: 0, total: 0 }); }, 3000);
       fetchEmails(activeCriteria || {}, 0);
-    } else if (data.type === 'notification' && typeof data.message === 'string' && data.message.startsWith('sync_error')) {
-      console.error('Sync error:', data.message);
+    } else if (typeof msg === 'string' && msg.startsWith('sync_progress:')) {
+      // sync_progress:current:total
+      const parts = msg.split(':');
+      const current = parseInt(parts[1], 10) || 0;
+      const total = parseInt(parts[2], 10) || 0;
+      setSyncProgress({ current, total });
+      setSyncStatus('syncing');
+    } else if (typeof msg === 'string' && msg.startsWith('sync_error')) {
+      console.error('Sync error:', msg);
       setSyncStatus('error');
-      setTimeout(() => setSyncStatus(null), 5000);
+      setSyncMode(null);
+      setTimeout(() => { setSyncStatus(null); setSyncProgress({ current: 0, total: 0 }); }, 5000);
       setLoading(false);
     }
   }, [fetchEmails, activeCriteria]);
@@ -82,10 +96,18 @@ export default function Dashboard() {
     onError: () => setWsError('Conexión WebSocket perdida. Reintentando...'),
   });
 
-  const handleSync = useCallback(async (provider) => {
+  const handleSync = useCallback(async (provider, mode = 'incremental') => {
     try {
       setSyncStatus('syncing');
-      await api.emails.sync(provider);
+      setSyncMode(mode);
+      setSyncProgress({ current: 0, total: 0 });
+
+      if (mode === 'full') {
+        await api.emails.syncFull(provider);
+      } else {
+        await api.emails.sync(provider);
+      }
+
       // Fallback: poll sync status in case WebSocket notification doesn't arrive
       const pollInterval = setInterval(async () => {
         try {
@@ -93,19 +115,22 @@ export default function Dashboard() {
           if (!status.syncing) {
             clearInterval(pollInterval);
             setSyncStatus('success');
-            setTimeout(() => setSyncStatus(null), 3000);
+            setSyncMode(null);
+            setTimeout(() => { setSyncStatus(null); setSyncProgress({ current: 0, total: 0 }); }, 3000);
             fetchEmails(activeCriteria || {}, 0);
           }
         } catch {
           // Ignore poll errors
         }
       }, 2000);
-      // Safety: stop polling after 3 minutes
-      setTimeout(() => clearInterval(pollInterval), 180000);
+      // Safety: stop polling after 10 minutes for full sync, 3 minutes for incremental
+      const timeout = mode === 'full' ? 600000 : 180000;
+      setTimeout(() => clearInterval(pollInterval), timeout);
     } catch (err) {
       console.error('Failed to trigger sync', err);
       setSyncStatus('error');
-      setTimeout(() => setSyncStatus(null), 5000);
+      setSyncMode(null);
+      setTimeout(() => { setSyncStatus(null); setSyncProgress({ current: 0, total: 0 }); }, 5000);
     }
   }, [fetchEmails, activeCriteria]);
 
@@ -157,7 +182,16 @@ export default function Dashboard() {
     if (!alreadySynced && user) {
       sessionStorage.setItem('autoSynced', 'true');
       autoSyncedRef.current = true;
-      handleSync('google');
+      // Smart sync: check email count, auto-trigger full sync if empty
+      api.emails.count().then(({ count }) => {
+        if (count === 0) {
+          handleSync('google', 'full');
+        } else {
+          handleSync('google', 'incremental');
+        }
+      }).catch(() => {
+        handleSync('google', 'incremental');
+      });
     }
   }, [user]);
 
@@ -176,6 +210,8 @@ export default function Dashboard() {
             loading={loading}
             error={error}
             syncStatus={syncStatus}
+            syncProgress={syncProgress}
+            syncMode={syncMode}
             selectedId={selectedEmail?.id}
             onSelect={handleSelectEmail}
             onRefresh={() => {

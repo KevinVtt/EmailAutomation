@@ -28,6 +28,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
+import java.io.IOException;
 
 @Slf4j
 @Service
@@ -98,6 +99,16 @@ public class EmailService {
     public boolean isSyncing(UUID userId) {
         cleanupExpiredSyncStatus();
         return syncingStatus.getOrDefault(userId, false);
+    }
+
+    @Transactional(readOnly = true)
+    public long getEmailCount(UUID userId) {
+        return emailRepository.count();
+    }
+
+    @Transactional(readOnly = true)
+    public long getEmailCountByUser(UUID userId) {
+        return emailRepository.findByUserIdOrderByReceivedAtDesc(userId, PageRequest.of(0, 1)).getTotalElements();
     }
 
     private void cleanupExpiredSyncStatus() {
@@ -172,6 +183,192 @@ public class EmailService {
     public int syncEmails(User user, String provider) {
         syncEmailsAsync(user, provider);
         return 0;
+    }
+
+    public void syncAllEmails(User user, String provider) {
+        syncAllEmailsAsync(user, provider);
+    }
+
+    @Async("emailSyncExecutor")
+    public CompletableFuture<Void> syncAllEmailsAsync(User user, String provider) {
+        var userId = user.getId();
+        log.info("Starting FULL email sync for user={}, provider={}", userId, provider);
+        if (syncingStatus.putIfAbsent(userId, true) != null) {
+            log.info("Sync already in progress for user={}", userId);
+            return CompletableFuture.completedFuture(null);
+        }
+        syncingTimestamps.put(userId, System.currentTimeMillis());
+        try {
+            var accessToken = getToken(user, provider);
+
+            if (!"google".equals(provider)) {
+                // For non-Google, fall back to regular sync
+                syncEmailsAsync(user, provider);
+                return CompletableFuture.completedFuture(null);
+            }
+
+            // Step 1: Get ALL message IDs from Gmail (cheap: ~5 units per 100 IDs)
+            log.info("Fetching all Gmail message IDs for user={}", userId);
+            webSocketService.sendNotification(userId.toString(), "sync_progress:0:0");
+
+            var gmail = buildGmailClient(accessToken);
+            var allMessageIds = new ArrayList<String>();
+            try {
+                String pageToken = null;
+                do {
+                    var request = gmail.users().messages().list("me")
+                            .setQ("in:inbox")
+                            .setMaxResults(500L);
+                    if (pageToken != null) request.setPageToken(pageToken);
+
+                    var response = request.execute();
+                    var messages = response.getMessages();
+                    if (messages != null) {
+                        for (var msg : messages) {
+                            allMessageIds.add(msg.getId());
+                        }
+                    }
+                    pageToken = response.getNextPageToken();
+                } while (pageToken != null && !pageToken.isBlank());
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to fetch Gmail message IDs", e);
+            }
+
+            var totalInGmail = allMessageIds.size();
+            log.info("Found {} total emails in Gmail for user={}", totalInGmail, userId);
+
+            // Step 2: Remove IDs we already have in the DB
+            var existingIds = new java.util.HashSet<>(emailRepository.findProviderEmailIdsByUserId(userId));
+            var newIds = allMessageIds.stream()
+                    .filter(id -> !existingIds.contains(id))
+                    .collect(Collectors.toList());
+
+            log.info("Of {} total, {} already in DB, {} new to fetch for user={}",
+                    totalInGmail, existingIds.size(), newIds.size(), userId);
+            webSocketService.sendNotification(userId.toString(),
+                    "sync_progress:0:" + newIds.size());
+
+            if (newIds.isEmpty()) {
+                log.info("No new emails to fetch for user={}", userId);
+                webSocketService.sendNotification(userId.toString(), "sync_complete");
+                return CompletableFuture.completedFuture(null);
+            }
+
+            // Step 3: Fetch new emails in batches of 50, send progress
+            int fetched = 0;
+            int batchSize = 50;
+            for (int i = 0; i < newIds.size(); i += batchSize) {
+                if (Thread.currentThread().isInterrupted()) {
+                    log.warn("Full sync interrupted for user={}", userId);
+                    break;
+                }
+
+                var batch = newIds.subList(i, Math.min(i + batchSize, newIds.size()));
+                var batchEmails = new ArrayList<EmailMessage>();
+
+                for (var msgId : batch) {
+                    try {
+                        var email = fetchMessageById(gmail, msgId);
+                        if (email != null) batchEmails.add(email);
+                    } catch (Exception e) {
+                        log.warn("Failed to fetch message {}: {}", msgId, e.getMessage());
+                    }
+                }
+
+                // Save batch
+                if (!batchEmails.isEmpty()) {
+                    saveEmails(batchEmails, user, provider);
+                }
+
+                fetched += batch.size();
+                webSocketService.sendNotification(userId.toString(),
+                        "sync_progress:" + fetched + ":" + newIds.size());
+
+                if (fetched % 500 == 0) {
+                    log.info("Full sync progress: {}/{} for user={}", fetched, newIds.size(), userId);
+                }
+            }
+
+            log.info("Full sync complete: {} new emails saved for user={} ({} total in Gmail)",
+                    fetched, userId, totalInGmail);
+            webSocketService.sendNotification(userId.toString(), "sync_complete");
+
+        } catch (RuntimeException e) {
+            log.error("Full sync failed for user={}, provider={}: {}", userId, provider, e.getMessage(), e);
+            webSocketService.sendNotification(userId.toString(), "sync_error:" + e.getMessage());
+        } finally {
+            syncingStatus.remove(userId);
+            syncingTimestamps.remove(userId);
+        }
+        return CompletableFuture.completedFuture(null);
+    }
+
+    private com.google.api.services.gmail.Gmail buildGmailClient(String accessToken) {
+        try {
+            com.google.api.client.http.HttpRequestInitializer requestInitializer =
+                    request -> request.getHeaders().setAuthorization("Bearer " + accessToken);
+            return new com.google.api.services.gmail.Gmail.Builder(
+                    com.google.api.client.googleapis.javanet.GoogleNetHttpTransport.newTrustedTransport(),
+                    com.google.api.client.json.gson.GsonFactory.getDefaultInstance(),
+                    requestInitializer)
+                    .setApplicationName("Email Filter AI")
+                    .build();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to build Gmail client", e);
+        }
+    }
+
+    private EmailMessage fetchMessageById(com.google.api.services.gmail.Gmail gmail, String messageId) {
+        try {
+            var full = gmail.users().messages().get("me", messageId).setFormat("full").execute();
+            var payload = full.getPayload();
+            if (payload == null) return null;
+
+            var headers = payload.getHeaders();
+            var subject = getHeaderValue(headers, "Subject");
+            var from = getHeaderValue(headers, "From");
+            var to = getHeaderValue(headers, "To");
+            var snippet = full.getSnippet();
+
+            var body = "";
+            if (payload.getParts() != null) {
+                body = gmailService.getBodyFromPartsPublic(payload.getParts());
+            } else if (payload.getBody() != null && payload.getBody().getData() != null) {
+                body = new String(java.util.Base64.getUrlDecoder().decode(payload.getBody().getData()));
+            }
+
+            var labels = String.join(",", full.getLabelIds() != null ? full.getLabelIds() : List.of());
+            var isRead = !full.getLabelIds().contains("UNREAD");
+            var isStarred = full.getLabelIds().contains("STARRED");
+
+            var receivedAt = Instant.ofEpochMilli(full.getInternalDate());
+
+            var email = new EmailMessage();
+            email.setProviderEmailId(full.getId());
+            email.setThreadId(full.getThreadId());
+            email.setSubject(subject);
+            email.setFromAddress(from);
+            email.setToAddresses(to);
+            email.setBodyPreview(snippet);
+            email.setBodyHtml(body);
+            email.setLabels(labels);
+            email.setRead(isRead);
+            email.setStarred(isStarred);
+            email.setReceivedAt(receivedAt);
+            return email;
+
+        } catch (IOException e) {
+            log.warn("Failed to fetch message {}: {}", messageId, e.getMessage());
+            return null;
+        }
+    }
+
+    private String getHeaderValue(List<com.google.api.services.gmail.model.MessagePartHeader> headers, String name) {
+        return headers.stream()
+                .filter(h -> h.getName().equalsIgnoreCase(name))
+                .map(com.google.api.services.gmail.model.MessagePartHeader::getValue)
+                .findFirst()
+                .orElse("");
     }
 
     @Transactional

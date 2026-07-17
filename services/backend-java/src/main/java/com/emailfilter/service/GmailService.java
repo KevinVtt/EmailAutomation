@@ -305,6 +305,10 @@ public class GmailService {
                 .orElse("");
     }
 
+    public String getBodyFromPartsPublic(List<MessagePart> parts) {
+        return getBodyFromParts(parts);
+    }
+
     private String getBodyFromParts(List<MessagePart> parts) {
         var plainText = new StringBuilder();
         var htmlText = new StringBuilder();
