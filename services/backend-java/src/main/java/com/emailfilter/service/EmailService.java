@@ -114,31 +114,38 @@ public class EmailService {
     @Async("emailSyncExecutor")
     public CompletableFuture<Void> syncEmailsAsync(User user, String provider) {
         var userId = user.getId();
+        log.info("Starting email sync for user={}, provider={}", userId, provider);
         if (syncingStatus.putIfAbsent(userId, true) != null) {
             log.info("Sync already in progress for user={}", userId);
             return CompletableFuture.completedFuture(null);
         }
         syncingTimestamps.put(userId, System.currentTimeMillis());
         try {
+            log.info("Fetching OAuth token for user={}, provider={}", userId, provider);
             var accessToken = getToken(user, provider);
-            List<EmailMessage> emails;
+            log.info("OAuth token obtained for user={}, provider={}", userId, provider);
 
+            List<EmailMessage> emails;
             if ("google".equals(provider)) {
+                log.info("Fetching emails from Gmail for user={}", userId);
                 emails = gmailService.fetchAllEmails(accessToken, 100, 200);
+                log.info("Fetched {} emails from Gmail for user={}", emails.size(), userId);
             } else if ("outlook".equals(provider)) {
+                log.info("Fetching emails from Outlook for user={}", userId);
                 var rawEmails = outlookService.fetchEmails(accessToken, 100);
                 emails = rawEmails.stream()
                         .map(raw -> parseOutlookEmail(raw, user))
                         .collect(Collectors.toList());
+                log.info("Fetched {} emails from Outlook for user={}", emails.size(), userId);
             } else {
                 throw new IllegalArgumentException("Unsupported provider: " + provider);
             }
 
             int syncedCount = saveEmails(emails, user, provider);
-            log.info("Synced {} new emails for user={}, provider={}", syncedCount, userId, provider);
+            log.info("Sync complete: {} new emails saved for user={}, provider={} ({} total fetched)", syncedCount, userId, provider, emails.size());
             webSocketService.sendNotification(userId.toString(), "sync_complete");
         } catch (RuntimeException e) {
-            log.error("Sync failed for user={}, provider={}", userId, provider, e);
+            log.error("Sync failed for user={}, provider={}: {}", userId, provider, e.getMessage(), e);
             webSocketService.sendNotification(userId.toString(), "sync_error: " + e.getMessage());
         } finally {
             syncingStatus.remove(userId);

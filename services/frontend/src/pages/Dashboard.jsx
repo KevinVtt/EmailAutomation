@@ -20,6 +20,7 @@ export default function Dashboard() {
   const [dateTo, setDateTo] = useState(null);
   const [wsError, setWsError] = useState(null);
   const [activeCriteria, setActiveCriteria] = useState(null);
+  const [syncStatus, setSyncStatus] = useState(null); // null | 'syncing' | 'success' | 'error'
 
   const buildFilters = useCallback((overrides = {}) => {
     const filters = {};
@@ -62,9 +63,13 @@ export default function Dashboard() {
 
   const onNotifications = useCallback((data) => {
     if (data.type === 'notification' && data.message === 'sync_complete') {
+      setSyncStatus('success');
+      setTimeout(() => setSyncStatus(null), 3000);
       fetchEmails(activeCriteria || {}, 0);
     } else if (data.type === 'notification' && typeof data.message === 'string' && data.message.startsWith('sync_error')) {
       console.error('Sync error:', data.message);
+      setSyncStatus('error');
+      setTimeout(() => setSyncStatus(null), 5000);
       setLoading(false);
     }
   }, [fetchEmails, activeCriteria]);
@@ -79,11 +84,30 @@ export default function Dashboard() {
 
   const handleSync = useCallback(async (provider) => {
     try {
+      setSyncStatus('syncing');
       await api.emails.sync(provider);
+      // Fallback: poll sync status in case WebSocket notification doesn't arrive
+      const pollInterval = setInterval(async () => {
+        try {
+          const status = await api.emails.syncStatus();
+          if (!status.syncing) {
+            clearInterval(pollInterval);
+            setSyncStatus('success');
+            setTimeout(() => setSyncStatus(null), 3000);
+            fetchEmails(activeCriteria || {}, 0);
+          }
+        } catch {
+          // Ignore poll errors
+        }
+      }, 2000);
+      // Safety: stop polling after 3 minutes
+      setTimeout(() => clearInterval(pollInterval), 180000);
     } catch (err) {
       console.error('Failed to trigger sync', err);
+      setSyncStatus('error');
+      setTimeout(() => setSyncStatus(null), 5000);
     }
-  }, []);
+  }, [fetchEmails, activeCriteria]);
 
   const handleSelectEmail = useCallback((email) => {
     setSelectedEmail(email);
@@ -151,6 +175,7 @@ export default function Dashboard() {
             emails={emails}
             loading={loading}
             error={error}
+            syncStatus={syncStatus}
             selectedId={selectedEmail?.id}
             onSelect={handleSelectEmail}
             onRefresh={() => {

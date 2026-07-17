@@ -1,8 +1,8 @@
-import { RefreshCw, Inbox, Download, ChevronLeft, ChevronRight, X, AlertCircle } from 'lucide-react';
+import { RefreshCw, Inbox, Download, ChevronLeft, ChevronRight, X, AlertCircle, Check, Loader2 } from 'lucide-react';
 import EmailCard from './EmailCard';
 
 export default function EmailList({
-  emails, loading, error, selectedId, onSelect, onRefresh, onSync,
+  emails, loading, error, syncStatus, selectedId, onSelect, onRefresh, onSync,
   page, totalPages, onPageChange,
   dateFrom, dateTo, onDateFromChange, onDateToChange, onClearDates
 }) {
@@ -13,11 +13,35 @@ export default function EmailList({
         <div className="flex gap-1">
           <button
             onClick={() => onSync?.('google')}
-            disabled={loading}
-            className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-            title="Sincronizar Gmail"
+            disabled={loading || syncStatus === 'syncing'}
+            className={`p-2 rounded-lg transition-colors ${
+              syncStatus === 'syncing'
+                ? 'text-blue-600 bg-blue-50 animate-pulse'
+                : syncStatus === 'success'
+                ? 'text-green-600 bg-green-50'
+                : syncStatus === 'error'
+                ? 'text-red-600 bg-red-50'
+                : 'text-gray-500 hover:text-blue-600 hover:bg-blue-50'
+            }`}
+            title={
+              syncStatus === 'syncing'
+                ? 'Sincronizando...'
+                : syncStatus === 'success'
+                ? 'Sincronizado correctamente'
+                : syncStatus === 'error'
+                ? 'Error al sincronizar'
+                : 'Sincronizar Gmail'
+            }
           >
-            <Download className={`w-5 h-5 ${loading ? 'animate-pulse' : ''}`} />
+            {syncStatus === 'syncing' ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : syncStatus === 'success' ? (
+              <Check className="w-5 h-5" />
+            ) : syncStatus === 'error' ? (
+              <AlertCircle className="w-5 h-5" />
+            ) : (
+              <Download className="w-5 h-5" />
+            )}
           </button>
           <button
             onClick={onRefresh}
