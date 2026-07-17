@@ -127,9 +127,24 @@ public class EmailService {
 
             List<EmailMessage> emails;
             if ("google".equals(provider)) {
-                log.info("Fetching emails from Gmail for user={}", userId);
-                emails = gmailService.fetchAllEmails(accessToken, 100, 200);
-                log.info("Fetched {} emails from Gmail for user={}", emails.size(), userId);
+                // Check if we already have emails for this user
+                var lastEmailOpt = emailRepository.findTopByUserIdOrderByReceivedAtDesc(userId);
+                if (lastEmailOpt.isPresent()) {
+                    // Incremental sync: fetch only new emails since last sync
+                    var lastReceivedAt = lastEmailOpt.get().getReceivedAt();
+                    log.info("Incremental sync for user={}, fetching emails after {}", userId, lastReceivedAt);
+
+                    // Get existing provider email IDs to skip (lightweight query, no full entities)
+                    var existingIds = new java.util.HashSet<>(emailRepository.findProviderEmailIdsByUserId(userId));
+
+                    emails = gmailService.fetchIncrementalEmails(accessToken, lastReceivedAt, existingIds);
+                    log.info("Incremental fetch: {} new emails for user={}", emails.size(), userId);
+                } else {
+                    // First sync: fetch all emails
+                    log.info("First sync for user={}, fetching all emails", userId);
+                    emails = gmailService.fetchAllEmails(accessToken, 100, 200);
+                    log.info("Initial fetch: {} emails for user={}", emails.size(), userId);
+                }
             } else if ("outlook".equals(provider)) {
                 log.info("Fetching emails from Outlook for user={}", userId);
                 var rawEmails = outlookService.fetchEmails(accessToken, 100);

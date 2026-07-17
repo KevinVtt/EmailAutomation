@@ -9,6 +9,7 @@ import com.google.api.services.gmail.model.MessagePart;
 import com.google.api.services.gmail.model.MessagePartHeader;
 import com.google.api.services.gmail.model.ModifyMessageRequest;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -21,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class GmailService {
@@ -92,6 +94,54 @@ public class GmailService {
         for (var e : spam) all.putIfAbsent(e.getProviderEmailId(), e);
 
         return new java.util.ArrayList<>(all.values());
+    }
+
+    /**
+     * Incremental sync: fetch only message IDs newer than `since`, then fetch full
+     * details only for messages whose IDs are NOT in `existingIds`.
+     * Uses `after:` Gmail query (5 quota units) + metadata format for listing,
+     * then full format only for genuinely new messages.
+     */
+    public List<com.emailfilter.model.EmailMessage> fetchIncrementalEmails(
+            String accessToken, java.time.Instant since, java.util.Set<String> existingIds) {
+        var gmail = buildGmailClient(accessToken);
+        var newEmails = new java.util.ArrayList<com.emailfilter.model.EmailMessage>();
+
+        // Format date for Gmail's after: query (YYYY/MM/DD)
+        var dateFormatter = new java.text.SimpleDateFormat("yyyy/MM/dd");
+        var sinceDate = dateFormatter.format(java.util.Date.from(since));
+        var query = "in:inbox after:" + sinceDate;
+
+        try {
+            String pageToken = null;
+            do {
+                var request = gmail.users().messages().list("me")
+                        .setQ(query)
+                        .setMaxResults(100L);
+                if (pageToken != null) {
+                    request.setPageToken(pageToken);
+                }
+
+                var response = request.execute();
+                var messages = response.getMessages();
+                if (messages == null || messages.isEmpty()) break;
+
+                for (var msg : messages) {
+                    // Skip messages we already have in the DB
+                    if (existingIds.contains(msg.getId())) continue;
+                    // Fetch full details only for new messages
+                    newEmails.add(fetchMessageDetail(gmail, msg));
+                }
+
+                pageToken = response.getNextPageToken();
+            } while (pageToken != null && !pageToken.isBlank());
+
+            log.info("Incremental fetch: {} new emails found (skipped {} existing)", newEmails.size(), existingIds.size());
+            return newEmails;
+
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to fetch incremental Gmail messages", e);
+        }
     }
 
     private List<com.emailfilter.model.EmailMessage> fetchEmailsByQuery(String accessToken, int maxResultsPerPage, String query, int maxTotal) {
