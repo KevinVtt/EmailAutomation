@@ -1,0 +1,31 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: test-client-id
+            client-secret: test-client-secret
+          outlook:
+            client-id: test-client-id
+            client-secret: test-client-secret
+
+jwt:
+  secret: dGhpcyBpcyBhIHRlc3Qgc2VjcmV0IGtleSBmb3IgdGVzdGluZyBwdXJwb3NlcyBvbmx5
+  expiration-ms: 900000
+  refresh-expiration-ms: 604800000
+
+ai:
+  service:
+    url: http://localhost:8000
+
+cors:
+  allowed-origins: http://localhost:3000

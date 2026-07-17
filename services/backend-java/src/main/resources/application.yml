@@ -1,0 +1,68 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:emailfilter}
+    username: ${POSTGRES_USER:emailfilter_user}
+    password: ${POSTGRES_PASSWORD:changeme_in_prod}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            authorization-grant-type: authorization_code
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            redirect-uri: ${GOOGLE_REDIRECT_URI:http://localhost:8080/api/auth/callback/google}
+            scope:
+              - email
+              - profile
+              - https://www.googleapis.com/auth/gmail.readonly
+              - https://www.googleapis.com/auth/gmail.modify
+          outlook:
+            authorization-grant-type: authorization_code
+            client-id: ${OUTLOOK_CLIENT_ID}
+            client-secret: ${OUTLOOK_CLIENT_SECRET}
+            redirect-uri: ${OUTLOOK_REDIRECT_URI:http://localhost:8080/api/auth/callback/outlook}
+            scope:
+              - openid
+              - email
+              - profile
+              - Mail.Read
+              - Mail.ReadWrite
+              - offline_access
+        provider:
+          outlook:
+            authorization-uri: https://login.microsoftonline.com/${OUTLOOK_TENANT:common}/oauth2/v2.0/authorize
+            token-uri: https://login.microsoftonline.com/${OUTLOOK_TENANT:common}/oauth2/v2.0/token
+            user-info-uri: https://graph.microsoft.com/v1.0/me
+            user-name-attribute: mail
+
+jwt:
+  secret: ${JWT_SECRET}
+  expiration-ms: ${JWT_EXPIRATION_MS:900000}
+  refresh-expiration-ms: ${JWT_REFRESH_EXPIRATION_MS:604800000}
+
+ai:
+  service:
+    url: ${AI_SERVICE_URL:http://localhost:8000}
+
+cors:
+  allowed-origins: ${FRONTEND_URL:http://localhost:3000}
+
+logging:
+  level:
+    com.emailfilter: DEBUG
+    org.springframework.security: INFO
