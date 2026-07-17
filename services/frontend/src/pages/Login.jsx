@@ -38,20 +38,20 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-blue-100 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-blue-100 dark:from-gray-900 dark:to-gray-800 p-4 transition-colors">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-primary-600 rounded-2xl mb-4">
             <Sparkles className="w-8 h-8 text-white" />
           </div>
-          <h1 className="text-3xl font-bold text-gray-900">Email Filter AI</h1>
-          <p className="text-gray-600 mt-2">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Email Filter AI</h1>
+          <p className="text-gray-600 dark:text-gray-400 mt-2">
             Filtra tus emails con inteligencia artificial
           </p>
         </div>
 
-        <div className="card space-y-4">
-          <p className="text-sm text-gray-600 text-center mb-4">
+        <div className="card dark:bg-gray-800 dark:border-gray-700 space-y-4">
+          <p className="text-sm text-gray-600 dark:text-gray-400 text-center mb-4">
             Conecta tu cuenta de email para empezar
           </p>
 
@@ -72,7 +72,7 @@ export default function Login() {
           ))}
         </div>
 
-        <p className="text-xs text-gray-500 text-center mt-6">
+        <p className="text-xs text-gray-500 dark:text-gray-500 text-center mt-6">
           Al iniciar sesión, autorizas a la app a leer y gestionar tus emails.
         </p>
       </div>

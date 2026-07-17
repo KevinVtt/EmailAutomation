@@ -23,6 +23,7 @@ export default function Dashboard() {
   const [syncStatus, setSyncStatus] = useState(null); // null | 'syncing' | 'success' | 'error'
   const [syncProgress, setSyncProgress] = useState({ current: 0, total: 0 }); // for full sync progress
   const [syncMode, setSyncMode] = useState(null); // null | 'incremental' | 'full'
+  const [emailCount, setEmailCount] = useState(null);
 
   const buildFilters = useCallback((overrides = {}) => {
     const filters = {};
@@ -72,6 +73,8 @@ export default function Dashboard() {
       setSyncMode(null);
       setTimeout(() => { setSyncStatus(null); setSyncProgress({ current: 0, total: 0 }); }, 3000);
       fetchEmails(activeCriteria || {}, 0);
+      // Update count after sync
+      api.emails.count().then(({ count }) => setEmailCount(count)).catch(() => {});
     } else if (typeof msg === 'string' && msg.startsWith('sync_progress:')) {
       // sync_progress:current:total
       const parts = msg.split(':');
@@ -118,6 +121,7 @@ export default function Dashboard() {
             setSyncMode(null);
             setTimeout(() => { setSyncStatus(null); setSyncProgress({ current: 0, total: 0 }); }, 3000);
             fetchEmails(activeCriteria || {}, 0);
+            api.emails.count().then(({ count }) => setEmailCount(count)).catch(() => {});
           }
         } catch {
           // Ignore poll errors
@@ -172,6 +176,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchEmails({}, 0);
+    // Fetch initial email count
+    api.emails.count().then(({ count }) => setEmailCount(count)).catch(() => {});
   }, []);
 
   const autoSyncedRef = useRef(false);
@@ -184,6 +190,7 @@ export default function Dashboard() {
       autoSyncedRef.current = true;
       // Smart sync: check email count, auto-trigger full sync if empty
       api.emails.count().then(({ count }) => {
+        setEmailCount(count);
         if (count === 0) {
           handleSync('google', 'full');
         } else {
@@ -198,7 +205,7 @@ export default function Dashboard() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
       {wsError && (
-        <div className="mb-4 flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-4 py-2 text-sm text-amber-700">
+        <div className="mb-4 flex items-center gap-2 rounded-lg bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 px-4 py-2 text-sm text-amber-700 dark:text-amber-300">
           <WifiOff className="w-4 h-4 flex-shrink-0" />
           <span>{wsError}</span>
         </div>
@@ -227,6 +234,7 @@ export default function Dashboard() {
             onDateFromChange={handleDateFromChange}
             onDateToChange={handleDateToChange}
             onClearDates={handleClearDates}
+            emailCount={emailCount}
           />
         </div>
         {selectedEmail && (

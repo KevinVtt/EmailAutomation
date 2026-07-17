@@ -45,13 +45,13 @@ export default function EmailDetail({ email, onClose, onAction }) {
   if (!email) return null;
 
   return (
-    <div className="card flex flex-col h-full">
-      <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-200">
-        <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
-          <ArrowLeft className="w-5 h-5 text-gray-500" />
+    <div className="card flex flex-col h-full dark:bg-gray-800 dark:border-gray-700">
+      <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-200 dark:border-gray-700">
+        <button onClick={onClose} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
+          <ArrowLeft className="w-5 h-5 text-gray-500 dark:text-gray-400" />
         </button>
         <div className="flex gap-1">
-          <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 font-medium">
+          <span className="text-xs px-2 py-1 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-medium">
             {email.labels?.split(',').filter(l => !['INBOX', 'UNREAD', 'CATEGORY_PRIMARY'].includes(l)).join(', ') || 'INBOX'}
           </span>
         </div>
@@ -63,26 +63,26 @@ export default function EmailDetail({ email, onClose, onAction }) {
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto -mx-4 px-4">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
             {detail?.subject || email.subject}
           </h3>
 
-          <div className="flex items-start gap-3 mb-4 p-3 bg-gray-50 rounded-lg">
+          <div className="flex items-start gap-3 mb-4 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
             <div className="w-10 h-10 rounded-full bg-primary-500 flex items-center justify-center text-sm font-medium text-white flex-shrink-0">
               {(email.fromName || email.fromAddress || '?').charAt(0).toUpperCase()}
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-medium text-gray-900">
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
                 {email.fromName || email.fromAddress || 'Unknown'}
               </p>
-              <p className="text-xs text-gray-500">{email.fromAddress}</p>
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-gray-500 dark:text-gray-400">{email.fromAddress}</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">
                 {detail?.receivedAt
                   ? format(new Date(detail.receivedAt), "d 'de' MMMM 'de' yyyy, HH:mm", { locale: es })
                   : 'Fecha no disponible'}
               </p>
               {email.toAddresses && (
-                <p className="text-xs text-gray-400 mt-1">Para: {email.toAddresses}</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Para: {email.toAddresses}</p>
               )}
             </div>
           </div>
@@ -91,7 +91,7 @@ export default function EmailDetail({ email, onClose, onAction }) {
             <button
               onClick={() => handleAction(detail?.isStarred ? 'unstar' : 'star')}
               disabled={actionLoading === 'star' || actionLoading === 'unstar'}
-              className="p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-yellow-50 rounded-lg transition-colors disabled:opacity-50"
+              className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-yellow-500 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 rounded-lg transition-colors disabled:opacity-50"
               title={detail?.isStarred ? 'Unstar' : 'Star'}
             >
               <Star className={`w-4 h-4 ${detail?.isStarred ? 'fill-yellow-400 text-yellow-400' : ''}`} />
@@ -99,7 +99,7 @@ export default function EmailDetail({ email, onClose, onAction }) {
             <button
               onClick={() => handleAction(detail?.isRead ? 'unread' : 'read')}
               disabled={actionLoading === 'read' || actionLoading === 'unread'}
-              className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
+              className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors disabled:opacity-50"
               title={detail?.isRead ? 'Mark unread' : 'Mark read'}
             >
               {detail?.isRead ? <Mail className="w-4 h-4" /> : <MailOpen className="w-4 h-4" />}
@@ -107,14 +107,14 @@ export default function EmailDetail({ email, onClose, onAction }) {
             <button
               onClick={() => handleAction('trash')}
               disabled={actionLoading === 'trash'}
-              className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+              className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors disabled:opacity-50"
               title="Delete"
             >
               <Trash2 className="w-4 h-4" />
             </button>
           </div>
 
-          <div className="prose prose-sm max-w-none text-gray-700">
+          <div className="prose prose-sm max-w-none text-gray-700 dark:text-gray-300">
             {detail?.bodyHtml ? (
               <div
                 dangerouslySetInnerHTML={{
@@ -125,7 +125,7 @@ export default function EmailDetail({ email, onClose, onAction }) {
                 }}
               />
             ) : (
-              <p className="text-gray-500 italic">Sin contenido visible</p>
+              <p className="text-gray-500 dark:text-gray-400 italic">Sin contenido visible</p>
             )}
           </div>
         </div>

@@ -1,18 +1,20 @@
 import { Outlet } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { Sparkles, LogOut, Mail } from 'lucide-react';
+import { useTheme } from '../context/ThemeContext';
+import { Sparkles, LogOut, Mail, Sun, Moon } from 'lucide-react';
 
 export default function Layout() {
   const { user, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
+    <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900 transition-colors">
+      <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-50 transition-colors">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-2">
               <Sparkles className="w-6 h-6 text-primary-600" />
-              <span className="font-bold text-lg text-gray-900">EmailFilter AI</span>
+              <span className="font-bold text-lg text-gray-900 dark:text-gray-100">EmailFilter AI</span>
             </div>
 
             <div className="flex items-center gap-4">
@@ -24,13 +26,20 @@ export default function Layout() {
                     <Mail className="w-4 h-4 text-primary-600" />
                   </div>
                 )}
-                <span className="text-sm text-gray-700 hidden sm:block">
+                <span className="text-sm text-gray-700 dark:text-gray-300 hidden sm:block">
                   {user?.name || user?.email}
                 </span>
               </div>
               <button
+                onClick={toggleTheme}
+                className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                title={theme === 'dark' ? 'Modo claro' : 'Modo oscuro'}
+              >
+                {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+              </button>
+              <button
                 onClick={logout}
-                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
                 title="Cerrar sesión"
               >
                 <LogOut className="w-5 h-5" />
