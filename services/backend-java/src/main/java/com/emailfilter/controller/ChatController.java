@@ -52,6 +52,12 @@ public class ChatController {
             log.info("Filtros aplicados en {} ms. emails encontrados: {}", (t3-t2), emails.getTotalElements());
             aiResponse.put("emails", emails);
 
+            // If no emails found, enhance response with explanation
+            if (emails.getTotalElements() == 0) {
+                var explanation = buildNoResultsExplanation(criteria);
+                aiResponse.put("response", aiResponse.get("response") + "\n\n" + explanation);
+            }
+
             log.info("Enviando filtered_emails por WebSocket a usuario {}", userId);
             webSocketService.sendEmailsToUser(userId.toString(), Map.of(
                     "type", "filtered_emails",
@@ -86,6 +92,12 @@ public class ChatController {
             var emails = filterService.applyAiFilters(userId, criteria, 0, size);
             log.info("emails encontrados: {}", emails.getTotalElements());
             aiResponse.put("emails", emails.getContent());
+
+            // If no emails found, enhance response with explanation
+            if (emails.getTotalElements() == 0) {
+                var explanation = buildNoResultsExplanation(criteria);
+                aiResponse.put("response", aiResponse.get("response") + "\n\n" + explanation);
+            }
 
             webSocketService.sendEmailsToUser(userId.toString(), Map.of(
                     "type", "filtered_emails",
@@ -128,5 +140,40 @@ public class ChatController {
 
     private UUID getUserId(Authentication auth) {
         return UUID.fromString(auth.getName());
+    }
+
+    private String buildNoResultsExplanation(Map<String, String> criteria) {
+        var reasons = new java.util.ArrayList<String>();
+
+        if (criteria.containsKey("fromAddress")) {
+            reasons.add("no hay emails del remitente \"" + criteria.get("fromAddress") + "\"");
+        }
+        if (criteria.containsKey("subjectContains")) {
+            reasons.add("no hay emails con asunto que contenga \"" + criteria.get("subjectContains") + "\"");
+        }
+        if (criteria.containsKey("bodyContains")) {
+            reasons.add("no hay emails con contenido que contenga \"" + criteria.get("bodyContains") + "\"");
+        }
+        if (criteria.containsKey("label")) {
+            reasons.add("no hay emails con la etiqueta \"" + criteria.get("label") + "\"");
+        }
+        if (criteria.containsKey("isRead")) {
+            var val = Boolean.parseBoolean(criteria.get("isRead"));
+            reasons.add(val ? "no hay emails leídos con estos criterios" : "no hay emails sin leer con estos criterios");
+        }
+        if (criteria.containsKey("isStarred")) {
+            reasons.add("no hay emails destacados con estos criterios");
+        }
+        if (criteria.containsKey("dateFrom") || criteria.containsKey("dateTo")) {
+            reasons.add("no hay emails en el rango de fechas indicado");
+        }
+        if (criteria.containsKey("important")) {
+            reasons.add("no hay emails marcados como importantes");
+        }
+
+        if (reasons.isEmpty()) {
+            return "No se encontraron emails que coincidan con tu búsqueda. Intentá con otros criterios.";
+        }
+        return "No se encontraron emails porque " + String.join(", ", reasons) + ".";
     }
 }

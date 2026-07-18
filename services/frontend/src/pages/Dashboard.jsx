@@ -217,7 +217,7 @@ export default function Dashboard() {
         </div>
       )}
       <div className="flex gap-6 h-[calc(100vh-7rem)]">
-        <div className={`flex flex-col min-w-0 ${selectedEmail ? 'w-80 xl:w-96' : 'flex-1'}`}>
+        <div className={`flex flex-col min-w-0 ${selectedEmail ? 'w-[420px] xl:w-[480px]' : 'flex-1'}`}>
           <EmailList
             emails={emails}
             loading={loading}
