@@ -47,3 +47,18 @@ class SummarizeRequest(BaseModel):
 
 class SummarizeResponse(BaseModel):
     summary: str
+
+
+class RewriteRequest(BaseModel):
+    draft: str
+    original_subject: str = ""
+    original_from: str = ""
+    original_body: str = ""
+    tone: str = "formal"
+    language: str = "auto"
+    custom_rules: str = ""
+
+
+class RewriteResponse(BaseModel):
+    rewritten: str
+    original: str

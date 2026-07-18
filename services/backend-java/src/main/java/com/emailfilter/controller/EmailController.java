@@ -1,10 +1,13 @@
 package com.emailfilter.controller;
 
 import com.emailfilter.dto.EmailDTO;
+import com.emailfilter.dto.RewriteRequest;
 import com.emailfilter.security.UserDetailsServiceImpl;
+import com.emailfilter.service.AIServiceClient;
 import com.emailfilter.service.EmailService;
 import com.emailfilter.service.WebSocketService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -13,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Map;
 import java.util.UUID;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/emails")
 @RequiredArgsConstructor
@@ -21,6 +25,7 @@ public class EmailController {
     private final EmailService emailService;
     private final WebSocketService webSocketService;
     private final UserDetailsServiceImpl userDetailsService;
+    private final AIServiceClient aiServiceClient;
 
     @GetMapping
     public ResponseEntity<Page<EmailDTO>> getEmails(
@@ -123,6 +128,28 @@ public class EmailController {
         var userId = getUserId(auth);
         var count = emailService.getEmailCountByUser(userId);
         return ResponseEntity.ok(Map.of("count", count));
+    }
+
+    @PostMapping("/rewrite")
+    public ResponseEntity<Map<String, Object>> rewriteEmail(
+            Authentication auth,
+            @RequestBody RewriteRequest request) {
+        var userId = getUserId(auth);
+        log.info("=== REWRITE INICIO === userId={}, tone={}, language={}, draft_len={}",
+                userId, request.getTone(), request.getLanguage(), request.getDraft().length());
+
+        var result = aiServiceClient.rewrite(
+                request.getDraft(),
+                request.getOriginalSubject(),
+                request.getOriginalFrom(),
+                request.getOriginalBody(),
+                request.getTone(),
+                request.getLanguage(),
+                request.getCustomRules()
+        );
+
+        log.info("=== REWRITE FIN === userId={}", userId);
+        return ResponseEntity.ok(result);
     }
 
     private UUID getUserId(Authentication auth) {

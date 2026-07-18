@@ -138,4 +138,19 @@ export const api = {
         body: JSON.stringify({ message, conversationId }),
       }),
   },
+  rewrite: {
+    improve: (draft, context = {}) =>
+      request('/api/emails/rewrite', {
+        method: 'POST',
+        body: JSON.stringify({
+          draft,
+          originalSubject: context.originalSubject || '',
+          originalFrom: context.originalFrom || '',
+          originalBody: context.originalBody || '',
+          tone: context.tone || 'formal',
+          language: context.language || 'auto',
+          customRules: context.customRules || '',
+        }),
+      }),
+  },
 };

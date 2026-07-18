@@ -1,17 +1,20 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Star, Mail, MailOpen, Trash2, ArrowLeft, Loader2 } from 'lucide-react';
+import { X, Star, Mail, MailOpen, Trash2, ArrowLeft, Loader2, Reply } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { api } from '../lib/api';
+import ReplyPanel from './ReplyPanel';
 
 export default function EmailDetail({ email, onClose, onAction }) {
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
+  const [showReply, setShowReply] = useState(false);
 
   useEffect(() => {
     if (!email) return;
     setLoading(true);
+    setShowReply(false);
     api.emails.get(email.id)
       .then(setDetail)
       .catch(console.error)
@@ -47,9 +50,21 @@ export default function EmailDetail({ email, onClose, onAction }) {
   return (
     <div className="card flex flex-col h-full dark:bg-gray-800 dark:border-gray-700">
       <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-200 dark:border-gray-700">
-        <button onClick={onClose} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
-          <ArrowLeft className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-        </button>
+        <div className="flex items-center gap-1">
+          {showReply ? (
+            <button
+              onClick={() => setShowReply(false)}
+              className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              title="Volver al email"
+            >
+              <ArrowLeft className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+            </button>
+          ) : (
+            <button onClick={onClose} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
+              <ArrowLeft className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+            </button>
+          )}
+        </div>
         <div className="flex gap-1">
           <span className="text-xs px-2 py-1 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-medium">
             {email.labels?.split(',').filter(l => !['INBOX', 'UNREAD', 'CATEGORY_PRIMARY'].includes(l)).join(', ') || 'INBOX'}
@@ -60,6 +75,10 @@ export default function EmailDetail({ email, onClose, onAction }) {
       {loading ? (
         <div className="flex-1 flex items-center justify-center">
           <Loader2 className="w-6 h-6 text-primary-500 animate-spin" />
+        </div>
+      ) : showReply ? (
+        <div className="flex-1 overflow-y-auto -mx-4 px-4">
+          <ReplyPanel email={{ ...email, ...detail }} onClose={() => setShowReply(false)} />
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto -mx-4 px-4">
@@ -88,6 +107,14 @@ export default function EmailDetail({ email, onClose, onAction }) {
           </div>
 
           <div className="flex gap-2 mb-4">
+            <button
+              onClick={() => setShowReply(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded-lg transition-colors"
+              title="Responder con IA"
+            >
+              <Reply className="w-4 h-4" />
+              <span className="hidden sm:inline">Responder</span>
+            </button>
             <button
               onClick={() => handleAction(detail?.isStarred ? 'unstar' : 'star')}
               disabled={actionLoading === 'star' || actionLoading === 'unstar'}

@@ -89,4 +89,33 @@ public class AIServiceClient {
         log.info("AIServiceClient summarize respuesta: {}", summary);
         return summary;
     }
+
+    public Map<String, Object> rewrite(String draft, String originalSubject, String originalFrom,
+                                        String originalBody, String tone, String language, String customRules) {
+        var headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        var body = Map.of(
+                "draft", draft,
+                "original_subject", originalSubject != null ? originalSubject : "",
+                "original_from", originalFrom != null ? originalFrom : "",
+                "original_body", originalBody != null ? originalBody : "",
+                "tone", tone != null ? tone : "formal",
+                "language", language != null ? language : "auto",
+                "custom_rules", customRules != null ? customRules : ""
+        );
+        var entity = new HttpEntity<>(body, headers);
+
+        log.info("AIServiceClient llamando a {}/rewrite con tone={}, language={}, draft_len={}", aiServiceUrl, tone, language, draft.length());
+        long t0 = System.currentTimeMillis();
+        var result = restTemplate.exchange(
+                aiServiceUrl + "/rewrite",
+                HttpMethod.POST,
+                entity,
+                new ParameterizedTypeReference<Map<String, Object>>() {}
+        ).getBody();
+        long t1 = System.currentTimeMillis();
+        log.info("AIServiceClient rewrite respondió en {} ms, rewritten_len={}", (t1 - t0),
+                result != null && result.get("rewritten") != null ? ((String) result.get("rewritten")).length() : 0);
+        return result;
+    }
 }
