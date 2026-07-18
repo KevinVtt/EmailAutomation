@@ -65,3 +65,15 @@ CREATE INDEX idx_email_messages_user_id ON email_messages(user_id);
 CREATE INDEX idx_email_messages_received_at ON email_messages(received_at DESC);
 CREATE INDEX idx_email_messages_provider ON email_messages(user_id, provider);
 CREATE INDEX idx_chat_history_user_id ON chat_history(user_id);
+
+CREATE TABLE IF NOT EXISTS visto (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id             UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider_email_id   VARCHAR(255) NOT NULL,
+    visto               BOOLEAN DEFAULT FALSE,
+    created_at          TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at          TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(user_id, provider_email_id)
+);
+
+CREATE INDEX idx_visto_user_id ON visto(user_id);
