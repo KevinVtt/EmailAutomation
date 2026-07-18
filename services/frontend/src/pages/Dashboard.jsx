@@ -142,6 +142,12 @@ export default function Dashboard() {
     setSelectedEmail(email);
   }, []);
 
+  const handleEmailRead = useCallback((emailId) => {
+    setEmails(prev => prev.map(e =>
+      e.id === emailId ? { ...e, isRead: true } : e
+    ));
+  }, []);
+
   const handleCloseDetail = useCallback(() => {
     setSelectedEmail(null);
   }, []);
@@ -239,7 +245,7 @@ export default function Dashboard() {
         </div>
         {selectedEmail && (
           <div className="flex-1 min-w-0">
-            <EmailDetail email={selectedEmail} onClose={handleCloseDetail} />
+            <EmailDetail email={selectedEmail} onClose={handleCloseDetail} onRead={handleEmailRead} />
           </div>
         )}
         <div className={`flex-shrink-0 hidden lg:block ${selectedEmail ? 'w-80' : 'w-96'}`}>

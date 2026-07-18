@@ -5,7 +5,7 @@ import { es } from 'date-fns/locale';
 import { api } from '../lib/api';
 import ReplyPanel from './ReplyPanel';
 
-export default function EmailDetail({ email, onClose, onAction }) {
+export default function EmailDetail({ email, onClose, onAction, onRead }) {
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
@@ -16,7 +16,18 @@ export default function EmailDetail({ email, onClose, onAction }) {
     setLoading(true);
     setShowReply(false);
     api.emails.get(email.id)
-      .then(setDetail)
+      .then((data) => {
+        setDetail(data);
+        // Auto-mark as read when opened
+        if (!data.isRead && email.provider && email.providerEmailId) {
+          api.emails.action(email.provider, email.providerEmailId, 'read')
+            .then(() => {
+              setDetail(prev => prev ? { ...prev, isRead: true } : prev);
+              onRead?.(email.id);
+            })
+            .catch(console.error);
+        }
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [email?.id]);
