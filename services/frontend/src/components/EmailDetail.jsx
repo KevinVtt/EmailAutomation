@@ -5,6 +5,27 @@ import { es } from 'date-fns/locale';
 import { api } from '../lib/api';
 import ReplyPanel from './ReplyPanel';
 
+const LABEL_MAP = {
+  CATEGORY_PROMOTIONS: 'Promociones',
+  CATEGORY_SOCIAL: 'Social',
+  CATEGORY_UPDATES: 'Actualizaciones',
+  CATEGORY_FORUMS: 'Foros',
+  CATEGORY_PRIMARY: 'Principal',
+  SPAM: 'No deseado',
+  IMPORTANT: 'Importante',
+  INBOX: 'Bandeja',
+  UNREAD: 'Sin leer',
+  STARRED: 'Favorito',
+  SENT: 'Enviados',
+  DRAFT: 'Borrador',
+  TRASH: 'Papelera',
+};
+
+function formatLabel(label) {
+  const trimmed = label.trim();
+  return LABEL_MAP[trimmed] || trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+}
+
 export default function EmailDetail({ email, onClose, onAction, onRead }) {
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -76,10 +97,17 @@ export default function EmailDetail({ email, onClose, onAction, onRead }) {
             </button>
           )}
         </div>
-        <div className="flex gap-1">
-          <span className="text-xs px-2 py-1 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-medium">
-            {email.labels?.split(',').filter(l => !['INBOX', 'UNREAD', 'CATEGORY_PRIMARY'].includes(l)).join(', ') || 'INBOX'}
-          </span>
+        <div className="flex gap-1 flex-wrap">
+          {email.labels?.split(',').filter(l => !['INBOX', 'UNREAD', 'CATEGORY_PRIMARY'].includes(l)).map((label, i) => (
+            <span key={i} className="text-xs px-2 py-1 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-medium">
+              {formatLabel(label)}
+            </span>
+          ))}
+          {(!email.labels || email.labels.split(',').filter(l => !['INBOX', 'UNREAD', 'CATEGORY_PRIMARY'].includes(l)).length === 0) && (
+            <span className="text-xs px-2 py-1 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-medium">
+              Bandeja
+            </span>
+          )}
         </div>
       </div>
 
@@ -103,7 +131,7 @@ export default function EmailDetail({ email, onClose, onAction, onRead }) {
             </div>
             <div className="min-w-0">
               <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                {email.fromName || email.fromAddress || 'Unknown'}
+                {email.fromName || email.fromAddress || 'Desconocido'}
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400">{email.fromAddress}</p>
               <p className="text-xs text-gray-400 dark:text-gray-500">
@@ -138,7 +166,7 @@ export default function EmailDetail({ email, onClose, onAction, onRead }) {
               onClick={() => handleAction(detail?.isRead ? 'unread' : 'read')}
               disabled={actionLoading === 'read' || actionLoading === 'unread'}
               className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors disabled:opacity-50"
-              title={detail?.isRead ? 'Mark unread' : 'Mark read'}
+              title={detail?.isRead ? 'Marcar como no leído' : 'Marcar como leído'}
             >
               {detail?.isRead ? <Mail className="w-4 h-4" /> : <MailOpen className="w-4 h-4" />}
             </button>
@@ -146,7 +174,7 @@ export default function EmailDetail({ email, onClose, onAction, onRead }) {
               onClick={() => handleAction('trash')}
               disabled={actionLoading === 'trash'}
               className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors disabled:opacity-50"
-              title="Delete"
+              title="Eliminar"
             >
               <Trash2 className="w-4 h-4" />
             </button>

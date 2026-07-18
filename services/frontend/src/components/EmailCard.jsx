@@ -39,7 +39,7 @@ export default function EmailCard({ email, selected, onSelect }) {
                 : 'text-gray-900 dark:text-gray-100 font-semibold'
             )}
           >
-            {email.fromName || email.fromAddress || 'Unknown'}
+            {email.fromName || email.fromAddress || 'Desconocido'}
           </span>
           <div className="flex items-center gap-1 flex-shrink-0">
             {email.isStarred && <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />}

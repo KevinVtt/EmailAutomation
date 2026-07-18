@@ -217,7 +217,7 @@ export default function Dashboard() {
         </div>
       )}
       <div className="flex gap-6 h-[calc(100vh-7rem)]">
-        <div className={`flex flex-col min-w-0 ${selectedEmail ? 'w-96 xl:w-[420px]' : 'flex-1'}`}>
+        <div className={`flex flex-col min-w-0 ${selectedEmail ? 'w-80 xl:w-96' : 'flex-1'}`}>
           <EmailList
             emails={emails}
             loading={loading}
@@ -248,7 +248,7 @@ export default function Dashboard() {
             <EmailDetail email={selectedEmail} onClose={handleCloseDetail} onRead={handleEmailRead} />
           </div>
         )}
-        <div className={`flex-shrink-0 hidden lg:block ${selectedEmail ? 'w-80' : 'w-96'}`}>
+        <div className={`flex-shrink-0 hidden lg:block ${selectedEmail ? 'w-72' : 'w-96'}`}>
           <ChatPanel
             onFiltersApplied={(criteria) => {
               setActiveCriteria(criteria);
