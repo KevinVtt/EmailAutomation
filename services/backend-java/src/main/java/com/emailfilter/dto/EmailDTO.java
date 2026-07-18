@@ -23,6 +23,7 @@ public class EmailDTO {
     private String bodyHtml;
     private boolean isRead;
     private boolean isStarred;
+    private boolean visto;
     private String labels;
     private Instant receivedAt;
     private Instant fetchedAt;

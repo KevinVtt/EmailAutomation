@@ -4,8 +4,10 @@ import com.emailfilter.dto.EmailDTO;
 import com.emailfilter.model.EmailMessage;
 import com.emailfilter.model.OAuthToken;
 import com.emailfilter.model.User;
+import com.emailfilter.model.Visto;
 import com.emailfilter.repository.EmailRepository;
 import com.emailfilter.repository.OAuthTokenRepository;
+import com.emailfilter.repository.VistoRepository;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,6 +39,7 @@ public class EmailService {
 
     private final EmailRepository emailRepository;
     private final OAuthTokenRepository oauthTokenRepository;
+    private final VistoRepository vistoRepository;
     private final GmailService gmailService;
     private final OutlookService outlookService;
     private final WebSocketService webSocketService;
@@ -391,23 +394,68 @@ public class EmailService {
 
     @Transactional
     public void markAsRead(User user, String provider, String emailId) {
-        var token = getToken(user, provider);
-        if ("google".equals(provider)) gmailService.markAsRead(token, emailId);
-        else outlookService.markAsRead(token, emailId);
+        // Write to visto table — this is the source of truth for "opened"
+        var existing = vistoRepository.findByProviderEmailIdAndUserId(emailId, user.getId());
+        if (existing.isPresent()) {
+            existing.get().setVisto(true);
+            vistoRepository.save(existing.get());
+        } else {
+            var v = Visto.builder()
+                    .user(user)
+                    .providerEmailId(emailId)
+                    .visto(true)
+                    .build();
+            vistoRepository.save(v);
+        }
+        log.info("Visto marked: email={} user={}", emailId, user.getId());
+
+        // Sync with Gmail/Outlook — best effort
+        try {
+            var token = getToken(user, provider);
+            if ("google".equals(provider)) gmailService.markAsRead(token, emailId);
+            else outlookService.markAsRead(token, emailId);
+        } catch (Exception e) {
+            log.warn("Failed to mark as read on {}: {}", provider, e.getMessage());
+        }
     }
 
     @Transactional
     public void markAsUnread(User user, String provider, String emailId) {
-        var token = getToken(user, provider);
-        if ("google".equals(provider)) gmailService.markAsUnread(token, emailId);
-        else outlookService.markAsUnread(token, emailId);
+        // Delete or set visto=false
+        var existing = vistoRepository.findByProviderEmailIdAndUserId(emailId, user.getId());
+        if (existing.isPresent()) {
+            existing.get().setVisto(false);
+            vistoRepository.save(existing.get());
+        }
+        log.info("Visto unset: email={} user={}", emailId, user.getId());
+
+        // Sync with provider — best effort
+        try {
+            var token = getToken(user, provider);
+            if ("google".equals(provider)) gmailService.markAsUnread(token, emailId);
+            else outlookService.markAsUnread(token, emailId);
+        } catch (Exception e) {
+            log.warn("Failed to mark as unread on {}: {}", provider, e.getMessage());
+        }
     }
 
     @Transactional
     public void toggleStar(User user, String provider, String emailId, boolean starred) {
-        var token = getToken(user, provider);
-        if ("google".equals(provider)) gmailService.toggleStar(token, emailId, starred);
-        else outlookService.toggleStar(token, emailId, starred);
+        // Update local DB — stars stay on email_messages
+        emailRepository.findByProviderEmailIdAndUserId(emailId, user.getId())
+                .ifPresent(email -> {
+                    email.setStarred(starred);
+                    emailRepository.save(email);
+                });
+
+        // Sync with provider — best effort
+        try {
+            var token = getToken(user, provider);
+            if ("google".equals(provider)) gmailService.toggleStar(token, emailId, starred);
+            else outlookService.toggleStar(token, emailId, starred);
+        } catch (Exception e) {
+            log.warn("Failed to toggle star on {}: {}", provider, e.getMessage());
+        }
     }
 
     @Transactional
@@ -481,6 +529,10 @@ public class EmailService {
     }
 
     private EmailDTO toDTO(EmailMessage email) {
+        // Simple single-email lookup for vistas
+        boolean visto = vistoRepository.findByProviderEmailIdAndUserId(email.getProviderEmailId(), email.getUser().getId())
+                .map(Visto::getVisto)
+                .orElse(false);
         return EmailDTO.builder()
                 .id(email.getId())
                 .provider(email.getProvider())
@@ -494,6 +546,7 @@ public class EmailService {
                 .bodyHtml(email.getBodyHtml())
                 .isRead(email.isRead())
                 .isStarred(email.isStarred())
+                .visto(visto)
                 .labels(email.getLabels())
                 .receivedAt(email.getReceivedAt())
                 .fetchedAt(email.getFetchedAt())

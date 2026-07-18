@@ -21,4 +21,6 @@ public interface EmailRepository extends JpaRepository<EmailMessage, UUID>,
 
     @Query("SELECT e.providerEmailId FROM EmailMessage e WHERE e.user.id = :userId")
     List<String> findProviderEmailIdsByUserId(UUID userId);
+
+    Optional<EmailMessage> findByProviderEmailIdAndUserId(String providerEmailId, UUID userId);
 }
