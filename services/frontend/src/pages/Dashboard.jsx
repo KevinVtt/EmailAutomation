@@ -144,7 +144,7 @@ export default function Dashboard() {
 
   const handleEmailRead = useCallback((emailId) => {
     setEmails(prev => prev.map(e =>
-      e.id === emailId ? { ...e, isRead: true } : e
+      e.id === emailId ? { ...e, visto: true } : e
     ));
   }, []);
 

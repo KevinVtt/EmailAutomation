@@ -32,3 +32,55 @@
            placeholder-gray-400 dark:placeholder-gray-500;
   }
 }
+
+/* Email body rendering — Gmail-like */
+.email-body {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+.email-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+.email-body table {
+  max-width: 100%;
+  border-collapse: collapse;
+}
+.email-body td, .email-body th {
+  padding: 4px 8px;
+}
+.email-body a {
+  color: #1a73e8;
+  text-decoration: none;
+}
+.email-body a:hover {
+  text-decoration: underline;
+}
+.email-body blockquote {
+  border-left: 3px solid #dadce0;
+  margin: 8px 0;
+  padding: 4px 12px;
+  color: #5f6368;
+}
+.dark .email-body blockquote {
+  border-left-color: #5f6368;
+  color: #9aa0a6;
+}
+.email-body pre, .email-body code {
+  background: #f1f3f4;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.875em;
+}
+.dark .email-body pre, .dark .email-body code {
+  background: #374151;
+}
+.email-body hr {
+  border: none;
+  border-top: 1px solid #dadce0;
+  margin: 12px 0;
+}
+.dark .email-body hr {
+  border-top-color: #374151;
+}

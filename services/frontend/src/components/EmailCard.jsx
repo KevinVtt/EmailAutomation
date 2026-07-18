@@ -22,7 +22,7 @@ export default function EmailCard({ email, selected, onSelect }) {
         <div
           className={clsx(
             'w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium text-white',
-            email.isRead ? 'bg-gray-400 dark:bg-gray-600' : 'bg-primary-500'
+            email.visto ? 'bg-gray-400 dark:bg-gray-600' : 'bg-primary-500'
           )}
         >
           {initials}
@@ -34,7 +34,7 @@ export default function EmailCard({ email, selected, onSelect }) {
           <span
             className={clsx(
               'text-sm truncate',
-              email.isRead
+              email.visto
                 ? 'text-gray-600 dark:text-gray-400'
                 : 'text-gray-900 dark:text-gray-100 font-semibold'
             )}
@@ -43,7 +43,7 @@ export default function EmailCard({ email, selected, onSelect }) {
           </span>
           <div className="flex items-center gap-1 flex-shrink-0">
             {email.isStarred && <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />}
-            {!email.isRead ? (
+            {!email.visto ? (
               <Mail className="w-3.5 h-3.5 text-primary-500" />
             ) : (
               <MailOpen className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
@@ -54,7 +54,7 @@ export default function EmailCard({ email, selected, onSelect }) {
         <p
           className={clsx(
             'text-sm truncate mt-0.5',
-            email.isRead
+            email.visto
               ? 'text-gray-500 dark:text-gray-400'
               : 'text-gray-700 dark:text-gray-200 font-medium'
           )}
