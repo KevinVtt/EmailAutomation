@@ -38,8 +38,23 @@ Browser (React)
 
 ## Requisitos previos
 
+### Opción A: Docker (recomendado)
+
 - **Docker Desktop** (con WSL2 activado en Windows)
 - **16 GB de RAM** mínimo (el sistema usa ~3 GB con todos los contenedores)
+
+### Opción B: Ejecución local (sin Docker)
+
+Si preferís correr sin Docker, necesitás tener instalado:
+
+- **Java 17** (JDK) — [Descargar](https://adoptium.net/)
+- **Maven** — [Descargar](https://maven.apache.org/download.cgi)
+- **Python 3.10+** — [Descargar](https://www.python.org/downloads/)
+- **Node.js 18+** — [Descargar](https://nodejs.org/)
+- **PostgreSQL 16** instalado y corriendo en `localhost:5432`
+
+### Para ambas opciones
+
 - Una cuenta de **Google Cloud** o **Microsoft Azure** con OAuth configurado
 - Una API key de **Groq** (gratis en [console.groq.com](https://console.groq.com))
 
@@ -47,14 +62,16 @@ Browser (React)
 
 ## Paso a paso: levantar el proyecto
 
-### 1. Clonar el repositorio
+### Opción A: Con Docker (recomendado)
+
+#### 1. Clonar el repositorio
 
 ```bash
 git clone https://github.com/KevinVtt/EmailAutomation.git
 cd EmailAutomation
 ```
 
-### 2. Configurar variables de entorno
+#### 2. Configurar variables de entorno
 
 ```bash
 cp .env.example .env
@@ -62,7 +79,7 @@ cp .env.example .env
 
 Abrí el archivo `.env` y completá las siguientes variables:
 
-#### Google OAuth2
+##### Google OAuth2
 
 1. Andá a [Google Cloud Console](https://console.cloud.google.com)
 2. Creá un proyecto (o usá uno existente)
@@ -78,7 +95,7 @@ GOOGLE_CLIENT_SECRET=tu-client-secret
 GOOGLE_REDIRECT_URI=http://localhost:8080/api/auth/callback/google
 ```
 
-#### Groq API
+##### Groq API
 
 1. Andá a [console.groq.com](https://console.groq.com)
 2. Creá una cuenta gratuita y generá una API key
@@ -88,7 +105,7 @@ GOOGLE_REDIRECT_URI=http://localhost:8080/api/auth/callback/google
 AI_API_KEY=gsk_tu-api-key
 ```
 
-#### JWT Secret
+##### JWT Secret
 
 Cambialo por un string seguro para producción:
 
@@ -96,7 +113,7 @@ Cambialo por un string seguro para producción:
 JWT_SECRET=un-string-largo-y-aleatorio-de-al-menos-32-caracteres
 ```
 
-### 3. Levantar con Docker Compose
+#### 3. Levantar con Docker Compose
 
 ```bash
 docker compose up -d --build
@@ -123,17 +140,87 @@ Para ver el estado:
 docker ps
 ```
 
-### 4. Abrir la aplicación
+#### 4. Abrir la aplicación
 
 Abrí en tu navegador: **http://localhost:3001**
 
-### 5. Iniciar sesión
+---
+
+### Opción B: Sin Docker (ejecución local)
+
+#### 1. Clonar el repositorio
+
+```bash
+git clone https://github.com/KevinVtt/EmailAutomation.git
+cd EmailAutomation
+```
+
+#### 2. Configurar variables de entorno
+
+Igual que la opción Docker: copiá `.env.example` a `.env` y completá las variables.
+
+#### 3. Crear la base de datos
+
+```bash
+psql -U postgres -f infrastructure/postgres/init/01-init.sql
+```
+
+O si usás el usuario por defecto del `.env`:
+
+```bash
+psql -U emailfilter_user -d emailfilter -f infrastructure/postgres/init/01-init.sql
+```
+
+#### 4. Levantar todo con un solo comando
+
+Doble clic en **`start-local.bat`** — esto automáticamente:
+
+1. Verifica que PostgreSQL esté corriendo
+2. Crea el entorno virtual de Python e instala dependencias
+3. Compila el backend Java con Maven
+4. Instala las dependencias del frontend
+5. Abre 3 ventanas de consola, una por servicio
+
+| Servicio | Puerto | Ventana |
+|----------|--------|---------|
+| Backend Java (Spring Boot) | http://localhost:8080 | Se abre solo |
+| AI Python (FastAPI) | http://localhost:8000 | Se abre solo |
+| Frontend (Vite dev server) | http://localhost:5173 | Se abre solo |
+
+> **Nota**: en modo local el frontend corre en el puerto **5173** (Vite dev server) en vez de 3001 (nginx).
+
+#### Alternativa: levantar servicios individualmente
+
+Si preferís levantar uno por uno, usá estos archivos `.bat`:
+
+```bash
+# Terminal 1 - Backend
+run-backend.bat
+
+# Terminal 2 - Servicio de IA
+run-ai.bat
+
+# Terminal 3 - Frontend
+run-frontend.bat
+```
+
+Cada `.bat` compila e inicia su servicio en una ventana separada.
+
+#### 5. Abrir la aplicación
+
+Abrí en tu navegador: **http://localhost:5173**
+
+---
+
+### Pasos comunes (ambas opciones)
+
+#### 6. Iniciar sesión
 
 1. Hacé clic en **"Continuar con Google"** (o Outlook si lo configuraste)
 2. Autorizá la aplicación para acceder a tu correo
 3. Serás redirigido al Dashboard
 
-### 6. Sincronizar emails
+#### 7. Sincronizar emails
 
 Al iniciar sesión por primera vez, la app detecta que no hay emails y lanza automáticamente una **sincronización completa** del historial.
 
@@ -146,7 +233,7 @@ También podés usar el botón **"Sincronizar"** en la bandeja de entrada:
 - **Actualizar nuevos emails** — rápido, solo trae lo nuevo
 - **Descargar todo el historial** — descarga completa del buzón
 
-### 7. Usar el chat con IA
+#### 8. Usar el chat con IA
 
 En el panel derecho, escribí frases como:
 
@@ -189,7 +276,11 @@ EmailAutomation/
 │       └── Dockerfile
 ├── infrastructure/
 │   └── postgres/init/           # Scripts de inicialización SQL
-├── docker-compose.yml
+├── docker-compose.yml           # Levantar todo con Docker
+├── start-local.bat              # Levantar todo sin Docker (un solo clic)
+├── run-backend.bat              # Levantar solo el backend
+├── run-frontend.bat             # Levantar solo el frontend
+├── run-ai.bat                   # Levantar solo el servicio de IA
 ├── .env.example                 # Template de variables de entorno
 └── AGENTS.md                    # Documentación para agentes de código
 ```
@@ -230,6 +321,8 @@ EmailAutomation/
 
 ## Comandos útiles
 
+### Docker
+
 ```bash
 # Levantar todo
 docker compose up -d --build
@@ -250,6 +343,21 @@ docker compose down -v
 # Reconstruir un solo servicio
 docker compose build frontend --no-cache
 docker compose up -d frontend
+```
+
+### Local (sin Docker)
+
+```bash
+# Levantar todo junto
+start-local.bat
+
+# O uno por uno:
+run-backend.bat      # Backend Java (puerto 8080)
+run-ai.bat           # Servicio IA (puerto 8000)
+run-frontend.bat     # Frontend Vite (puerto 5173)
+
+# Crear base de datos manualmente
+psql -U postgres -f infrastructure/postgres/init/01-init.sql
 ```
 
 ---
