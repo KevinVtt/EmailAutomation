@@ -248,16 +248,18 @@ export default function Dashboard() {
             <EmailDetail email={selectedEmail} onClose={handleCloseDetail} onRead={handleEmailRead} />
           </div>
         )}
-        <div className={`flex-shrink-0 hidden lg:block ${selectedEmail ? 'w-72' : 'w-96'}`}>
-          <ChatPanel
-            onFiltersApplied={(criteria) => {
-              setActiveCriteria(criteria);
-              fetchEmails(criteria, 0);
-            }}
-            chatResponse={chatResponse}
-            onChatConsumed={() => setChatResponse(null)}
-          />
-        </div>
+        {!selectedEmail && (
+          <div className="flex-shrink-0 hidden lg:block w-96">
+            <ChatPanel
+              onFiltersApplied={(criteria) => {
+                setActiveCriteria(criteria);
+                fetchEmails(criteria, 0);
+              }}
+              chatResponse={chatResponse}
+              onChatConsumed={() => setChatResponse(null)}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
