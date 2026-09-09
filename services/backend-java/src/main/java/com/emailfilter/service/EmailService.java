@@ -26,6 +26,7 @@ import org.springframework.web.client.RestTemplate;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -214,6 +215,10 @@ public class EmailService {
             }
 
             int syncedCount = saveEmails(emails, user, provider);
+            if ("google".equals(provider)) {
+                // Refresh starred/spam state for existing emails (best effort)
+                refreshLabelsAndStars(user, accessToken);
+            }
             log.info("Sync complete: {} new emails saved for user={}, provider={} ({} total fetched)", syncedCount, userId, provider, emails.size());
             webSocketService.sendNotification(userId.toString(), "sync_complete");
         } catch (RuntimeException e) {
@@ -258,24 +263,11 @@ public class EmailService {
             webSocketService.sendNotification(userId.toString(), "sync_progress:0:0");
 
             var gmail = buildGmailClient(accessToken);
-            var allMessageIds = new ArrayList<String>();
+            var allMessageIds = new LinkedHashSet<String>();
             try {
-                String pageToken = null;
-                do {
-                    var request = gmail.users().messages().list("me")
-                            .setQ("in:inbox")
-                            .setMaxResults(500L);
-                    if (pageToken != null) request.setPageToken(pageToken);
-
-                    var response = request.execute();
-                    var messages = response.getMessages();
-                    if (messages != null) {
-                        for (var msg : messages) {
-                            allMessageIds.add(msg.getId());
-                        }
-                    }
-                    pageToken = response.getNextPageToken();
-                } while (pageToken != null && !pageToken.isBlank());
+                // List IDs from BOTH inbox and spam (spam was previously never listed in full sync)
+                allMessageIds.addAll(fetchAllMessageIds(gmail, "in:inbox"));
+                allMessageIds.addAll(fetchAllMessageIds(gmail, "in:spam"));
             } catch (IOException e) {
                 throw new RuntimeException("Failed to fetch Gmail message IDs", e);
             }
@@ -296,6 +288,8 @@ public class EmailService {
 
             if (newIds.isEmpty()) {
                 log.info("No new emails to fetch for user={}", userId);
+                // Still refresh starred/spam state for existing emails
+                refreshLabelsAndStars(user, accessToken);
                 webSocketService.sendNotification(userId.toString(), "sync_complete");
                 return CompletableFuture.completedFuture(null);
             }
@@ -335,6 +329,9 @@ public class EmailService {
                 }
             }
 
+            // Refresh starred/spam state for existing emails (best effort)
+            refreshLabelsAndStars(user, accessToken);
+
             log.info("Full sync complete: {} new emails saved for user={} ({} total in Gmail)",
                     fetched, userId, totalInGmail);
             webSocketService.sendNotification(userId.toString(), "sync_complete");
@@ -349,7 +346,7 @@ public class EmailService {
         return CompletableFuture.completedFuture(null);
     }
 
-    private com.google.api.services.gmail.Gmail buildGmailClient(String accessToken) {
+    protected com.google.api.services.gmail.Gmail buildGmailClient(String accessToken) {
         try {
             com.google.api.client.http.HttpRequestInitializer requestInitializer =
                     request -> request.getHeaders().setAuthorization("Bearer " + accessToken);
@@ -423,7 +420,23 @@ public class EmailService {
         int syncedCount = 0;
         var newEmails = new ArrayList<EmailMessage>();
         for (var email : emails) {
-            if (!emailRepository.existsByUserIdAndProviderEmailId(user.getId(), email.getProviderEmailId())) {
+            var existingOpt = emailRepository.findByProviderEmailIdAndUserId(email.getProviderEmailId(), user.getId());
+            if (existingOpt.isPresent()) {
+                // Refresh existing email with the latest state from the provider
+                var existing = existingOpt.get();
+                existing.setStarred(email.isStarred());
+                existing.setRead(email.isRead());
+                existing.setLabels(email.getLabels());
+                existing.setSubject(email.getSubject());
+                existing.setFromAddress(email.getFromAddress());
+                existing.setFromName(email.getFromName());
+                existing.setToAddresses(email.getToAddresses());
+                existing.setBodyPreview(email.getBodyPreview());
+                existing.setBodyHtml(email.getBodyHtml());
+                existing.setReceivedAt(email.getReceivedAt());
+                existing.setThreadId(email.getThreadId());
+                emailRepository.save(existing);
+            } else {
                 email.setUser(user);
                 email.setProvider(provider);
                 newEmails.add(email);
@@ -434,6 +447,57 @@ public class EmailService {
             emailRepository.saveAll(newEmails);
         }
         return syncedCount;
+    }
+
+    /**
+     * Best-effort refresh of starred/spam state for existing emails.
+     * Never throws — failures are logged and the sync continues.
+     */
+    @Transactional
+    public void refreshLabelsAndStars(User user, String accessToken) {
+        try {
+            var gmail = buildGmailClient(accessToken);
+            var userId = user.getId();
+
+            var starredIds = fetchAllMessageIds(gmail, "is:starred");
+            var spamIds = fetchAllMessageIds(gmail, "in:spam");
+
+            // Reset all stars, then re-star the ones currently starred in Gmail
+            emailRepository.unstarAllByUserId(userId);
+            if (!starredIds.isEmpty()) {
+                emailRepository.starByProviderEmailIds(userId, starredIds);
+            }
+
+            // Append SPAM label to messages currently in Gmail spam
+            if (!spamIds.isEmpty()) {
+                emailRepository.addSpamLabelByProviderEmailIds(userId, spamIds);
+            }
+
+            log.info("Label refresh complete for user={}: {} starred, {} spam", userId, starredIds.size(), spamIds.size());
+        } catch (Exception e) {
+            log.warn("Label refresh failed for user={}: {}", user.getId(), e.getMessage(), e);
+        }
+    }
+
+    private java.util.Set<String> fetchAllMessageIds(com.google.api.services.gmail.Gmail gmail, String query) throws IOException {
+        var ids = new LinkedHashSet<String>();
+        String pageToken = null;
+        do {
+            var request = gmail.users().messages().list("me")
+                    .setQ(query)
+                    .setMaxResults(500L);
+            if (pageToken != null) request.setPageToken(pageToken);
+
+            var response = request.execute();
+            var messages = response.getMessages();
+            if (messages != null) {
+                for (var msg : messages) {
+                    ids.add(msg.getId());
+                }
+            }
+            pageToken = response.getNextPageToken();
+        } while (pageToken != null && !pageToken.isBlank());
+        return ids;
     }
 
     @Transactional

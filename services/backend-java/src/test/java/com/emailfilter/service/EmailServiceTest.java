@@ -6,6 +6,9 @@ import com.emailfilter.model.User;
 import com.emailfilter.repository.EmailRepository;
 import com.emailfilter.repository.OAuthTokenRepository;
 import com.emailfilter.repository.VistoRepository;
+import com.google.api.services.gmail.Gmail;
+import com.google.api.services.gmail.model.ListMessagesResponse;
+import com.google.api.services.gmail.model.Message;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,10 +29,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -50,13 +56,42 @@ class EmailServiceTest {
     private OutlookService outlookService;
     @Mock
     private WebSocketService webSocketService;
+    @Mock
+    private Gmail gmail;
 
     private EmailService emailService;
+    private Gmail.Users.Messages.List listRequest;
 
     @BeforeEach
-    void setUp() {
-        emailService = new EmailService(emailRepository, oauthTokenRepository, vistoRepository,
-                gmailService, outlookService, webSocketService);
+    void setUp() throws Exception {
+        emailService = new TestableEmailService(emailRepository, oauthTokenRepository, vistoRepository,
+                gmailService, outlookService, webSocketService, gmail);
+        listRequest = mock(Gmail.Users.Messages.List.class);
+        var users = mock(Gmail.Users.class);
+        var messages = mock(Gmail.Users.Messages.class);
+        lenient().when(gmail.users()).thenReturn(users);
+        lenient().when(users.messages()).thenReturn(messages);
+        lenient().when(messages.list("me")).thenReturn(listRequest);
+        lenient().when(listRequest.setQ(anyString())).thenReturn(listRequest);
+        lenient().when(listRequest.setMaxResults(anyLong())).thenReturn(listRequest);
+        lenient().when(listRequest.setPageToken(anyString())).thenReturn(listRequest);
+        lenient().when(listRequest.execute()).thenReturn(new ListMessagesResponse().setMessages(List.of()).setNextPageToken(null));
+    }
+
+    private static class TestableEmailService extends EmailService {
+        private final Gmail gmail;
+
+        TestableEmailService(EmailRepository emailRepository, OAuthTokenRepository oauthTokenRepository,
+                             VistoRepository vistoRepository, GmailService gmailService,
+                             OutlookService outlookService, WebSocketService webSocketService, Gmail gmail) {
+            super(emailRepository, oauthTokenRepository, vistoRepository, gmailService, outlookService, webSocketService);
+            this.gmail = gmail;
+        }
+
+        @Override
+        protected Gmail buildGmailClient(String accessToken) {
+            return gmail;
+        }
     }
 
     @Test
@@ -191,5 +226,141 @@ class EmailServiceTest {
         emailService.syncEmailsAsync(user, "google").join();
 
         verify(gmailService).fetchAllEmails(anyString(), eq(100), eq(1000));
+    }
+
+    @Test
+    void saveEmails_existingEmail_updatesStarredAndLabelsInsteadOfSkipping() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var existing = EmailMessage.builder()
+                .id(UUID.randomUUID())
+                .provider("google")
+                .providerEmailId("email-1")
+                .isStarred(false)
+                .labels("INBOX")
+                .subject("Old subject")
+                .user(user)
+                .build();
+        var incoming = EmailMessage.builder()
+                .providerEmailId("email-1")
+                .isStarred(true)
+                .labels("INBOX,STARRED")
+                .subject("New subject")
+                .isRead(true)
+                .build();
+
+        when(emailRepository.findByProviderEmailIdAndUserId("email-1", userId)).thenReturn(Optional.of(existing));
+
+        var count = emailService.saveEmails(List.of(incoming), user, "google");
+
+        assertEquals(0, count);
+        assertTrue(existing.isStarred());
+        assertTrue(existing.isRead());
+        assertEquals("INBOX,STARRED", existing.getLabels());
+        assertEquals("New subject", existing.getSubject());
+        verify(emailRepository).save(existing);
+        verify(emailRepository, never()).saveAll(anyCollection());
+    }
+
+    @Test
+    void saveEmails_newEmail_inserts() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var incoming = EmailMessage.builder()
+                .providerEmailId("new-1")
+                .subject("New")
+                .build();
+
+        when(emailRepository.findByProviderEmailIdAndUserId("new-1", userId)).thenReturn(Optional.empty());
+
+        var count = emailService.saveEmails(List.of(incoming), user, "google");
+
+        assertEquals(1, count);
+        assertEquals(user, incoming.getUser());
+        assertEquals("google", incoming.getProvider());
+        verify(emailRepository).saveAll(anyCollection());
+    }
+
+    @Test
+    void syncEmailsAsync_labelRefresh_starsAndSpamExistingEmails() throws Exception {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var lastEmail = EmailMessage.builder()
+                .id(UUID.randomUUID())
+                .provider("google")
+                .providerEmailId("last-email")
+                .receivedAt(Instant.now())
+                .user(user)
+                .build();
+        var token = OAuthToken.builder()
+                .accessToken("test-access-token")
+                .expiresAt(Instant.now().plusSeconds(3600))
+                .build();
+
+        var starredResp = new ListMessagesResponse()
+                .setMessages(List.of(new Message().setId("star-1"), new Message().setId("star-2")))
+                .setNextPageToken(null);
+        var spamResp = new ListMessagesResponse()
+                .setMessages(List.of(new Message().setId("spam-1")))
+                .setNextPageToken(null);
+        when(listRequest.execute()).thenReturn(starredResp).thenReturn(spamResp);
+
+        when(emailRepository.findTopByUserIdOrderByReceivedAtDesc(userId)).thenReturn(Optional.of(lastEmail));
+        when(emailRepository.findProviderEmailIdsByUserId(eq(userId), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 1000), 0));
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
+                .thenReturn(Optional.of(token));
+        when(gmailService.fetchIncrementalEmails(anyString(), any(Instant.class), anySet()))
+                .thenReturn(List.of());
+
+        emailService.syncEmailsAsync(user, "google").join();
+
+        verify(emailRepository).unstarAllByUserId(userId);
+        verify(emailRepository).starByProviderEmailIds(eq(userId),
+                argThat(ids -> ids.contains("star-1") && ids.contains("star-2") && ids.size() == 2));
+        verify(emailRepository).addSpamLabelByProviderEmailIds(eq(userId),
+                argThat(ids -> ids.contains("spam-1") && ids.size() == 1));
+    }
+
+    @Test
+    void syncAllEmailsAsync_noNewEmails_stillRefreshesLabels() throws Exception {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var token = OAuthToken.builder()
+                .accessToken("test-access-token")
+                .expiresAt(Instant.now().plusSeconds(3600))
+                .build();
+
+        var inboxResp = new ListMessagesResponse()
+                .setMessages(List.of(new Message().setId("existing-1")))
+                .setNextPageToken(null);
+        var spamResp = new ListMessagesResponse()
+                .setMessages(List.of(new Message().setId("existing-2")))
+                .setNextPageToken(null);
+        var starredResp = new ListMessagesResponse()
+                .setMessages(List.of(new Message().setId("existing-1")))
+                .setNextPageToken(null);
+        var spamLabelResp = new ListMessagesResponse()
+                .setMessages(List.of(new Message().setId("existing-2")))
+                .setNextPageToken(null);
+        when(listRequest.execute())
+                .thenReturn(inboxResp)
+                .thenReturn(spamResp)
+                .thenReturn(starredResp)
+                .thenReturn(spamLabelResp);
+
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
+                .thenReturn(Optional.of(token));
+        when(emailRepository.findProviderEmailIdsByUserId(eq(userId), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of("existing-1", "existing-2"), PageRequest.of(0, 1000), 2));
+
+        emailService.syncAllEmailsAsync(user, "google").join();
+
+        verify(emailRepository).unstarAllByUserId(userId);
+        verify(emailRepository).starByProviderEmailIds(eq(userId),
+                argThat(ids -> ids.contains("existing-1") && ids.size() == 1));
+        verify(emailRepository).addSpamLabelByProviderEmailIds(eq(userId),
+                argThat(ids -> ids.contains("existing-2") && ids.size() == 1));
+        verify(webSocketService).sendNotification(userId.toString(), "sync_complete");
     }
 }

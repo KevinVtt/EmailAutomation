@@ -30,7 +30,7 @@ public class GmailService {
     private static final String APPLICATION_NAME = "Email Filter AI";
     private static final GsonFactory JSON_FACTORY = GsonFactory.getDefaultInstance();
 
-    private Gmail buildGmailClient(String accessToken) {
+    protected Gmail buildGmailClient(String accessToken) {
         try {
             com.google.api.client.http.HttpRequestInitializer requestInitializer =
                     request -> request.getHeaders().setAuthorization("Bearer " + accessToken);
@@ -83,11 +83,9 @@ public class GmailService {
     }
 
     public List<com.emailfilter.model.EmailMessage> fetchAllEmails(String accessToken, int maxResultsPerPage, int maxTotal) {
+        // Spam gets its own budget (previously it only got the inbox leftover, so it was never fetched)
         var inbox = fetchEmailsByQuery(accessToken, maxResultsPerPage, "in:inbox", maxTotal);
-        var remaining = maxTotal - inbox.size();
-        var spam = remaining > 0
-                ? fetchEmailsByQuery(accessToken, maxResultsPerPage, "in:spam", remaining)
-                : List.<com.emailfilter.model.EmailMessage>of();
+        var spam = fetchEmailsByQuery(accessToken, maxResultsPerPage, "in:spam", maxTotal);
 
         var all = new java.util.LinkedHashMap<String, com.emailfilter.model.EmailMessage>();
         for (var e : inbox) all.put(e.getProviderEmailId(), e);
@@ -105,12 +103,27 @@ public class GmailService {
     public List<com.emailfilter.model.EmailMessage> fetchIncrementalEmails(
             String accessToken, java.time.Instant since, java.util.Set<String> existingIds) {
         var gmail = buildGmailClient(accessToken);
-        var newEmails = new java.util.ArrayList<com.emailfilter.model.EmailMessage>();
 
         // Format date for Gmail's after: query (YYYY/MM/DD)
         var dateFormatter = new java.text.SimpleDateFormat("yyyy/MM/dd");
         var sinceDate = dateFormatter.format(java.util.Date.from(since));
-        var query = "in:inbox after:" + sinceDate;
+
+        // Fetch BOTH inbox and spam (spam was previously never queried in incremental sync)
+        var inbox = fetchIncrementalByQuery(gmail, "in:inbox after:" + sinceDate, existingIds);
+        var spam = fetchIncrementalByQuery(gmail, "in:spam after:" + sinceDate, existingIds);
+
+        // Merge with dedup by providerEmailId (a message can appear in both inbox and spam)
+        var all = new java.util.LinkedHashMap<String, com.emailfilter.model.EmailMessage>();
+        for (var e : inbox) all.put(e.getProviderEmailId(), e);
+        for (var e : spam) all.putIfAbsent(e.getProviderEmailId(), e);
+
+        log.info("Incremental fetch: {} new emails found (skipped {} existing)", all.size(), existingIds.size());
+        return new java.util.ArrayList<>(all.values());
+    }
+
+    private List<com.emailfilter.model.EmailMessage> fetchIncrementalByQuery(
+            Gmail gmail, String query, java.util.Set<String> existingIds) {
+        var newEmails = new java.util.ArrayList<com.emailfilter.model.EmailMessage>();
 
         try {
             String pageToken = null;
@@ -136,11 +149,10 @@ public class GmailService {
                 pageToken = response.getNextPageToken();
             } while (pageToken != null && !pageToken.isBlank());
 
-            log.info("Incremental fetch: {} new emails found (skipped {} existing)", newEmails.size(), existingIds.size());
             return newEmails;
 
         } catch (IOException e) {
-            throw new RuntimeException("Failed to fetch incremental Gmail messages", e);
+            throw new RuntimeException("Failed to fetch incremental Gmail messages for query: " + query, e);
         }
     }
 
