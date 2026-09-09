@@ -64,6 +64,11 @@ CREATE INDEX idx_oauth_tokens_user_id ON oauth_tokens(user_id);
 CREATE INDEX idx_email_messages_user_id ON email_messages(user_id);
 CREATE INDEX idx_email_messages_received_at ON email_messages(received_at DESC);
 CREATE INDEX idx_email_messages_provider ON email_messages(user_id, provider);
+CREATE INDEX IF NOT EXISTS idx_email_messages_user_is_read ON email_messages(user_id, is_read);
+CREATE INDEX IF NOT EXISTS idx_email_messages_user_is_starred ON email_messages(user_id, is_starred);
+CREATE INDEX IF NOT EXISTS idx_email_messages_user_from_address ON email_messages(user_id, from_address);
+CREATE INDEX IF NOT EXISTS idx_email_messages_user_labels ON email_messages(user_id, labels);
+CREATE INDEX IF NOT EXISTS idx_email_messages_user_received_at ON email_messages(user_id, received_at);
 CREATE INDEX idx_chat_history_user_id ON chat_history(user_id);
 
 CREATE TABLE IF NOT EXISTS visto (
