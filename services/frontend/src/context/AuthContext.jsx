@@ -18,12 +18,13 @@ export function AuthProvider({ children }) {
 
   const login = useCallback(async (provider, authorizationCode) => {
     const response = await api.auth.callback(provider, authorizationCode);
-    storeAuth(response);
+    storeAuth(response, provider);
     setUser({
       id: response.userId,
       email: response.email,
       name: response.name,
       avatarUrl: response.avatarUrl,
+      provider,
     });
     return response;
   }, []);

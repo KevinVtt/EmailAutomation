@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { api } from '../lib/api';
 import { Sparkles, Send, Bot, User } from 'lucide-react';
+import { LoadingState } from './states';
 
 export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsumed }) {
   const [messages, setMessages] = useState([
@@ -115,11 +116,7 @@ export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsum
               <Sparkles className="w-4 h-4 text-primary-600 dark:text-primary-400" />
             </div>
             <div className="bg-gray-100 dark:bg-gray-700 rounded-xl rounded-bl-sm px-3 py-2">
-              <div className="flex gap-1">
-                <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce" />
-                <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce delay-100" />
-                <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce delay-200" />
-              </div>
+              <LoadingState compact label="Pensando..." />
             </div>
           </div>
         )}

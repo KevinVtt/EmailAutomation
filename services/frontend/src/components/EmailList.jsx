@@ -1,12 +1,18 @@
 import { useState, useRef } from 'react';
-import { RefreshCw, Inbox, ChevronLeft, ChevronRight, X, AlertCircle, Check, Loader2, Database, Clock, ChevronDown } from 'lucide-react';
+import { RefreshCw, ChevronLeft, ChevronRight, X, AlertCircle, Check, Loader2, Database, Clock, ChevronDown } from 'lucide-react';
 import EmailCard from './EmailCard';
+import { LoadingState, ErrorState, EmptyState } from './states';
 
 export default function EmailList({
   emails, loading, error, syncStatus, syncProgress, syncMode, selectedId, onSelect, onRefresh, onSync,
   page, totalPages, onPageChange,
   dateFrom, dateTo, onDateFromChange, onDateToChange, onClearDates,
-  emailCount
+  emailCount,
+  title = 'Bandeja de entrada',
+  showSync = true,
+  showDates = true,
+  emptyMessage = 'Tus emails aparecerán aquí',
+  provider = 'google',
 }) {
   const [syncMenuOpen, setSyncMenuOpen] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
@@ -17,7 +23,7 @@ export default function EmailList({
   return (
     <div className="card flex flex-col h-full dark:bg-gray-800 dark:border-gray-700">
       {/* Sync banner */}
-      {emailCount > 0 && !bannerDismissed && (
+      {showSync && emailCount > 0 && !bannerDismissed && (
         <div className="mb-3 flex items-center justify-between rounded-lg bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 px-3 py-2 text-sm text-blue-700 dark:text-blue-300">
           <span>¿Quieres ver todos tus emails? Sincroniza el historial completo.</span>
           <div className="flex items-center gap-1 flex-shrink-0">
@@ -38,9 +44,10 @@ export default function EmailList({
       )}
 
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Bandeja de entrada</h2>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{title}</h2>
         <div className="flex gap-1">
           {/* Sync dropdown button */}
+          {showSync && (
           <div className="relative" ref={menuRef}>
             <button
               onClick={() => !isSyncing && setSyncMenuOpen(!syncMenuOpen)}
@@ -75,7 +82,7 @@ export default function EmailList({
                 <div className="fixed inset-0 z-40" onClick={() => setSyncMenuOpen(false)} />
                 <div className="absolute right-0 mt-1 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg z-50 overflow-hidden">
                   <button
-                    onClick={() => { onSync?.('google', 'incremental'); setSyncMenuOpen(false); }}
+                    onClick={() => { onSync?.(provider, 'incremental'); setSyncMenuOpen(false); }}
                     className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                   >
                     <Clock className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0" />
@@ -86,7 +93,7 @@ export default function EmailList({
                   </button>
                   <div className="border-t border-gray-100 dark:border-gray-700" />
                   <button
-                    onClick={() => { onSync?.('google', 'full'); setSyncMenuOpen(false); }}
+                    onClick={() => { onSync?.(provider, 'full'); setSyncMenuOpen(false); }}
                     className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                   >
                     <Database className="w-5 h-5 text-purple-600 dark:text-purple-400 flex-shrink-0" />
@@ -99,6 +106,7 @@ export default function EmailList({
               </>
             )}
           </div>
+          )}
 
           <button
             onClick={onRefresh}
@@ -110,6 +118,7 @@ export default function EmailList({
         </div>
       </div>
 
+      {showDates && (
       <div className="flex items-center gap-2 mb-3 pb-3 border-b border-gray-100 dark:border-gray-700">
         <div className="flex items-center gap-1">
           <label className="text-xs text-gray-500 dark:text-gray-400">Desde:</label>
@@ -139,6 +148,7 @@ export default function EmailList({
           </button>
         )}
       </div>
+      )}
 
       {isSyncing && syncProgress.total > 0 && (
         <div className="mb-3 px-1">
@@ -162,33 +172,18 @@ export default function EmailList({
 
       <div className="flex-1 overflow-y-auto space-y-2 -mx-4 px-4">
         {loading ? (
-          Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="animate-pulse flex gap-3 p-3 rounded-lg">
-              <div className="w-10 h-10 bg-gray-200 dark:bg-gray-700 rounded-full" />
-              <div className="flex-1 space-y-2">
-                <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3" />
-                <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-2/3" />
-              </div>
-            </div>
-          ))
+          <LoadingState variant="skeleton" rows={5} />
         ) : error ? (
-          <div className="flex flex-col items-center justify-center py-12 text-red-400">
-            <AlertCircle className="w-12 h-12 mb-3" />
-            <p className="text-sm">Error al cargar emails</p>
-            <p className="text-xs mt-1">{error}</p>
-            <button
-              onClick={onRefresh}
-              className="mt-3 px-3 py-1 text-xs bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors"
-            >
-              Reintentar
-            </button>
-          </div>
+          <ErrorState
+            message="Error al cargar emails"
+            detail={error}
+            onRetry={onRefresh}
+          />
         ) : emails.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-gray-400 dark:text-gray-500">
-            <Inbox className="w-12 h-12 mb-3" />
-            <p className="text-sm font-medium">Tus emails aparecerán aquí</p>
-            <p className="text-xs mt-1 text-center max-w-xs">La primera sincronización puede tardar unos minutos.</p>
-          </div>
+          <EmptyState
+            message={emptyMessage}
+            hint="La primera sincronización puede tardar unos minutos."
+          />
         ) : (
           emails.map((email) => (
             <EmailCard

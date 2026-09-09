@@ -12,7 +12,13 @@ export default function Callback() {
   useEffect(() => {
     const code = searchParams.get('code');
     const state = searchParams.get('state');
-    const provider = searchParams.get('provider') || 'google';
+    let provider = sessionStorage.getItem('oauthProvider');
+    sessionStorage.removeItem('oauthProvider');
+    if (!provider) provider = searchParams.get('provider');
+    if (!provider) {
+      provider = 'google';
+      console.warn('No provider found in sessionStorage or URL, defaulting to google');
+    }
 
     if (!code) {
       setError('No authorization code received');

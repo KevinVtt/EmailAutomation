@@ -31,7 +31,7 @@ export function getStoredAuth() {
   return null;
 }
 
-export function storeAuth(authResponse) {
+export function storeAuth(authResponse, provider) {
   localStorage.setItem('accessToken', authResponse.accessToken);
   localStorage.setItem('refreshToken', authResponse.refreshToken);
   localStorage.setItem('user', JSON.stringify({
@@ -39,6 +39,7 @@ export function storeAuth(authResponse) {
     email: authResponse.email,
     name: authResponse.name,
     avatarUrl: authResponse.avatarUrl,
+    provider,
   }));
 }
 
