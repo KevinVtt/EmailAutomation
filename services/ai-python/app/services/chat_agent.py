@@ -227,7 +227,7 @@ async def summarize_emails(emails: list[dict]) -> str:
         return "No hay correos para resumir."
 
     text = "\n\n".join(
-        f"Subject: {e.get('subject', 'No subject')}\nFrom: {e.get('from_address', 'Unknown')}\nPreview: {e.get('body_preview', '')[:200]}"
+        f"Subject: {e.get('subject') or 'No subject'}\nFrom: {e.get('from_address') or 'Unknown'}\nPreview: {(e.get('body_preview') or '')[:200]}"
         for e in emails[:20]
     )
 

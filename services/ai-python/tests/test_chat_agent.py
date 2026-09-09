@@ -94,3 +94,28 @@ async def test_summarize_emails_with_data(httpx_mock):
 
     result = await summarize_emails(emails)
     assert "Resumen" in result
+
+
+@pytest.mark.asyncio
+async def test_summarize_emails_with_none_values_does_not_crash(httpx_mock):
+    emails = [
+        {"subject": None, "from_address": None, "body_preview": None},
+        {"subject": "Real subject", "from_address": "alice@example.com", "body_preview": None},
+    ]
+
+    httpx_mock.add_response(
+        url="https://api.groq.com/openai/v1/chat/completions",
+        method="POST",
+        json={"choices": [{"message": {"content": "Resumen: dos correos."}}]},
+    )
+
+    result = await summarize_emails(emails)
+    assert isinstance(result, str)
+    assert "Resumen" in result
+
+    request = httpx_mock.get_request()
+    payload = json.loads(request.content)
+    user_content = payload["messages"][0]["content"]
+    assert "No subject" in user_content
+    assert "Unknown" in user_content
+    assert "Real subject" in user_content

@@ -7,7 +7,7 @@ from app.services.ai_service import AIService
 
 logger = logging.getLogger(__name__)
 
-CLASSIFY_SYSTEM_PROMPT = """You are an email classification assistant. 
+CLASSIFY_SYSTEM_PROMPT = """You are an email classification assistant.
 Analyze the following emails and classify each one into one of these categories:
 - important: urgent or requires immediate attention
 - work: work-related emails
@@ -24,9 +24,18 @@ For each email, determine:
 1. The category label
 2. A priority score (1-10)
 3. Whether it requires action
-4. A brief reason for the classification
+4. A brief reason for the classification (in Spanish)
+5. The urgency level — one of "high", "medium", or "low"
+6. A brief urgency reason (in Spanish)
 
-Respond ONLY with a valid JSON array of objects, each with keys: id, label, priority, requires_action, reason."""
+Urgency rules:
+- "high": deadline/vencimiento/urgente/asap/hoy/mañana keywords, payment or invoice due dates, or priority >= 8. Requires immediate attention.
+- "medium": requires attention or a response but has no hard deadline.
+- "low": informational, newsletter, FYI, no action needed.
+
+Supports Spanish relative date expressions like "esta semana", "ayer", "este mes", "hoy", "mañana".
+
+Respond ONLY with a valid JSON array of objects, each with keys: id, label, priority, requires_action, reason, urgency, urgency_reason."""
 
 
 async def analyze_single_email(email: EmailItem) -> dict[str, Any]:
@@ -45,6 +54,8 @@ async def analyze_single_email(email: EmailItem) -> dict[str, Any]:
         "priority": 5,
         "requires_action": False,
         "reason": "Classification failed",
+        "urgency": "low",
+        "urgency_reason": "Clasificación fallida — respuesta IA no válida",
     }
 
 

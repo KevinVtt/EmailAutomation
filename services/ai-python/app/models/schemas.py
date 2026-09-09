@@ -1,9 +1,15 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+from pydantic.alias_generators import to_camel
 from typing import Optional
 from datetime import datetime
 
 
 class EmailItem(BaseModel):
+    # Java backend sends camelCase (bodyPreview, fromAddress, providerEmailId);
+    # populate_by_name keeps snake_case working for direct/curl usage.
+    # model_dump() still emits snake_case keys (no serialization_alias).
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
     id: Optional[str] = None
     provider: Optional[str] = None
     provider_email_id: Optional[str] = None
