@@ -21,7 +21,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AIServiceClient {
 
-    private final RestTemplate restTemplate = createRestTemplate();
+    private RestTemplate restTemplate = createRestTemplate();
 
     private static RestTemplate createRestTemplate() {
         var factory = new SimpleClientHttpRequestFactory();
@@ -73,6 +73,10 @@ public class AIServiceClient {
     }
 
     public String summarizeEmails(List<EmailDTO> emails) {
+        if (emails.isEmpty()) {
+            return "No hay correos para resumir.";
+        }
+
         var headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         var entity = new HttpEntity<>(Map.of("emails", emails), headers);
