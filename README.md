@@ -14,7 +14,7 @@ Browser (React)
     │                                        ├── PostgreSQL (5432)
     │                                        ├── Gmail API / Microsoft Graph
     │                                        └── HTTP ──► Python AI Service (8000)
-    │                                                        └── Groq API (llama3-8b-8192)
+    │                                                        └── Groq API (openai/gpt-oss-120b)
 ```
 
 ### Flujo principal
@@ -31,7 +31,7 @@ Browser (React)
 |----------|-----------|--------|
 | Frontend | React 18 + Vite + TailwindCSS | 3001 |
 | Backend | Spring Boot 3.2.4 (Java 17) | 8080 |
-| IA | FastAPI + Groq (llama3-8b-8192) | 8000 |
+| IA | FastAPI + Groq (openai/gpt-oss-120b) | 8000 |
 | Base de datos | PostgreSQL 16 | 5433 |
 
 ---
@@ -301,7 +301,7 @@ EmailAutomation/
 - Lenguaje natural en español e inglés
 - Extrae criterios de filtro automáticamente
 - Soporta fechas relativas ("esta semana", "ayer", "este mes")
-- Powered by llama3-8b-8192 vía Groq (gratis)
+- Powered by openai/gpt-oss-120b vía Groq (gratis)
 
 ### Filtros
 
@@ -378,7 +378,7 @@ psql -U postgres -f infrastructure/postgres/init/01-init.sql
 | `OUTLOOK_CLIENT_SECRET` | Client Secret de Outlook OAuth2 | *(requerido para Outlook)* |
 | `AI_API_KEY` | API key de Groq | *(requerido)* |
 | `AI_API_URL` | URL de la API de IA | `https://api.groq.com/openai/v1` |
-| `AI_MODEL` | Modelo de IA a usar | `llama-3.1-8b-instant` |
+| `AI_MODEL` | Modelo de IA a usar | `openai/gpt-oss-120b` |
 | `FRONTEND_URL` | URL del frontend (para CORS) | `http://localhost:3001` |
 
 ---

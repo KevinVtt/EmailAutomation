@@ -39,7 +39,7 @@ Browser (React)
     │                                        ├── PostgreSQL (5432)
     │                                        ├── Gmail API / Microsoft Graph
     │                                        └── HTTP ──► Python AI Service (8000)
-    │                                                        └── Groq API (llama3-8b-8192)
+    │                                                        └── Groq API (openai/gpt-oss-120b)
 ```
 
 ### Key Flows
@@ -67,7 +67,7 @@ Browser (React)
 
 ### AI Service — Python FastAPI (`services/ai-python/`)
 - Python, FastAPI, uvicorn, httpx, pydantic-settings
-- OpenAI-compatible API client (default: Groq + llama3-8b-8192)
+- OpenAI-compatible API client (default: Groq + openai/gpt-oss-120b)
 - Routers: `/chat`, `/analyze`, `/health`
 - `chat_agent.py` extracts filter criteria from natural language (JSON output)
 - `email_analyzer.py` classifies emails into 10 categories with priority score
@@ -221,7 +221,7 @@ app/
 - Valid label values: `SPAM`, `IMPORTANT`, `CATEGORY_UPDATES`, `CATEGORY_SOCIAL`,
   `CATEGORY_PROMOTIONS`, `CATEGORY_FORUMS`
 - Supports relative dates in Spanish ("esta semana", "ayer", "este mes") — preserve this in the system prompt
-- Default model: `llama3-8b-8192` via Groq — model is configurable via `AI_MODEL` env var
+- Default model: `openai/gpt-oss-120b` via Groq — model is configurable via `AI_MODEL` env var
 - Do not add sync dependencies between AI service and database — it must remain stateless
 
 ---
