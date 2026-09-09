@@ -18,6 +18,16 @@ spring:
             client-id: test-client-id
             client-secret: test-client-secret
 
+google:
+  client-id: test-google-client-id
+  client-secret: test-google-client-secret
+  redirect-uri: http://localhost:8080/api/auth/callback/google
+
+outlook:
+  client-id: test-outlook-client-id
+  client-secret: test-outlook-client-secret
+  redirect-uri: http://localhost:8080/api/auth/callback/outlook
+
 jwt:
   secret: dGhpcyBpcyBhIHRlc3Qgc2VjcmV0IGtleSBmb3IgdGVzdGluZyBwdXJwb3NlcyBvbmx5
   expiration-ms: 900000
@@ -29,3 +39,7 @@ ai:
 
 cors:
   allowed-origins: http://localhost:3000
+
+email:
+  sync:
+    max-emails: 1000

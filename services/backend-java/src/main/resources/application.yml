@@ -62,6 +62,10 @@ ai:
 cors:
   allowed-origins: ${FRONTEND_URL:http://localhost:3000}
 
+email:
+  sync:
+    max-emails: ${EMAIL_SYNC_MAX_EMAILS:1000}
+
 logging:
   level:
     com.emailfilter: DEBUG

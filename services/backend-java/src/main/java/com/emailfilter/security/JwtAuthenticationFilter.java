@@ -26,14 +26,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     FilterChain filterChain) throws ServletException, IOException {
         var token = extractToken(request);
 
-        if (token != null && jwtTokenProvider.validateToken(token)) {
-            var userId = jwtTokenProvider.getUserIdFromToken(token);
-            var userDetails = userDetailsService.loadUserById(userId);
+        if (token != null) {
+            if (jwtTokenProvider.isAccessToken(token)) {
+                var userId = jwtTokenProvider.getUserIdFromToken(token);
+                var userDetails = userDetailsService.loadUserById(userId);
 
-            var auth = new UsernamePasswordAuthenticationToken(
-                    userDetails, null, userDetails.getAuthorities());
-            auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-            SecurityContextHolder.getContext().setAuthentication(auth);
+                var auth = new UsernamePasswordAuthenticationToken(
+                        userDetails, null, userDetails.getAuthorities());
+                auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                SecurityContextHolder.getContext().setAuthentication(auth);
+            } else {
+                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                return;
+            }
         }
 
         filterChain.doFilter(request, response);

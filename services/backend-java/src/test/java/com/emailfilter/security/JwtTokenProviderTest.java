@@ -41,6 +41,34 @@ class JwtTokenProviderTest {
     }
 
     @Test
+    void generateAccessToken_hasTypeAccess() {
+        var token = tokenProvider.generateAccessToken(UUID.randomUUID(), "test@example.com");
+
+        assertTrue(tokenProvider.isAccessToken(token));
+    }
+
+    @Test
+    void generateRefreshToken_hasTypeRefresh() {
+        var token = tokenProvider.generateRefreshToken(UUID.randomUUID());
+
+        assertFalse(tokenProvider.isAccessToken(token));
+    }
+
+    @Test
+    void isAccessToken_invalidToken_returnsFalse() {
+        assertFalse(tokenProvider.isAccessToken("invalid.jwt.token"));
+    }
+
+    @Test
+    void constructor_shortSecret_throwsException() {
+        assertThrows(IllegalArgumentException.class, () -> new JwtTokenProvider(
+                "too-short-secret",
+                900000L,
+                604800000L
+        ));
+    }
+
+    @Test
     void validateToken_invalidToken_returnsFalse() {
         assertFalse(tokenProvider.validateToken("invalid.jwt.token"));
     }

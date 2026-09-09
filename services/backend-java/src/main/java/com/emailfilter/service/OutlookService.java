@@ -5,6 +5,8 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Service;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.*;
@@ -89,13 +91,12 @@ public class OutlookService {
     }
 
     public String refreshAccessToken(String refreshToken, String clientId, String clientSecret, String tenant) {
-        var body = Map.of(
-                "client_id", clientId,
-                "client_secret", clientSecret,
-                "refresh_token", refreshToken,
-                "grant_type", "refresh_token",
-                "scope", "Mail.Read Mail.ReadWrite offline_access"
-        );
+        var body = new LinkedMultiValueMap<String, String>();
+        body.add("client_id", clientId);
+        body.add("client_secret", clientSecret);
+        body.add("refresh_token", refreshToken);
+        body.add("grant_type", "refresh_token");
+        body.add("scope", "Mail.Read Mail.ReadWrite offline_access");
         var headers = new HttpHeaders();
         headers.setContentType(org.springframework.http.MediaType.APPLICATION_FORM_URLENCODED);
 

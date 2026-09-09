@@ -214,9 +214,10 @@ public class GmailService {
                 body = new String(Base64.getUrlDecoder().decode(payload.getBody().getData()));
             }
 
-            var labels = String.join(",", full.getLabelIds() != null ? full.getLabelIds() : List.of());
-            var isRead = !full.getLabelIds().contains("UNREAD");
-            var isStarred = full.getLabelIds().contains("STARRED");
+            var labelIds = full.getLabelIds() != null ? full.getLabelIds() : List.<String>of();
+            var labels = String.join(",", labelIds);
+            var isRead = !labelIds.contains("UNREAD");
+            var isStarred = labelIds.contains("STARRED");
 
             var receivedAt = parseReceivedAt(full.getInternalDate(), getHeader(headers, "Date"));
 

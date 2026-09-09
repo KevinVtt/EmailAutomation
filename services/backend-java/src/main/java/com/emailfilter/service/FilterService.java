@@ -1,6 +1,7 @@
 package com.emailfilter.service;
 
 import com.emailfilter.dto.EmailDTO;
+import com.emailfilter.exception.ResourceNotFoundException;
 import com.emailfilter.model.FilterCriteria;
 import com.emailfilter.model.User;
 import com.emailfilter.repository.FilterCriteriaRepository;
@@ -38,6 +39,9 @@ public class FilterService {
     public Page<EmailDTO> applyFilter(User user, UUID filterId, int page, int size) {
         var filter = filterRepository.findById(filterId)
                 .orElseThrow(() -> new RuntimeException("Filter not found"));
+        if (!filter.getUser().getId().equals(user.getId())) {
+            throw new ResourceNotFoundException("Filter does not belong to user");
+        }
 
         try {
             @SuppressWarnings("unchecked")

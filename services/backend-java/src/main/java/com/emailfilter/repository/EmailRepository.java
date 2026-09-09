@@ -20,7 +20,7 @@ public interface EmailRepository extends JpaRepository<EmailMessage, UUID>,
     long countByUserIdAndReceivedAtAfter(UUID userId, Instant since);
 
     @Query("SELECT e.providerEmailId FROM EmailMessage e WHERE e.user.id = :userId")
-    List<String> findProviderEmailIdsByUserId(UUID userId);
+    Page<String> findProviderEmailIdsByUserId(UUID userId, Pageable pageable);
 
     Optional<EmailMessage> findByProviderEmailIdAndUserId(String providerEmailId, UUID userId);
 }

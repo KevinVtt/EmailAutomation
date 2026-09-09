@@ -27,7 +27,7 @@ public class AuthController {
 
     private final AuthService authService;
     private final OAuthTokenRepository oauthTokenRepository;
-    private final RestTemplate restTemplate = new RestTemplate();
+    private RestTemplate restTemplate = new RestTemplate();
 
     @Value("${google.client-id}")
     private String googleClientId;
@@ -134,7 +134,10 @@ public class AuthController {
     }
 
     @PostMapping("/refresh")
-    public ResponseEntity<AuthResponse> refresh(@RequestBody Map<String, String> body) {
+    public ResponseEntity<AuthResponse> refresh(@RequestBody(required = false) Map<String, String> body) {
+        if (body == null || body.get("refreshToken") == null || body.get("refreshToken").isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
         var response = authService.refreshAccessToken(body.get("refreshToken"));
         return ResponseEntity.ok(response);
     }

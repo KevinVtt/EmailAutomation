@@ -11,6 +11,7 @@ import com.emailfilter.repository.VistoRepository;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.data.domain.Page;
@@ -24,8 +25,10 @@ import org.springframework.web.client.RestTemplate;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -44,14 +47,19 @@ public class EmailService {
     private final OutlookService outlookService;
     private final WebSocketService webSocketService;
 
+    @Value("${email.sync.max-emails:1000}")
+    int maxEmailsPerSync;
+
     private final ConcurrentHashMap<UUID, Boolean> syncingStatus = new ConcurrentHashMap<>();
     private static final long SYNC_STATUS_TTL_MS = 5 * 60 * 1000L; // 5 minutes
+    private static final int EXISTING_IDS_PAGE_SIZE = 1000;
     private final ConcurrentHashMap<UUID, Long> syncingTimestamps = new ConcurrentHashMap<>();
 
     @Transactional(readOnly = true)
     public Page<EmailDTO> getEmails(UUID userId, int page, int size) {
-        return emailRepository.findByUserIdOrderByReceivedAtDesc(userId, PageRequest.of(page, size))
-                .map(this::toDTO);
+        var emailPage = emailRepository.findByUserIdOrderByReceivedAtDesc(userId, PageRequest.of(page, size));
+        var vistoEmailIds = fetchVistoEmailIds(userId, emailPage.getContent());
+        return emailPage.map(email -> toDTO(email, vistoEmailIds));
     }
 
     @Transactional(readOnly = true)
@@ -61,7 +69,7 @@ public class EmailService {
         if (!email.getUser().getId().equals(userId)) {
             throw new RuntimeException("Email does not belong to user");
         }
-        return toDTO(email);
+        return toDTO(email, fetchVistoEmailIds(userId, List.of(email)));
     }
 
     @Transactional(readOnly = true)
@@ -75,10 +83,36 @@ public class EmailService {
                 switch (key) {
                     case "fromAddress" ->
                         predicates.add(cb.like(cb.lower(root.get("fromAddress")), "%" + escapeLike(value.toLowerCase()) + "%"));
-                    case "subjectContains" ->
-                        predicates.add(cb.like(cb.lower(root.get("subject")), "%" + escapeLike(value.toLowerCase()) + "%"));
-                    case "bodyContains" ->
-                        predicates.add(cb.like(cb.lower(root.get("bodyPreview")), "%" + escapeLike(value.toLowerCase()) + "%"));
+                    case "subjectContains" -> {
+                        var terms = value.split(",");
+                        if (terms.length == 1) {
+                            predicates.add(cb.like(cb.lower(root.get("subject")), "%" + escapeLike(terms[0].trim().toLowerCase()) + "%"));
+                        } else {
+                            var orPredicates = new ArrayList<Predicate>();
+                            for (var term : terms) {
+                                var trimmed = term.trim();
+                                if (!trimmed.isEmpty()) {
+                                    orPredicates.add(cb.like(cb.lower(root.get("subject")), "%" + escapeLike(trimmed.toLowerCase()) + "%"));
+                                }
+                            }
+                            predicates.add(cb.or(orPredicates.toArray(new Predicate[0])));
+                        }
+                    }
+                    case "bodyContains" -> {
+                        var terms = value.split(",");
+                        if (terms.length == 1) {
+                            predicates.add(cb.like(cb.lower(root.get("bodyPreview")), "%" + escapeLike(terms[0].trim().toLowerCase()) + "%"));
+                        } else {
+                            var orPredicates = new ArrayList<Predicate>();
+                            for (var term : terms) {
+                                var trimmed = term.trim();
+                                if (!trimmed.isEmpty()) {
+                                    orPredicates.add(cb.like(cb.lower(root.get("bodyPreview")), "%" + escapeLike(trimmed.toLowerCase()) + "%"));
+                                }
+                            }
+                            predicates.add(cb.or(orPredicates.toArray(new Predicate[0])));
+                        }
+                    }
                     case "isRead" -> predicates.add(cb.equal(root.get("isRead"), Boolean.parseBoolean(value)));
                     case "isStarred" -> predicates.add(cb.equal(root.get("isStarred"), Boolean.parseBoolean(value)));
                     case "important" ->
@@ -96,17 +130,14 @@ public class EmailService {
         };
 
         var pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "receivedAt"));
-        return emailRepository.findAll(spec, pageable).map(this::toDTO);
+        var emailPage = emailRepository.findAll(spec, pageable);
+        var vistoEmailIds = fetchVistoEmailIds(userId, emailPage.getContent());
+        return emailPage.map(email -> toDTO(email, vistoEmailIds));
     }
 
     public boolean isSyncing(UUID userId) {
         cleanupExpiredSyncStatus();
         return syncingStatus.getOrDefault(userId, false);
-    }
-
-    @Transactional(readOnly = true)
-    public long getEmailCount(UUID userId) {
-        return emailRepository.count();
     }
 
     @Transactional(readOnly = true)
@@ -123,6 +154,18 @@ public class EmailService {
             }
             return false;
         });
+    }
+
+    private Set<String> fetchAllProviderEmailIds(UUID userId) {
+        var existingIds = new HashSet<String>();
+        int pageNumber = 0;
+        Page<String> chunk;
+        do {
+            chunk = emailRepository.findProviderEmailIdsByUserId(userId, PageRequest.of(pageNumber, EXISTING_IDS_PAGE_SIZE));
+            existingIds.addAll(chunk.getContent());
+            pageNumber++;
+        } while (chunk.hasNext());
+        return existingIds;
     }
 
     @Async("emailSyncExecutor")
@@ -149,14 +192,14 @@ public class EmailService {
                     log.info("Incremental sync for user={}, fetching emails after {}", userId, lastReceivedAt);
 
                     // Get existing provider email IDs to skip (lightweight query, no full entities)
-                    var existingIds = new java.util.HashSet<>(emailRepository.findProviderEmailIdsByUserId(userId));
+                    var existingIds = fetchAllProviderEmailIds(userId);
 
                     emails = gmailService.fetchIncrementalEmails(accessToken, lastReceivedAt, existingIds);
                     log.info("Incremental fetch: {} new emails for user={}", emails.size(), userId);
                 } else {
                     // First sync: fetch all emails
                     log.info("First sync for user={}, fetching all emails", userId);
-                    emails = gmailService.fetchAllEmails(accessToken, 100, 200);
+                    emails = gmailService.fetchAllEmails(accessToken, 100, maxEmailsPerSync);
                     log.info("Initial fetch: {} emails for user={}", emails.size(), userId);
                 }
             } else if ("outlook".equals(provider)) {
@@ -241,7 +284,7 @@ public class EmailService {
             log.info("Found {} total emails in Gmail for user={}", totalInGmail, userId);
 
             // Step 2: Remove IDs we already have in the DB
-            var existingIds = new java.util.HashSet<>(emailRepository.findProviderEmailIdsByUserId(userId));
+            var existingIds = fetchAllProviderEmailIds(userId);
             var newIds = allMessageIds.stream()
                     .filter(id -> !existingIds.contains(id))
                     .collect(Collectors.toList());
@@ -340,9 +383,10 @@ public class EmailService {
                 body = new String(java.util.Base64.getUrlDecoder().decode(payload.getBody().getData()));
             }
 
-            var labels = String.join(",", full.getLabelIds() != null ? full.getLabelIds() : List.of());
-            var isRead = !full.getLabelIds().contains("UNREAD");
-            var isStarred = full.getLabelIds().contains("STARRED");
+            var labelIds = full.getLabelIds() != null ? full.getLabelIds() : List.<String>of();
+            var labels = String.join(",", labelIds);
+            var isRead = !labelIds.contains("UNREAD");
+            var isStarred = labelIds.contains("STARRED");
 
             var receivedAt = Instant.ofEpochMilli(full.getInternalDate());
 
@@ -460,9 +504,14 @@ public class EmailService {
 
     @Transactional
     public void moveToTrash(User user, String provider, String emailId) {
-        var token = getToken(user, provider);
-        if ("google".equals(provider)) gmailService.moveToTrash(token, emailId);
-        else outlookService.moveToTrash(token, emailId);
+        // Sync with provider — best effort
+        try {
+            var token = getToken(user, provider);
+            if ("google".equals(provider)) gmailService.moveToTrash(token, emailId);
+            else outlookService.moveToTrash(token, emailId);
+        } catch (Exception e) {
+            log.warn("Failed to move to trash on {}: {}", provider, e.getMessage());
+        }
     }
 
     private String getToken(User user, String provider) {
@@ -528,11 +577,8 @@ public class EmailService {
         return response.get("access_token").toString();
     }
 
-    private EmailDTO toDTO(EmailMessage email) {
-        // Simple single-email lookup for vistas
-        boolean visto = vistoRepository.findByProviderEmailIdAndUserId(email.getProviderEmailId(), email.getUser().getId())
-                .map(Visto::getVisto)
-                .orElse(false);
+    private EmailDTO toDTO(EmailMessage email, Set<String> vistoEmailIds) {
+        boolean visto = vistoEmailIds.contains(email.getProviderEmailId());
         return EmailDTO.builder()
                 .id(email.getId())
                 .provider(email.getProvider())
@@ -551,6 +597,16 @@ public class EmailService {
                 .receivedAt(email.getReceivedAt())
                 .fetchedAt(email.getFetchedAt())
                 .build();
+    }
+
+    private Set<String> fetchVistoEmailIds(UUID userId, List<EmailMessage> emails) {
+        if (emails.isEmpty()) {
+            return Set.of();
+        }
+        var providerEmailIds = emails.stream()
+                .map(EmailMessage::getProviderEmailId)
+                .collect(Collectors.toSet());
+        return new HashSet<>(vistoRepository.findVistoEmailIdsByUserIdAndProviderEmailIdIn(userId, providerEmailIds));
     }
 
     private String escapeLike(String value) {

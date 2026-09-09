@@ -1,13 +1,18 @@
 package com.emailfilter.controller;
 
+import com.emailfilter.config.CorsConfig;
+import com.emailfilter.config.SecurityConfig;
 import com.emailfilter.dto.EmailDTO;
+import com.emailfilter.security.JwtTokenProvider;
 import com.emailfilter.security.UserDetailsServiceImpl;
+import com.emailfilter.service.AIServiceClient;
 import com.emailfilter.service.EmailService;
 import com.emailfilter.service.WebSocketService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.http.MediaType;
@@ -23,6 +28,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(EmailController.class)
+@Import({SecurityConfig.class, CorsConfig.class})
 class EmailControllerTest {
 
     @Autowired
@@ -34,9 +40,13 @@ class EmailControllerTest {
     private WebSocketService webSocketService;
     @MockBean
     private UserDetailsServiceImpl userDetailsService;
+    @MockBean
+    private AIServiceClient aiServiceClient;
+    @MockBean
+    private JwtTokenProvider jwtTokenProvider;
 
     @Test
-    @WithMockUser
+    @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
     void getEmails_returnsPage() throws Exception {
         var email = EmailDTO.builder()
                 .id(UUID.randomUUID())
@@ -53,7 +63,7 @@ class EmailControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
     void filterEmails_returnsFilteredPage() throws Exception {
         var email = EmailDTO.builder()
                 .id(UUID.randomUUID())
@@ -73,7 +83,7 @@ class EmailControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
     void performAction_returnsOk() throws Exception {
         var body = """
                 {

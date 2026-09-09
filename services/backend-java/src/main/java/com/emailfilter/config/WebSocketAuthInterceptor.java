@@ -24,17 +24,23 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
         StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
         if (accessor != null && StompCommand.CONNECT.equals(accessor.getCommand())) {
-            var authHeader = accessor.getFirstNativeHeader("Authorization");
-            if (authHeader != null && authHeader.startsWith("Bearer ")) {
-                var token = authHeader.substring(7);
-                if (jwtTokenProvider.validateToken(token)) {
-                    var userId = jwtTokenProvider.getUserIdFromToken(token);
-                    var auth = new UsernamePasswordAuthenticationToken(userId.toString(), null, Collections.emptyList());
-                    SecurityContextHolder.getContext().setAuthentication(auth);
-                    accessor.setUser(auth);
-                }
+            String token = resolveToken(accessor);
+            if (token == null || !jwtTokenProvider.isAccessToken(token)) {
+                return null; // reject the handshake (no CONNECTED frame is sent)
             }
+            var userId = jwtTokenProvider.getUserIdFromToken(token);
+            var auth = new UsernamePasswordAuthenticationToken(userId.toString(), null, Collections.emptyList());
+            SecurityContextHolder.getContext().setAuthentication(auth);
+            accessor.setUser(auth);
         }
         return message;
+    }
+
+    private String resolveToken(StompHeaderAccessor accessor) {
+        var authHeader = accessor.getFirstNativeHeader("Authorization");
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            return authHeader.substring(7);
+        }
+        return accessor.getFirstNativeHeader("access_token");
     }
 }

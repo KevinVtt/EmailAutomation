@@ -1,5 +1,6 @@
 package com.emailfilter.service;
 
+import com.emailfilter.exception.ResourceNotFoundException;
 import com.emailfilter.model.FilterCriteria;
 import com.emailfilter.model.User;
 import com.emailfilter.repository.FilterCriteriaRepository;
@@ -63,5 +64,23 @@ class FilterServiceTest {
 
         assertThrows(RuntimeException.class, () ->
                 filterService.applyFilter(null, filterId, 0, 20));
+    }
+
+    @Test
+    void applyFilter_filterBelongsToAnotherUser_throwsException() {
+        var owner = User.builder().id(UUID.randomUUID()).email("owner@example.com").build();
+        var otherUser = User.builder().id(UUID.randomUUID()).email("other@example.com").build();
+        var filterId = UUID.randomUUID();
+        var filter = FilterCriteria.builder()
+                .id(filterId)
+                .user(owner)
+                .name("Owner filter")
+                .criteria("{\"fromAddress\":\"boss@example.com\"}")
+                .build();
+
+        when(filterRepository.findById(filterId)).thenReturn(Optional.of(filter));
+
+        assertThrows(ResourceNotFoundException.class, () ->
+                filterService.applyFilter(otherUser, filterId, 0, 20));
     }
 }
