@@ -26,7 +26,7 @@ async def chat(request: ChatRequest):
         )
     except Exception as e:
         logger.error("=== PYTHON CHAT ERROR === %s", str(e), exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/summarize", response_model=SummarizeResponse)
@@ -36,4 +36,5 @@ async def summarize(request: SummarizeRequest):
         summary = await summarize_emails(emails_data)
         return SummarizeResponse(summary=summary)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("=== PYTHON SUMMARIZE ERROR === %s", str(e), exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")

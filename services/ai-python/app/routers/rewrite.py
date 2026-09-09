@@ -29,4 +29,4 @@ async def rewrite(request: RewriteRequest):
         )
     except Exception as e:
         logger.error("=== REWRITE ERROR === %s", str(e), exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")

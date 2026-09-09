@@ -1,7 +1,11 @@
+import logging
+
 from fastapi import APIRouter, HTTPException
 
 from app.models.schemas import AnalyzeRequest, AnalyzeResponse
 from app.services.email_analyzer import analyze_emails_batch
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -15,4 +19,5 @@ async def analyze_emails(request: AnalyzeRequest):
             summary=f"Classified {len(classifications)} emails.",
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("=== PYTHON ANALYZE ERROR === %s", str(e), exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
