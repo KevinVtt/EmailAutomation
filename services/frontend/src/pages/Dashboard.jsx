@@ -6,9 +6,12 @@ import { api } from '../lib/api';
 import ChatPanel from '../components/ChatPanel';
 import { LoadingState, ErrorState } from '../components/states';
 import { format } from 'date-fns';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   Mail, MailOpen, Star, ShieldAlert, RefreshCw, Loader2, AlertCircle,
   Check, Clock, Database, ChevronDown, WifiOff, BarChart3,
+  Sparkles, AlertTriangle, X,
 } from 'lucide-react';
 
 const STAT_CARDS = [
@@ -66,6 +69,10 @@ export default function Dashboard() {
   const [syncProgress, setSyncProgress] = useState({ current: 0, total: 0 });
   const [syncMode, setSyncMode] = useState(null); // null | 'incremental' | 'full'
   const [syncMenuOpen, setSyncMenuOpen] = useState(false);
+  const [dailySummary, setDailySummary] = useState(null);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+  const [summaryError, setSummaryError] = useState(null);
+  const [urgentEmails, setUrgentEmails] = useState(null);
 
   const fetchStats = useCallback(async () => {
     setLoading(true);
@@ -74,7 +81,7 @@ export default function Dashboard() {
       const [countRes, unreadRes, starredRes, spamRes] = await Promise.all([
         api.emails.count(),
         api.emails.filter({ isRead: 'false' }, 0, 1),
-        api.emails.filter({ isStarred: 'true' }, 0, 1),
+        api.emails.filter({ destacados: 'true' }, 0, 1),
         api.emails.filter({ label: 'SPAM' }, 0, 1),
       ]);
 
@@ -115,9 +122,24 @@ export default function Dashboard() {
     }
   }, []);
 
+  const fetchSummary = useCallback(async () => {
+    setSummaryLoading(true);
+    setSummaryError(null);
+    try {
+      const data = await api.emails.summary('today');
+      setDailySummary(data);
+    } catch (err) {
+      console.error('Failed to fetch summary', err);
+      setSummaryError(err.message || 'Error al cargar resumen');
+    } finally {
+      setSummaryLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchStats();
-  }, [fetchStats]);
+    fetchSummary();
+  }, [fetchStats, fetchSummary]);
 
   const handleSync = useCallback(async (provider, mode = 'incremental') => {
     try {
@@ -184,6 +206,12 @@ export default function Dashboard() {
       setSyncStatus('error');
       setSyncMode(null);
       setTimeout(() => { setSyncStatus(null); setSyncProgress({ current: 0, total: 0 }); }, 5000);
+    } else if (typeof msg === 'string' && msg.startsWith('urgent_emails:')) {
+      const rest = msg.slice('urgent_emails:'.length);
+      const sepIdx = rest.indexOf(':');
+      const count = parseInt(rest.slice(0, sepIdx), 10) || 0;
+      const subjects = sepIdx >= 0 ? rest.slice(sepIdx + 1) : '';
+      setUrgentEmails({ count, subjects });
     }
   }, [fetchStats]);
 
@@ -230,6 +258,23 @@ export default function Dashboard() {
         <div className="mb-4 flex items-center gap-2 rounded-lg bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 px-4 py-2 text-sm text-amber-700 dark:text-amber-300">
           <WifiOff className="w-4 h-4 flex-shrink-0" />
           <span>{wsError}</span>
+        </div>
+      )}
+
+      {urgentEmails && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 px-4 py-2 text-sm text-red-700 dark:text-red-300">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+          <span className="flex-1 min-w-0">
+            {urgentEmails.count} correo(s) urgente(s): {urgentEmails.subjects}
+          </span>
+          <button
+            onClick={() => setUrgentEmails(null)}
+            className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-800/50 transition-colors flex-shrink-0"
+            title="Descartar"
+            aria-label="Descartar aviso de correos urgentes"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
@@ -383,6 +428,91 @@ export default function Dashboard() {
                   </h2>
                 </div>
                 <BarChart data={stats.perDay} />
+              </div>
+
+              <div className="card dark:bg-gray-800 dark:border-gray-700">
+                <div className="flex items-center gap-2 mb-4">
+                  <Sparkles className="w-5 h-5 text-primary-600" />
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Resumen de hoy</h2>
+                  <button
+                    onClick={fetchSummary}
+                    disabled={summaryLoading}
+                    className="ml-auto p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                    title="Actualizar resumen"
+                    aria-label="Actualizar resumen"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${summaryLoading ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
+
+                {summaryLoading && !dailySummary ? (
+                  <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 py-4">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Generando resumen...</span>
+                  </div>
+                ) : summaryError ? (
+                  <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400 py-2">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    <span className="flex-1 min-w-0">{summaryError}</span>
+                    <button
+                      onClick={fetchSummary}
+                      className="px-2 py-1 text-xs font-medium rounded-lg border border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors flex-shrink-0"
+                    >
+                      Reintentar
+                    </button>
+                  </div>
+                ) : dailySummary ? (
+                  <>
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        h2: ({ children }) => (
+                          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mt-3 mb-1 first:mt-0">{children}</h2>
+                        ),
+                        h3: ({ children }) => (
+                          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mt-2 mb-1 first:mt-0">{children}</h3>
+                        ),
+                        p: ({ children }) => (
+                          <p className="text-sm text-gray-700 dark:text-gray-300 my-1.5">{children}</p>
+                        ),
+                        strong: ({ children }) => (
+                          <strong className="font-semibold text-gray-900 dark:text-gray-100">{children}</strong>
+                        ),
+                        em: ({ children }) => (
+                          <em className="italic">{children}</em>
+                        ),
+                        ul: ({ children }) => (
+                          <ul className="list-disc pl-5 my-1.5 space-y-0.5 text-sm text-gray-700 dark:text-gray-300">{children}</ul>
+                        ),
+                        ol: ({ children }) => (
+                          <ol className="list-decimal pl-5 my-1.5 space-y-0.5 text-sm text-gray-700 dark:text-gray-300">{children}</ol>
+                        ),
+                        li: ({ children }) => <li className="my-0.5">{children}</li>,
+                        table: ({ children }) => (
+                          <div className="overflow-x-auto my-2">
+                            <table className="w-full text-xs text-gray-700 dark:text-gray-300 border-collapse">{children}</table>
+                          </div>
+                        ),
+                        thead: ({ children }) => <thead className="bg-gray-50 dark:bg-gray-700/50">{children}</thead>,
+                        th: ({ children }) => (
+                          <th className="px-2 py-1.5 text-left font-semibold text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700">{children}</th>
+                        ),
+                        td: ({ children }) => (
+                          <td className="px-2 py-1.5 border border-gray-200 dark:border-gray-700">{children}</td>
+                        ),
+                        hr: () => <hr className="my-3 border-gray-200 dark:border-gray-700" />,
+                        a: ({ href, children }) => (
+                          <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary-600 dark:text-primary-400 hover:underline">{children}</a>
+                        ),
+                      }}
+                    >
+                      {dailySummary.summary}
+                    </ReactMarkdown>
+                    <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                      {dailySummary.emailCount} correos · {format(new Date(dailySummary.date + 'T00:00:00'), 'dd/MM/yyyy')}
+                    </div>
+                  </>
+                ) : null}
               </div>
             </>
           )}

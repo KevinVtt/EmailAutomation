@@ -11,28 +11,30 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@stomp/stompjs": "^7.0.0",
+    "clsx": "^2.1.0",
+    "date-fns": "^3.6.0",
+    "lucide-react": "^0.364.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^6.22.3",
-    "@stomp/stompjs": "^7.0.0",
-    "sockjs-client": "^1.6.1",
-    "lucide-react": "^0.364.0",
-    "date-fns": "^3.6.0",
-    "clsx": "^2.1.0"
+    "remark-gfm": "^4.0.1",
+    "sockjs-client": "^1.6.1"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.4.2",
+    "@testing-library/react": "^14.2.2",
     "@types/react": "^18.2.64",
     "@types/react-dom": "^18.2.21",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.18",
     "eslint": "^8.57.0",
     "eslint-plugin-react": "^7.34.0",
+    "jsdom": "^24.0.0",
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.1",
     "vite": "^5.1.6",
-    "vitest": "^1.4.0",
-    "@testing-library/react": "^14.2.2",
-    "@testing-library/jest-dom": "^6.4.2",
-    "jsdom": "^24.0.0"
+    "vitest": "^1.4.0"
   }
 }

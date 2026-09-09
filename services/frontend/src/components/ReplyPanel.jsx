@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../lib/api';
-import { Wand2, Copy, Check, RotateCcw, Settings, X, ChevronDown } from 'lucide-react';
+import { Wand2, Copy, Check, RotateCcw, Settings, X, ChevronDown, Send } from 'lucide-react';
 
 const TONES = [
   { id: 'formal', label: 'Formal', desc: 'Profesional y respetuoso' },
@@ -33,6 +33,8 @@ export default function ReplyPanel({ email, onClose }) {
   const [draft, setDraft] = useState('');
   const [rewritten, setRewritten] = useState('');
   const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -84,10 +86,31 @@ export default function ReplyPanel({ email, onClose }) {
     }
   };
 
+  const handleSend = async () => {
+    const textToSend = rewritten || draft;
+    if (!textToSend.trim() || sending || sent) return;
+    if (!email?.provider || !email?.providerEmailId) {
+      setError('No se puede enviar: falta información del email.');
+      return;
+    }
+    setSending(true);
+    setError(null);
+    try {
+      await api.emails.send(email.provider, email.providerEmailId, textToSend);
+      setSent(true);
+    } catch (err) {
+      console.error('Send failed:', err);
+      setError('Error al enviar. Intentá de nuevo.');
+    } finally {
+      setSending(false);
+    }
+  };
+
   const handleReset = () => {
     setDraft('');
     setRewritten('');
     setError(null);
+    setSent(false);
   };
 
   return (
@@ -180,7 +203,7 @@ export default function ReplyPanel({ email, onClose }) {
         </label>
         <textarea
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => { setDraft(e.target.value); setSent(false); }}
           placeholder="Escribí tu respuesta acá... la IA la va a mejorar."
           className="w-full text-sm border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-primary-400 placeholder-gray-400 dark:placeholder-gray-500"
           rows={5}
@@ -206,6 +229,23 @@ export default function ReplyPanel({ email, onClose }) {
             </>
           )}
         </button>
+        <button
+          onClick={handleSend}
+          disabled={(!draft.trim() && !rewritten) || sending || sent}
+          className="btn-primary flex items-center gap-1.5 text-sm"
+        >
+          {sending ? (
+            <>
+              <RotateCcw className="w-4 h-4 animate-spin" />
+              Enviando...
+            </>
+          ) : (
+            <>
+              <Send className="w-4 h-4" />
+              Enviar
+            </>
+          )}
+        </button>
         {draft && (
           <button
             onClick={handleReset}
@@ -220,6 +260,13 @@ export default function ReplyPanel({ email, onClose }) {
       {error && (
         <div className="mb-3 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2">
           {error}
+        </div>
+      )}
+
+      {/* Sent confirmation */}
+      {sent && (
+        <div className="mb-3 text-xs text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20 rounded-lg px-3 py-2">
+          ✓ Enviado
         </div>
       )}
 

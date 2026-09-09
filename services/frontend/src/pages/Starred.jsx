@@ -1,6 +1,6 @@
 import EmailListView from '../components/EmailListView';
 
-const STARRED_FILTERS = { isStarred: true };
+const STARRED_FILTERS = { destacados: true };
 
 export default function Starred() {
   return (

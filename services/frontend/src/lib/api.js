@@ -130,6 +130,13 @@ export const api = {
       request('/api/emails/sync/status').catch(() => ({ syncing: false })),
     count: () =>
       request('/api/emails/count').catch(() => ({ count: 0 })),
+    summary: (date = 'today') =>
+      request(`/api/emails/summary?date=${date}`),
+    send: (provider, emailId, body) =>
+      request('/api/emails/send', {
+        method: 'POST',
+        body: JSON.stringify({ provider, emailId, body }),
+      }),
   },
   chat: {
     send: (message, conversationId = '') =>

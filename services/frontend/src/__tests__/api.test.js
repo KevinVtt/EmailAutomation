@@ -75,4 +75,44 @@ describe('api lib', () => {
     const result = await api.chat.send('Show important emails');
     expect(result.response).toBe('OK');
   });
+
+  it('emails.summary calls correct endpoint and returns parsed body', async () => {
+    const mockResponse = {
+      summary: 'Hoy recibiste 3 correos importantes.',
+      emailCount: 3,
+      date: '2026-09-09',
+    };
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      text: () => Promise.resolve(JSON.stringify(mockResponse)),
+    });
+
+    const result = await api.emails.summary('today');
+    const callUrl = global.fetch.mock.calls[0][0];
+    expect(callUrl).toContain('/api/emails/summary?date=today');
+    expect(result).toEqual(mockResponse);
+  });
+
+  it('emails.send POSTs to the send endpoint with the correct body', async () => {
+    const mockResponse = { status: 'sent', messageId: 'msg-123' };
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      text: () => Promise.resolve(JSON.stringify(mockResponse)),
+    });
+
+    const result = await api.emails.send('google', 'provider-email-1', 'Hola, gracias por tu mensaje.');
+    const [callUrl, callOptions] = global.fetch.mock.calls[0];
+    expect(callUrl).toContain('/api/emails/send');
+    expect(callOptions.method).toBe('POST');
+    expect(JSON.parse(callOptions.body)).toEqual({
+      provider: 'google',
+      emailId: 'provider-email-1',
+      body: 'Hola, gracias por tu mensaje.',
+    });
+    expect(result).toEqual(mockResponse);
+  });
 });
