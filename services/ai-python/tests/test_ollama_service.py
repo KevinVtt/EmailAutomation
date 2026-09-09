@@ -50,6 +50,7 @@ async def test_http_error(httpx_mock, monkeypatch):
         url="https://api.groq.com/openai/v1/chat/completions",
         method="POST",
         status_code=500,
+        is_reusable=True,
     )
 
     with pytest.raises(Exception):

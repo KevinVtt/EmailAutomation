@@ -45,7 +45,7 @@ class AIService:
         payload = {
             "model": self.model,
             "messages": messages,
-            "temperature": 0.7,
+            "temperature": 0.3,
             "stream": False,
         }
 

@@ -68,7 +68,7 @@ services:
     environment:
       AI_API_KEY: ${AI_API_KEY}
       AI_API_URL: ${AI_API_URL:-https://api.groq.com/openai/v1}
-      AI_MODEL: ${AI_MODEL:-llama-3.1-8b-instant}
+      AI_MODEL: ${AI_MODEL:-openai/gpt-oss-120b}
       AI_PROVIDER: ${AI_PROVIDER:-openai}
     ports:
       - "8000:8000"
