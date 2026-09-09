@@ -31,13 +31,20 @@ export default function Layout() {
 
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
-                {user?.avatarUrl ? (
-                  <img src={user.avatarUrl} alt="" className="w-8 h-8 rounded-full" />
-                ) : (
+                <div className="w-8 h-8 relative">
                   <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center">
                     <Mail className="w-4 h-4 text-primary-600" />
                   </div>
-                )}
+                  {user?.avatarUrl && (
+                    <img
+                      src={user.avatarUrl}
+                      alt=""
+                      referrerPolicy="no-referrer"
+                      className="w-8 h-8 rounded-full absolute inset-0"
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                    />
+                  )}
+                </div>
                 <span className="text-sm text-gray-700 dark:text-gray-300 hidden sm:block">
                   {user?.name || user?.email}
                 </span>

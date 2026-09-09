@@ -10,13 +10,20 @@ export default function Settings() {
 
       <div className="card dark:bg-gray-800 dark:border-gray-700">
         <div className="flex items-center gap-4 pb-4 mb-4 border-b border-gray-200 dark:border-gray-700">
-          {user?.avatarUrl ? (
-            <img src={user.avatarUrl} alt="" className="w-16 h-16 rounded-full" />
-          ) : (
+          <div className="w-16 h-16 relative">
             <div className="w-16 h-16 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center">
               <Mail className="w-8 h-8 text-primary-600 dark:text-primary-400" />
             </div>
-          )}
+            {user?.avatarUrl && (
+              <img
+                src={user.avatarUrl}
+                alt=""
+                referrerPolicy="no-referrer"
+                className="w-16 h-16 rounded-full absolute inset-0"
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+              />
+            )}
+          </div>
           <div className="min-w-0">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 truncate">
               {user?.name || 'Usuario'}

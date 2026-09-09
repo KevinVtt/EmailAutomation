@@ -240,12 +240,28 @@ public class AuthController {
             throw new RuntimeException("Failed to fetch Outlook user info");
         }
 
+        String avatarUrl = "";
+        try {
+            var photoResponse = restTemplate.exchange(
+                    "https://graph.microsoft.com/v1.0/me/photo/$value",
+                    HttpMethod.GET,
+                    new HttpEntity<>(userHeaders),
+                    byte[].class
+            );
+            if (photoResponse.getBody() != null && photoResponse.getBody().length > 0) {
+                avatarUrl = "data:image/jpeg;base64," +
+                        java.util.Base64.getEncoder().encodeToString(photoResponse.getBody());
+            }
+        } catch (Exception e) {
+            log.warn("Could not fetch Outlook user photo: {}", e.getMessage());
+        }
+
         return Map.of(
                 "user", Map.of(
                         "id", userInfo.getOrDefault("id", ""),
                         "email", userInfo.getOrDefault("mail", userInfo.getOrDefault("userPrincipalName", "")),
                         "name", userInfo.getOrDefault("displayName", ""),
-                        "avatarUrl", ""
+                        "avatarUrl", avatarUrl
                 ),
                 "token", tokenResponse
         );

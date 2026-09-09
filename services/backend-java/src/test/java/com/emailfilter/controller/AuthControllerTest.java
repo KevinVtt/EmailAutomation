@@ -15,11 +15,13 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.Map;
@@ -179,5 +181,118 @@ class AuthControllerTest {
         mockMvc.perform(get("/api/emails")
                         .header("Authorization", "Bearer refresh-token"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void handleCallback_outlookPhotoSuccess_returnsDataUrl() throws Exception {
+        var response = AuthResponse.builder()
+                .userId(UUID.randomUUID())
+                .email("test@outlook.com")
+                .name("Test User")
+                .accessToken("token")
+                .refreshToken("refresh")
+                .build();
+
+        var user = User.builder()
+                .id(UUID.randomUUID())
+                .email("test@outlook.com")
+                .build();
+
+        Map<String, Object> tokenResponse = Map.of(
+                "access_token", "outlook-access-token",
+                "refresh_token", "outlook-refresh-token",
+                "token_type", "Bearer",
+                "scope", "email profile Mail.Read",
+                "expires_in", 3600
+        );
+        Map<String, Object> userInfo = Map.of(
+                "id", "outlook-user-1",
+                "mail", "test@outlook.com",
+                "displayName", "Test User"
+        );
+        byte[] photoBytes = new byte[]{0x01, 0x02, 0x03, (byte) 0xFF};
+
+        when(restTemplate.exchange(
+                eq("https://login.microsoftonline.com/common/oauth2/v2.0/token"),
+                eq(HttpMethod.POST), any(), eq(Map.class)))
+                .thenReturn(ResponseEntity.ok(tokenResponse));
+        when(restTemplate.exchange(
+                eq("https://graph.microsoft.com/v1.0/me"),
+                eq(HttpMethod.GET), any(), eq(Map.class)))
+                .thenReturn(ResponseEntity.ok(userInfo));
+        when(restTemplate.exchange(
+                eq("https://graph.microsoft.com/v1.0/me/photo/$value"),
+                eq(HttpMethod.GET), any(), eq(byte[].class)))
+                .thenReturn(ResponseEntity.ok(photoBytes));
+
+        when(authService.authenticateOAuth2User(anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(response);
+        when(authService.findByEmail(anyString())).thenReturn(user);
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(any(), anyString()))
+                .thenReturn(Optional.empty());
+
+        var body = "{\"authorizationCode\":\"code123\"}";
+
+        mockMvc.perform(post("/api/auth/callback/outlook")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value("test@outlook.com"));
+    }
+
+    @Test
+    void handleCallback_outlookPhotoNotFound_avatarUrlEmpty() throws Exception {
+        var response = AuthResponse.builder()
+                .userId(UUID.randomUUID())
+                .email("test@outlook.com")
+                .name("Test User")
+                .accessToken("token")
+                .refreshToken("refresh")
+                .build();
+
+        var user = User.builder()
+                .id(UUID.randomUUID())
+                .email("test@outlook.com")
+                .build();
+
+        Map<String, Object> tokenResponse = Map.of(
+                "access_token", "outlook-access-token",
+                "refresh_token", "outlook-refresh-token",
+                "token_type", "Bearer",
+                "scope", "email profile Mail.Read",
+                "expires_in", 3600
+        );
+        Map<String, Object> userInfo = Map.of(
+                "id", "outlook-user-1",
+                "mail", "test@outlook.com",
+                "displayName", "Test User"
+        );
+
+        when(restTemplate.exchange(
+                eq("https://login.microsoftonline.com/common/oauth2/v2.0/token"),
+                eq(HttpMethod.POST), any(), eq(Map.class)))
+                .thenReturn(ResponseEntity.ok(tokenResponse));
+        when(restTemplate.exchange(
+                eq("https://graph.microsoft.com/v1.0/me"),
+                eq(HttpMethod.GET), any(), eq(Map.class)))
+                .thenReturn(ResponseEntity.ok(userInfo));
+        when(restTemplate.exchange(
+                eq("https://graph.microsoft.com/v1.0/me/photo/$value"),
+                eq(HttpMethod.GET), any(), eq(byte[].class)))
+                .thenThrow(new HttpClientErrorException(HttpStatus.NOT_FOUND, "Not Found"));
+
+        when(authService.authenticateOAuth2User(anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(response);
+        when(authService.findByEmail(anyString())).thenReturn(user);
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(any(), anyString()))
+                .thenReturn(Optional.empty());
+
+        var body = "{\"authorizationCode\":\"code123\"}";
+
+        mockMvc.perform(post("/api/auth/callback/outlook")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value("test@outlook.com"));
     }
 }
