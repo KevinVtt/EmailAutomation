@@ -123,6 +123,14 @@ public class EmailController {
         return ResponseEntity.accepted().body(Map.of("status", "syncing", "mode", "full"));
     }
 
+    @GetMapping("/summary")
+    public ResponseEntity<Map<String, Object>> getDailySummary(
+            Authentication auth,
+            @RequestParam(defaultValue = "today") String date) {
+        var userId = getUserId(auth);
+        return ResponseEntity.ok(emailService.getDailySummary(userId, date));
+    }
+
     @GetMapping("/count")
     public ResponseEntity<Map<String, Object>> emailCount(Authentication auth) {
         var userId = getUserId(auth);
@@ -149,6 +157,32 @@ public class EmailController {
         );
 
         log.info("=== REWRITE FIN === userId={}", userId);
+        return ResponseEntity.ok(result);
+    }
+
+    @PostMapping("/send")
+    public ResponseEntity<Map<String, Object>> sendEmail(
+            Authentication auth,
+            @RequestBody Map<String, String> body) {
+        var userId = getUserId(auth);
+        var provider = body.get("provider");
+        var emailId = body.get("emailId");
+        var replyBody = body.get("body");
+
+        if (provider == null || provider.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "provider is required"));
+        }
+        if (emailId == null || emailId.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "emailId is required"));
+        }
+        if (replyBody == null || replyBody.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "body is required"));
+        }
+
+        var user = userDetailsService.loadUserEntityById(userId);
+        log.info("Sending reply: userId={}, provider={}, emailId={}, body_len={}",
+                userId, provider, emailId, replyBody.length());
+        var result = emailService.sendReply(user, provider, emailId, replyBody);
         return ResponseEntity.ok(result);
     }
 

@@ -17,6 +17,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -135,5 +136,33 @@ class GmailServiceTest {
                         ))
                         .setBody(new MessagePartBody()
                                 .setData(Base64.getUrlEncoder().encodeToString(("body-" + id).getBytes()))));
+    }
+
+    @Test
+    void buildMimeMessage_containsHeadersAndBody() {
+        var mime = gmailService.buildMimeMessage("to@example.com", "Re: Hola", "Cuerpo");
+
+        assertTrue(mime.contains("From: me"));
+        assertTrue(mime.contains("To: to@example.com"));
+        assertTrue(mime.contains("Subject: Re: Hola"));
+        assertTrue(mime.contains("Content-Type: text/plain; charset=UTF-8"));
+        assertTrue(mime.endsWith("\r\n\r\nCuerpo"));
+    }
+
+    @Test
+    void sendEmail_encodesMimeAndCallsSend() throws Exception {
+        var sendRequest = mock(Gmail.Users.Messages.Send.class);
+        when(gmail.users().messages().send(eq("me"), any(Message.class))).thenReturn(sendRequest);
+        when(sendRequest.execute()).thenReturn(new Message().setId("sent-1"));
+
+        var id = gmailService.sendEmail("token", "to@example.com", "Re: Hola", "Cuerpo");
+
+        assertEquals("sent-1", id);
+        var captor = ArgumentCaptor.forClass(Message.class);
+        verify(gmail.users().messages()).send(eq("me"), captor.capture());
+        var decoded = new String(Base64.getUrlDecoder().decode(captor.getValue().getRaw()));
+        assertTrue(decoded.contains("To: to@example.com"));
+        assertTrue(decoded.contains("Subject: Re: Hola"));
+        assertTrue(decoded.contains("Content-Type: text/plain; charset=UTF-8"));
     }
 }

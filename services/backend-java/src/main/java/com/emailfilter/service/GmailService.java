@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.time.Instant;
 import java.util.Base64;
@@ -270,6 +271,28 @@ public class GmailService {
 
     public void moveToTrash(String accessToken, String messageId) {
         modifyMessage(accessToken, messageId, List.of("TRASH"), List.of());
+    }
+
+    public String sendEmail(String accessToken, String to, String subject, String body) {
+        var gmail = buildGmailClient(accessToken);
+        try {
+            var raw = Base64.getUrlEncoder().withoutPadding()
+                    .encodeToString(buildMimeMessage(to, subject, body).getBytes(StandardCharsets.UTF_8));
+            var response = gmail.users().messages().send("me", new Message().setRaw(raw)).execute();
+            log.info("Gmail message sent: id={}, to={}, subject={}", response.getId(), to, subject);
+            return response.getId();
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to send Gmail message", e);
+        }
+    }
+
+    String buildMimeMessage(String to, String subject, String body) {
+        return "From: me\r\n"
+                + "To: " + to + "\r\n"
+                + "Subject: " + subject + "\r\n"
+                + "Content-Type: text/plain; charset=UTF-8\r\n"
+                + "\r\n"
+                + body;
     }
 
     private void modifyMessage(String accessToken, String messageId,

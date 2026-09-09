@@ -20,6 +20,7 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.*;
@@ -97,5 +98,65 @@ class EmailControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
+    void getDailySummary_returnsSummary() throws Exception {
+        var summary = Map.<String, Object>of(
+                "summary", "Resumen del día: 3 correos importantes.",
+                "emailCount", 3,
+                "date", "2026-09-09"
+        );
+        when(emailService.getDailySummary(any(), eq("today"))).thenReturn(summary);
+
+        mockMvc.perform(get("/api/emails/summary")
+                        .param("date", "today"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.summary").value("Resumen del día: 3 correos importantes."))
+                .andExpect(jsonPath("$.emailCount").value(3))
+                .andExpect(jsonPath("$.date").value("2026-09-09"));
+    }
+
+    @Test
+    void errorEndpoint_unauthenticated_returns500Not403() throws Exception {
+        mockMvc.perform(get("/error")
+                        .requestAttr("jakarta.servlet.error.status_code", 500)
+                        .requestAttr("jakarta.servlet.error.message", "AI service failed"))
+                .andExpect(status().isInternalServerError());
+    }
+
+    @Test
+    void getDailySummary_unauthenticated_returns4xx() throws Exception {
+        mockMvc.perform(get("/api/emails/summary")
+                        .param("date", "today"))
+                .andExpect(status().is4xxClientError());
+    }
+
+    @Test
+    @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
+    void sendEmail_returnsOk() throws Exception {
+        when(emailService.sendReply(any(), eq("google"), eq("12345"), anyString()))
+                .thenReturn(Map.of("status", "sent", "messageId", "msg-1"));
+
+        mockMvc.perform(post("/api/emails/send")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"provider": "google", "emailId": "12345", "body": "Hola"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("sent"))
+                .andExpect(jsonPath("$.messageId").value("msg-1"));
+    }
+
+    @Test
+    @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
+    void sendEmail_missingBody_returns400() throws Exception {
+        mockMvc.perform(post("/api/emails/send")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"provider": "google", "emailId": "12345"}
+                                """))
+                .andExpect(status().isBadRequest());
     }
 }

@@ -9,23 +9,34 @@ import com.emailfilter.repository.VistoRepository;
 import com.google.api.services.gmail.Gmail;
 import com.google.api.services.gmail.model.ListMessagesResponse;
 import com.google.api.services.gmail.model.Message;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Path;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
@@ -57,6 +68,8 @@ class EmailServiceTest {
     @Mock
     private WebSocketService webSocketService;
     @Mock
+    private AIServiceClient aiServiceClient;
+    @Mock
     private Gmail gmail;
 
     private EmailService emailService;
@@ -65,7 +78,7 @@ class EmailServiceTest {
     @BeforeEach
     void setUp() throws Exception {
         emailService = new TestableEmailService(emailRepository, oauthTokenRepository, vistoRepository,
-                gmailService, outlookService, webSocketService, gmail);
+                gmailService, outlookService, webSocketService, aiServiceClient, gmail);
         listRequest = mock(Gmail.Users.Messages.List.class);
         var users = mock(Gmail.Users.class);
         var messages = mock(Gmail.Users.Messages.class);
@@ -83,8 +96,10 @@ class EmailServiceTest {
 
         TestableEmailService(EmailRepository emailRepository, OAuthTokenRepository oauthTokenRepository,
                              VistoRepository vistoRepository, GmailService gmailService,
-                             OutlookService outlookService, WebSocketService webSocketService, Gmail gmail) {
-            super(emailRepository, oauthTokenRepository, vistoRepository, gmailService, outlookService, webSocketService);
+                             OutlookService outlookService, WebSocketService webSocketService,
+                             AIServiceClient aiServiceClient, Gmail gmail) {
+            super(emailRepository, oauthTokenRepository, vistoRepository, gmailService, outlookService,
+                    webSocketService, aiServiceClient);
             this.gmail = gmail;
         }
 
@@ -362,5 +377,249 @@ class EmailServiceTest {
         verify(emailRepository).addSpamLabelByProviderEmailIds(eq(userId),
                 argThat(ids -> ids.contains("existing-2") && ids.size() == 1));
         verify(webSocketService).sendNotification(userId.toString(), "sync_complete");
+    }
+
+    @Test
+    void getDailySummary_today_returnsSummary() {
+        var userId = UUID.randomUUID();
+        var email = EmailMessage.builder()
+                .id(UUID.randomUUID())
+                .provider("google")
+                .providerEmailId("email-1")
+                .subject("Report")
+                .user(User.builder().id(userId).build())
+                .build();
+        var page = new PageImpl<>(List.of(email), PageRequest.of(0, 100), 1);
+
+        when(emailRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(page);
+        when(vistoRepository.findVistoEmailIdsByUserIdAndProviderEmailIdIn(eq(userId), anyCollection()))
+                .thenReturn(List.of());
+        when(aiServiceClient.summarizeEmails(any())).thenReturn("Resumen del día");
+
+        var result = emailService.getDailySummary(userId, "today");
+
+        assertEquals("Resumen del día", result.get("summary"));
+        assertEquals(1L, result.get("emailCount"));
+        assertEquals(LocalDate.now().toString(), result.get("date"));
+        verify(aiServiceClient).summarizeEmails(any());
+    }
+
+    @Test
+    void getDailySummary_noEmails_returnsEmptySummary() {
+        var userId = UUID.randomUUID();
+        var page = new PageImpl<>(List.<EmailMessage>of(), PageRequest.of(0, 100), 0);
+
+        when(emailRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(page);
+
+        var result = emailService.getDailySummary(userId, "yesterday");
+
+        assertEquals("No hay correos para resumir.", result.get("summary"));
+        assertEquals(0, result.get("emailCount"));
+        assertEquals(LocalDate.now().minusDays(1).toString(), result.get("date"));
+        verify(aiServiceClient, never()).summarizeEmails(any());
+    }
+
+    @Test
+    void filterEmails_destacados_buildsStarredOrImportantPredicate() {
+        var userId = UUID.randomUUID();
+        var page = new PageImpl<>(List.<EmailMessage>of(), PageRequest.of(0, 20), 0);
+        when(emailRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(page);
+
+        emailService.filterEmails(userId, Map.of("destacados", "true"), 0, 20);
+
+        var cb = mock(CriteriaBuilder.class);
+        var root = mock(Root.class);
+        var userPath = mock(Path.class);
+        var starredPred = mock(Predicate.class);
+        var importantPred = mock(Predicate.class);
+        when(root.get("user")).thenReturn(userPath);
+        when(userPath.get("id")).thenReturn(mock(Path.class));
+        when(cb.equal(any(Expression.class), eq(userId))).thenReturn(mock(Predicate.class));
+        when(cb.equal(root.get("isStarred"), true)).thenReturn(starredPred);
+        when(cb.like(root.get("labels"), "%IMPORTANT%")).thenReturn(importantPred);
+        when(cb.or(starredPred, importantPred)).thenReturn(mock(Predicate.class));
+        when(cb.and(any(Predicate[].class))).thenReturn(mock(Predicate.class));
+
+        var captor = ArgumentCaptor.forClass(Specification.class);
+        verify(emailRepository).findAll(captor.capture(), any(Pageable.class));
+        captor.getValue().toPredicate(root, mock(CriteriaQuery.class), cb);
+
+        verify(cb).or(starredPred, importantPred);
+    }
+
+    @Test
+    void filterEmails_destacadosBlank_doesNotAddOrPredicate() {
+        var userId = UUID.randomUUID();
+        var page = new PageImpl<>(List.<EmailMessage>of(), PageRequest.of(0, 20), 0);
+        when(emailRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(page);
+
+        emailService.filterEmails(userId, Map.of("destacados", ""), 0, 20);
+
+        var cb = mock(CriteriaBuilder.class);
+        var root = mock(Root.class);
+        var userPath = mock(Path.class);
+        when(root.get("user")).thenReturn(userPath);
+        when(userPath.get("id")).thenReturn(mock(Path.class));
+        when(cb.equal(any(Expression.class), eq(userId))).thenReturn(mock(Predicate.class));
+        when(cb.and(any(Predicate[].class))).thenReturn(mock(Predicate.class));
+
+        var captor = ArgumentCaptor.forClass(Specification.class);
+        verify(emailRepository).findAll(captor.capture(), any(Pageable.class));
+        captor.getValue().toPredicate(root, mock(CriteriaQuery.class), cb);
+
+        verify(cb, never()).or(any(Predicate[].class));
+    }
+
+    @Test
+    void syncEmailsAsync_urgentEmail_sendsUrgentNotification() throws Exception {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var lastEmail = EmailMessage.builder()
+                .id(UUID.randomUUID())
+                .provider("google")
+                .providerEmailId("last-email")
+                .receivedAt(Instant.now())
+                .user(user)
+                .build();
+        var newEmail = EmailMessage.builder()
+                .id(UUID.randomUUID())
+                .provider("google")
+                .providerEmailId("new-1")
+                .subject("URGENT: Server down")
+                .user(user)
+                .build();
+        var token = OAuthToken.builder()
+                .accessToken("test-access-token")
+                .expiresAt(Instant.now().plusSeconds(3600))
+                .build();
+
+        var starredResp = new ListMessagesResponse().setMessages(List.of()).setNextPageToken(null);
+        var spamResp = new ListMessagesResponse().setMessages(List.of()).setNextPageToken(null);
+        when(listRequest.execute()).thenReturn(starredResp).thenReturn(spamResp);
+
+        when(emailRepository.findTopByUserIdOrderByReceivedAtDesc(userId)).thenReturn(Optional.of(lastEmail));
+        when(emailRepository.findProviderEmailIdsByUserId(eq(userId), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 1000), 0));
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
+                .thenReturn(Optional.of(token));
+        when(gmailService.fetchIncrementalEmails(anyString(), any(Instant.class), anySet()))
+                .thenReturn(List.of(newEmail));
+        when(emailRepository.findByProviderEmailIdAndUserId("new-1", userId)).thenReturn(Optional.empty());
+        when(aiServiceClient.analyzeEmails(any()))
+                .thenReturn(Map.of("classifications", List.of(Map.of("id", "new-1", "urgency", "high"))));
+
+        emailService.syncEmailsAsync(user, "google").join();
+
+        verify(webSocketService).sendNotification(userId.toString(), "urgent_emails:1:URGENT: Server down");
+    }
+
+    @Test
+    void syncEmailsAsync_lowUrgency_noUrgentNotification() throws Exception {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var lastEmail = EmailMessage.builder()
+                .id(UUID.randomUUID())
+                .provider("google")
+                .providerEmailId("last-email")
+                .receivedAt(Instant.now())
+                .user(user)
+                .build();
+        var newEmail = EmailMessage.builder()
+                .id(UUID.randomUUID())
+                .provider("google")
+                .providerEmailId("new-1")
+                .subject("Newsletter")
+                .user(user)
+                .build();
+        var token = OAuthToken.builder()
+                .accessToken("test-access-token")
+                .expiresAt(Instant.now().plusSeconds(3600))
+                .build();
+
+        var starredResp = new ListMessagesResponse().setMessages(List.of()).setNextPageToken(null);
+        var spamResp = new ListMessagesResponse().setMessages(List.of()).setNextPageToken(null);
+        when(listRequest.execute()).thenReturn(starredResp).thenReturn(spamResp);
+
+        when(emailRepository.findTopByUserIdOrderByReceivedAtDesc(userId)).thenReturn(Optional.of(lastEmail));
+        when(emailRepository.findProviderEmailIdsByUserId(eq(userId), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 1000), 0));
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
+                .thenReturn(Optional.of(token));
+        when(gmailService.fetchIncrementalEmails(anyString(), any(Instant.class), anySet()))
+                .thenReturn(List.of(newEmail));
+        when(emailRepository.findByProviderEmailIdAndUserId("new-1", userId)).thenReturn(Optional.empty());
+        when(aiServiceClient.analyzeEmails(any()))
+                .thenReturn(Map.of("classifications", List.of(Map.of("id", "new-1", "urgency", "low"))));
+
+        emailService.syncEmailsAsync(user, "google").join();
+
+        verify(webSocketService, never()).sendNotification(anyString(),
+                argThat(msg -> msg.startsWith("urgent_emails:")));
+    }
+
+    @Test
+    void sendReply_buildsReplyAndCallsGmail() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var original = EmailMessage.builder()
+                .id(UUID.randomUUID())
+                .provider("google")
+                .providerEmailId("orig-1")
+                .fromAddress("sender@example.com")
+                .subject("Hola")
+                .user(user)
+                .build();
+        var token = OAuthToken.builder()
+                .accessToken("test-access-token")
+                .expiresAt(Instant.now().plusSeconds(3600))
+                .build();
+
+        when(emailRepository.findByProviderEmailIdAndUserId("orig-1", userId)).thenReturn(Optional.of(original));
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
+                .thenReturn(Optional.of(token));
+        when(gmailService.sendEmail("test-access-token", "sender@example.com", "Re: Hola", "Respuesta"))
+                .thenReturn("msg-1");
+
+        var result = emailService.sendReply(user, "google", "orig-1", "Respuesta");
+
+        assertEquals("sent", result.get("status"));
+        assertEquals("msg-1", result.get("messageId"));
+        verify(gmailService).sendEmail("test-access-token", "sender@example.com", "Re: Hola", "Respuesta");
+    }
+
+    @Test
+    void sendReply_emailNotFound_throws() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+
+        when(emailRepository.findByProviderEmailIdAndUserId("missing", userId)).thenReturn(Optional.empty());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> emailService.sendReply(user, "google", "missing", "Hola"));
+    }
+
+    @Test
+    void sendReply_unsupportedProvider_throws() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var original = EmailMessage.builder()
+                .id(UUID.randomUUID())
+                .provider("google")
+                .providerEmailId("orig-1")
+                .fromAddress("sender@example.com")
+                .subject("Hola")
+                .user(user)
+                .build();
+        var token = OAuthToken.builder()
+                .accessToken("test-access-token")
+                .expiresAt(Instant.now().plusSeconds(3600))
+                .build();
+
+        when(emailRepository.findByProviderEmailIdAndUserId("orig-1", userId)).thenReturn(Optional.of(original));
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "yahoo"))
+                .thenReturn(Optional.of(token));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> emailService.sendReply(user, "yahoo", "orig-1", "Hola"));
     }
 }

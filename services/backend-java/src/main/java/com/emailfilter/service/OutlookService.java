@@ -1,5 +1,6 @@
 package com.emailfilter.service;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -11,6 +12,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.*;
 
+@Slf4j
 @Service
 public class OutlookService {
 
@@ -74,6 +76,33 @@ public class OutlookService {
                 new HttpEntity<>(Map.of("destinationId", "deleteditems"), headers),
                 Map.class
         );
+    }
+
+    public String sendEmail(String accessToken, String to, String subject, String body) {
+        var headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken);
+        headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+        var payload = Map.of(
+                "message", Map.of(
+                        "subject", subject,
+                        "body", Map.of("contentType", "Text", "content", body),
+                        "toRecipients", List.of(Map.of("emailAddress", Map.of("address", to)))
+                ),
+                "saveToSentItems", true
+        );
+
+        restTemplate.exchange(
+                "https://graph.microsoft.com/v1.0/me/sendMail",
+                HttpMethod.POST,
+                new HttpEntity<>(payload, headers),
+                Map.class
+        );
+
+        // Graph returns 202 Accepted with no body — generate a local id for tracking
+        var messageId = UUID.randomUUID().toString();
+        log.info("Outlook message sent: id={}, to={}, subject={}", messageId, to, subject);
+        return messageId;
     }
 
     private void patchMessage(String accessToken, String messageId, Map<String, Object> updates) {

@@ -24,6 +24,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -47,6 +49,7 @@ public class EmailService {
     private final GmailService gmailService;
     private final OutlookService outlookService;
     private final WebSocketService webSocketService;
+    private final AIServiceClient aiServiceClient;
 
     @Value("${email.sync.max-emails:1000}")
     int maxEmailsPerSync;
@@ -118,6 +121,10 @@ public class EmailService {
                     case "isStarred" -> predicates.add(cb.equal(root.get("isStarred"), Boolean.parseBoolean(value)));
                     case "important" ->
                         predicates.add(cb.like(root.get("labels"), "%IMPORTANT%"));
+                    case "destacados" ->
+                        predicates.add(cb.or(
+                                cb.equal(root.get("isStarred"), true),
+                                cb.like(root.get("labels"), "%IMPORTANT%")));
                     case "label" ->
                         predicates.add(cb.like(root.get("labels"), "%" + escapeLike(value) + "%"));
                     case "dateFrom" ->
@@ -144,6 +151,91 @@ public class EmailService {
     @Transactional(readOnly = true)
     public long getEmailCountByUser(UUID userId) {
         return emailRepository.findByUserIdOrderByReceivedAtDesc(userId, PageRequest.of(0, 1)).getTotalElements();
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> getDailySummary(UUID userId, String date) {
+        var zone = ZoneId.systemDefault();
+        LocalDate targetDate;
+
+        if ("today".equalsIgnoreCase(date)) {
+            targetDate = LocalDate.now(zone);
+        } else if ("yesterday".equalsIgnoreCase(date)) {
+            targetDate = LocalDate.now(zone).minusDays(1);
+        } else {
+            targetDate = LocalDate.parse(date);
+        }
+
+        var dayStart = targetDate.atStartOfDay(zone).toInstant();
+        var dayEnd = targetDate.plusDays(1).atStartOfDay(zone).toInstant();
+
+        var filters = Map.of("dateFrom", dayStart.toString(), "dateTo", dayEnd.minusNanos(1).toString());
+        var emailPage = filterEmails(userId, filters, 0, 100);
+        var dtos = emailPage.getContent();
+        var totalElements = emailPage.getTotalElements();
+
+        if (dtos.isEmpty()) {
+            return Map.of(
+                    "summary", "No hay correos para resumir.",
+                    "emailCount", 0,
+                    "date", targetDate.toString()
+            );
+        }
+
+        var summary = aiServiceClient.summarizeEmails(dtos);
+        return Map.of(
+                "summary", summary,
+                "emailCount", totalElements,
+                "date", targetDate.toString()
+        );
+    }
+
+    private void notifyUrgentEmails(User user, List<EmailMessage> emails) {
+        try {
+            var capped = emails.size() > 20 ? emails.subList(0, 20) : emails;
+            var dtos = capped.stream()
+                    .map(e -> toDTO(e, Set.of()))
+                    .toList();
+
+            if (dtos.isEmpty()) return;
+
+            var result = aiServiceClient.analyzeEmails(dtos);
+            if (result == null) return;
+
+            var classifications = result.get("classifications");
+            if (!(classifications instanceof List<?> classList)) return;
+
+            var urgentSubjects = new ArrayList<String>();
+            for (var entry : classList) {
+                if (!(entry instanceof Map<?, ?> cls)) continue;
+                var urgency = cls.get("urgency");
+                if (!"high".equals(urgency)) continue;
+                var id = cls.get("id");
+                for (var dto : dtos) {
+                    if (id != null && id.toString().equals(dto.getProviderEmailId())) {
+                        var subject = dto.getSubject();
+                        if (subject != null && subject.length() > 60) {
+                            subject = subject.substring(0, 60);
+                        }
+                        urgentSubjects.add(subject != null ? subject : "(sin asunto)");
+                        break;
+                    }
+                }
+            }
+
+            if (!urgentSubjects.isEmpty()) {
+                var count = urgentSubjects.size();
+                var joined = urgentSubjects.stream()
+                        .limit(3)
+                        .reduce((a, b) -> a + " | " + b)
+                        .orElse("");
+                var notification = "urgent_emails:" + count + ":" + joined;
+                webSocketService.sendNotification(user.getId().toString(), notification);
+                log.info("Urgent email notification sent to user={}: {} urgent emails", user.getId(), count);
+            }
+        } catch (Exception e) {
+            log.warn("Urgent email analysis failed (best-effort): {}", e.getMessage(), e);
+        }
     }
 
     private void cleanupExpiredSyncStatus() {
@@ -216,9 +308,9 @@ public class EmailService {
 
             int syncedCount = saveEmails(emails, user, provider);
             if ("google".equals(provider)) {
-                // Refresh starred/spam state for existing emails (best effort)
                 refreshLabelsAndStars(user, accessToken);
             }
+            notifyUrgentEmails(user, emails);
             log.info("Sync complete: {} new emails saved for user={}, provider={} ({} total fetched)", syncedCount, userId, provider, emails.size());
             webSocketService.sendNotification(userId.toString(), "sync_complete");
         } catch (RuntimeException e) {
@@ -297,6 +389,7 @@ public class EmailService {
             // Step 3: Fetch new emails in batches of 50, send progress
             int fetched = 0;
             int batchSize = 50;
+            var allSavedEmails = new ArrayList<EmailMessage>();
             for (int i = 0; i < newIds.size(); i += batchSize) {
                 if (Thread.currentThread().isInterrupted()) {
                     log.warn("Full sync interrupted for user={}", userId);
@@ -315,9 +408,9 @@ public class EmailService {
                     }
                 }
 
-                // Save batch
                 if (!batchEmails.isEmpty()) {
                     saveEmails(batchEmails, user, provider);
+                    allSavedEmails.addAll(batchEmails);
                 }
 
                 fetched += batch.size();
@@ -329,8 +422,8 @@ public class EmailService {
                 }
             }
 
-            // Refresh starred/spam state for existing emails (best effort)
             refreshLabelsAndStars(user, accessToken);
+            notifyUrgentEmails(user, allSavedEmails);
 
             log.info("Full sync complete: {} new emails saved for user={} ({} total in Gmail)",
                     fetched, userId, totalInGmail);
@@ -576,6 +669,33 @@ public class EmailService {
         } catch (Exception e) {
             log.warn("Failed to move to trash on {}: {}", provider, e.getMessage());
         }
+    }
+
+    @Transactional
+    public Map<String, Object> sendReply(User user, String provider, String providerEmailId, String body) {
+        var original = emailRepository.findByProviderEmailIdAndUserId(providerEmailId, user.getId())
+                .orElseThrow(() -> new IllegalArgumentException("Email not found"));
+
+        var to = original.getFromAddress();
+        var originalSubject = original.getSubject();
+        var subject = originalSubject != null && originalSubject.matches("(?i)^re:\\s*.*")
+                ? originalSubject
+                : "Re: " + (originalSubject != null ? originalSubject : "");
+
+        var token = getToken(user, provider);
+
+        String messageId;
+        if ("google".equals(provider)) {
+            messageId = gmailService.sendEmail(token, to, subject, body);
+        } else if ("outlook".equals(provider)) {
+            messageId = outlookService.sendEmail(token, to, subject, body);
+        } else {
+            throw new IllegalArgumentException("Unsupported provider: " + provider);
+        }
+
+        log.info("Reply sent: userId={}, provider={}, to={}, subject={}, messageId={}",
+                user.getId(), provider, to, subject, messageId);
+        return Map.of("status", "sent", "messageId", messageId);
     }
 
     private String getToken(User user, String provider) {
