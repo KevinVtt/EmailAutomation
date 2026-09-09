@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { AuthContext, AuthProvider } from '../context/AuthContext';
 
+const validJwt = `${btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))}.${btoa(JSON.stringify({ sub: 'test-user', exp: Math.floor(Date.now() / 1000) + 3600 }))}.signature`;
+
 describe('AuthContext', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -31,7 +33,7 @@ describe('AuthContext', () => {
   });
 
   it('loads user from localStorage when available', () => {
-    localStorage.setItem('accessToken', 'token-123');
+    localStorage.setItem('accessToken', validJwt);
     localStorage.setItem('refreshToken', 'refresh-456');
     localStorage.setItem('user', JSON.stringify({ id: '123', email: 'test@example.com', name: 'Test' }));
 

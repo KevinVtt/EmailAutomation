@@ -8,6 +8,7 @@ describe('ChatPanel component', () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
       text: () => Promise.resolve(JSON.stringify({
         response: 'Showing important emails.',
         criteria: { important: 'true' },

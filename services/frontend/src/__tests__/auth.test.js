@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { getStoredAuth, storeAuth, clearAuth } from '../lib/auth';
 
+const validJwt = `${btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))}.${btoa(JSON.stringify({ sub: 'test-user', exp: Math.floor(Date.now() / 1000) + 3600 }))}.signature`;
+
 describe('auth lib', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -32,12 +34,12 @@ describe('auth lib', () => {
       email: 'test@example.com',
       name: 'Test',
       avatarUrl: null,
-      accessToken: 'token-123',
+      accessToken: validJwt,
       refreshToken: 'refresh-456',
     });
 
     const result = getStoredAuth();
-    expect(result.accessToken).toBe('token-123');
+    expect(result.accessToken).toBe(validJwt);
     expect(result.user.email).toBe('test@example.com');
   });
 

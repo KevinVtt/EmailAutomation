@@ -24,6 +24,7 @@ describe('Login page', () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
       text: () => Promise.resolve(JSON.stringify({
         authUrl: 'https://accounts.google.com/o/oauth2/v2/auth?...',
       })),

@@ -12,6 +12,7 @@ describe('api lib', () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
       text: () => Promise.resolve(JSON.stringify(mockResponse)),
     });
 
@@ -29,6 +30,7 @@ describe('api lib', () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
       text: () => Promise.resolve(JSON.stringify(mockResponse)),
     });
 
@@ -40,6 +42,7 @@ describe('api lib', () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
       text: () => Promise.resolve(JSON.stringify({ content: [], totalElements: 0 })),
     });
 
@@ -51,6 +54,7 @@ describe('api lib', () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
       text: () => Promise.resolve(JSON.stringify({ content: [] })),
     });
 
@@ -64,6 +68,7 @@ describe('api lib', () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
       text: () => Promise.resolve(JSON.stringify({ response: 'OK', criteria: {} })),
     });
 
