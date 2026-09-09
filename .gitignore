@@ -59,6 +59,7 @@ playwright-report/
 
 # OpenCode
 .omo/
+.opencode/
 
 # Misc
 *.png
