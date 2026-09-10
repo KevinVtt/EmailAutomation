@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../lib/api';
+import { useUndoableSend } from '../hooks/useUndoableSend';
 import { Wand2, Copy, Check, RotateCcw, Settings, X, ChevronDown, Send } from 'lucide-react';
 
 const TONES = [
@@ -39,6 +40,21 @@ export default function ReplyPanel({ email, onClose }) {
   const [error, setError] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState(getStoredSettings);
+
+  const { queueSend, cancel, isPending } = useUndoableSend(
+    async (textToSend) => {
+      try {
+        await api.emails.send(email.provider, email.providerEmailId, textToSend);
+        setSent(true);
+      } catch (err) {
+        console.error('Send failed:', err);
+        setError('Error al enviar. Intentá de nuevo.');
+      } finally {
+        setSending(false);
+      }
+    },
+    5000
+  );
 
   useEffect(() => {
     storeSettings(settings);
@@ -86,24 +102,21 @@ export default function ReplyPanel({ email, onClose }) {
     }
   };
 
-  const handleSend = async () => {
+  const handleSend = () => {
     const textToSend = rewritten || draft;
-    if (!textToSend.trim() || sending || sent) return;
+    if (!textToSend.trim() || sending || sent || isPending) return;
     if (!email?.provider || !email?.providerEmailId) {
       setError('No se puede enviar: falta información del email.');
       return;
     }
     setSending(true);
     setError(null);
-    try {
-      await api.emails.send(email.provider, email.providerEmailId, textToSend);
-      setSent(true);
-    } catch (err) {
-      console.error('Send failed:', err);
-      setError('Error al enviar. Intentá de nuevo.');
-    } finally {
-      setSending(false);
-    }
+    queueSend(textToSend);
+  };
+
+  const handleCancelSend = () => {
+    cancel();
+    setSending(false);
   };
 
   const handleReset = () => {
@@ -231,7 +244,7 @@ export default function ReplyPanel({ email, onClose }) {
         </button>
         <button
           onClick={handleSend}
-          disabled={(!draft.trim() && !rewritten) || sending || sent}
+          disabled={(!draft.trim() && !rewritten) || sending || sent || isPending}
           className="btn-primary flex items-center gap-1.5 text-sm"
         >
           {sending ? (
@@ -260,6 +273,19 @@ export default function ReplyPanel({ email, onClose }) {
       {error && (
         <div className="mb-3 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2">
           {error}
+        </div>
+      )}
+
+      {/* Undo-send toast */}
+      {isPending && (
+        <div className="mb-3 flex items-center justify-between gap-2 text-xs text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2">
+          <span>Enviando en unos segundos…</span>
+          <button
+            onClick={handleCancelSend}
+            className="shrink-0 text-xs font-medium px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+          >
+            Deshacer
+          </button>
         </div>
       )}
 
