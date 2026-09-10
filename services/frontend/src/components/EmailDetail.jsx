@@ -4,6 +4,7 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { api } from '../lib/api';
 import ReplyPanel from './ReplyPanel';
+import EmailBodyIframe from './EmailBodyIframe';
 
 const LABEL_MAP = {
   CATEGORY_PROMOTIONS: 'Promociones',
@@ -201,15 +202,7 @@ export default function EmailDetail({ email, onClose, onAction, onRead }) {
           {/* Email body */}
           <div className="text-[15px] leading-relaxed text-gray-800 dark:text-gray-200">
             {detail?.bodyHtml ? (
-              <div
-                className="email-body"
-                dangerouslySetInnerHTML={{
-                  __html: detail.bodyHtml
-                    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-                    .replace(/on\w+="[^"]*"/gi, '')
-                    .replace(/on\w+='[^']*'/gi, '')
-                }}
-              />
+              <EmailBodyIframe html={detail.bodyHtml} />
             ) : (
               <p className="text-gray-500 dark:text-gray-400 italic whitespace-pre-wrap">
                 {detail?.bodyPreview || 'Sin contenido visible'}
