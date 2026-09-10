@@ -1,3 +1,5 @@
+import { clearAuth } from './auth';
+
 const API_URL = import.meta.env.VITE_API_URL || '';
 
 let refreshPromise = null;
@@ -62,9 +64,10 @@ async function request(endpoint, options = {}) {
   }
 
   if (response.status === 401) {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    window.location.href = '/login';
+    clearAuth();
+    window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+    window.history.pushState({}, '', '/login');
+    window.dispatchEvent(new PopStateEvent('popstate'));
     throw new Error('Unauthorized');
   }
 

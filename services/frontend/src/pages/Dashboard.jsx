@@ -73,6 +73,7 @@ export default function Dashboard() {
   const [summaryLoading, setSummaryLoading] = useState(true);
   const [summaryError, setSummaryError] = useState(null);
   const [urgentEmails, setUrgentEmails] = useState(null);
+  const pollIntervalRef = useRef(null);
 
   const fetchStats = useCallback(async () => {
     setLoading(true);
@@ -141,6 +142,16 @@ export default function Dashboard() {
     fetchSummary();
   }, [fetchStats, fetchSummary]);
 
+  // Clear the sync-status poll if the dashboard unmounts mid-sync.
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  }, []);
+
   const handleSync = useCallback(async (provider, mode = 'incremental') => {
     try {
       setSyncStatus('syncing');
@@ -154,11 +165,12 @@ export default function Dashboard() {
       }
 
       // Fallback: poll sync status in case WebSocket notification doesn't arrive
-      const pollInterval = setInterval(async () => {
+      pollIntervalRef.current = setInterval(async () => {
         try {
           const status = await api.emails.syncStatus();
           if (!status.syncing) {
-            clearInterval(pollInterval);
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
             setSyncStatus('success');
             setSyncMode(null);
             setTimeout(() => { setSyncStatus(null); setSyncProgress({ current: 0, total: 0 }); }, 3000);
@@ -170,7 +182,12 @@ export default function Dashboard() {
       }, 2000);
       // Safety: stop polling after 10 minutes for full sync, 3 minutes for incremental
       const timeout = mode === 'full' ? 600000 : 180000;
-      setTimeout(() => clearInterval(pollInterval), timeout);
+      setTimeout(() => {
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
+      }, timeout);
     } catch (err) {
       console.error('Failed to trigger sync', err);
       setSyncStatus('error');

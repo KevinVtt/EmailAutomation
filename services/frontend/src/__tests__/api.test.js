@@ -115,4 +115,24 @@ describe('api lib', () => {
     });
     expect(result).toEqual(mockResponse);
   });
+
+  it('clears auth and navigates via SPA when refresh fails on 401', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      text: () => Promise.resolve('Unauthorized'),
+    });
+
+    const unauthorizedSpy = vi.fn();
+    window.addEventListener('auth:unauthorized', unauthorizedSpy);
+
+    await expect(api.emails.list(0, 20)).rejects.toThrow('Unauthorized');
+
+    expect(localStorage.getItem('accessToken')).toBeNull();
+    expect(localStorage.getItem('refreshToken')).toBeNull();
+    expect(unauthorizedSpy).toHaveBeenCalledTimes(1);
+    expect(window.location.pathname).toBe('/login');
+    window.removeEventListener('auth:unauthorized', unauthorizedSpy);
+  });
 });
