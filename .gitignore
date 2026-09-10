@@ -70,3 +70,6 @@ playwright-report/
 *.svg
 *.bmp
 *.tiff
+
+# Markdown documentation (untracked)
+*.md
