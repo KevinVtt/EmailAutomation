@@ -50,6 +50,7 @@ public class EmailService {
     private final OutlookService outlookService;
     private final WebSocketService webSocketService;
     private final AIServiceClient aiServiceClient;
+    private final HtmlSanitizerService htmlSanitizerService;
 
     @Value("${email.sync.max-emails:1000}")
     int maxEmailsPerSync;
@@ -525,13 +526,14 @@ public class EmailService {
                 existing.setFromName(email.getFromName());
                 existing.setToAddresses(email.getToAddresses());
                 existing.setBodyPreview(email.getBodyPreview());
-                existing.setBodyHtml(email.getBodyHtml());
+                existing.setBodyHtml(htmlSanitizerService.sanitize(email.getBodyHtml()));
                 existing.setReceivedAt(email.getReceivedAt());
                 existing.setThreadId(email.getThreadId());
                 emailRepository.save(existing);
             } else {
                 email.setUser(user);
                 email.setProvider(provider);
+                email.setBodyHtml(htmlSanitizerService.sanitize(email.getBodyHtml()));
                 newEmails.add(email);
                 syncedCount++;
             }

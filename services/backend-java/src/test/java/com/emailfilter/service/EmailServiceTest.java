@@ -70,6 +70,8 @@ class EmailServiceTest {
     @Mock
     private AIServiceClient aiServiceClient;
     @Mock
+    private HtmlSanitizerService htmlSanitizerService;
+    @Mock
     private Gmail gmail;
 
     private EmailService emailService;
@@ -78,7 +80,7 @@ class EmailServiceTest {
     @BeforeEach
     void setUp() throws Exception {
         emailService = new TestableEmailService(emailRepository, oauthTokenRepository, vistoRepository,
-                gmailService, outlookService, webSocketService, aiServiceClient, gmail);
+                gmailService, outlookService, webSocketService, aiServiceClient, htmlSanitizerService, gmail);
         listRequest = mock(Gmail.Users.Messages.List.class);
         var users = mock(Gmail.Users.class);
         var messages = mock(Gmail.Users.Messages.class);
@@ -97,9 +99,10 @@ class EmailServiceTest {
         TestableEmailService(EmailRepository emailRepository, OAuthTokenRepository oauthTokenRepository,
                              VistoRepository vistoRepository, GmailService gmailService,
                              OutlookService outlookService, WebSocketService webSocketService,
-                             AIServiceClient aiServiceClient, Gmail gmail) {
+                             AIServiceClient aiServiceClient, HtmlSanitizerService htmlSanitizerService,
+                             Gmail gmail) {
             super(emailRepository, oauthTokenRepository, vistoRepository, gmailService, outlookService,
-                    webSocketService, aiServiceClient);
+                    webSocketService, aiServiceClient, htmlSanitizerService);
             this.gmail = gmail;
         }
 
