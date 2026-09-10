@@ -2,6 +2,7 @@ package com.emailfilter.service;
 
 import com.emailfilter.model.EmailMessage;
 import com.emailfilter.model.OAuthToken;
+import com.emailfilter.model.SyncJob;
 import com.emailfilter.model.User;
 import com.emailfilter.repository.EmailRepository;
 import com.emailfilter.repository.OAuthTokenRepository;
@@ -72,6 +73,8 @@ class EmailServiceTest {
     @Mock
     private HtmlSanitizerService htmlSanitizerService;
     @Mock
+    private SyncJobService syncJobService;
+    @Mock
     private Gmail gmail;
 
     private EmailService emailService;
@@ -80,7 +83,7 @@ class EmailServiceTest {
     @BeforeEach
     void setUp() throws Exception {
         emailService = new TestableEmailService(emailRepository, oauthTokenRepository, vistoRepository,
-                gmailService, outlookService, webSocketService, aiServiceClient, htmlSanitizerService, gmail);
+                gmailService, outlookService, webSocketService, aiServiceClient, htmlSanitizerService, syncJobService, gmail);
         listRequest = mock(Gmail.Users.Messages.List.class);
         var users = mock(Gmail.Users.class);
         var messages = mock(Gmail.Users.Messages.class);
@@ -91,6 +94,8 @@ class EmailServiceTest {
         lenient().when(listRequest.setMaxResults(anyLong())).thenReturn(listRequest);
         lenient().when(listRequest.setPageToken(anyString())).thenReturn(listRequest);
         lenient().when(listRequest.execute()).thenReturn(new ListMessagesResponse().setMessages(List.of()).setNextPageToken(null));
+        lenient().when(syncJobService.start(any(), anyString(), anyString()))
+                .thenReturn(SyncJob.builder().id(UUID.randomUUID()).build());
     }
 
     private static class TestableEmailService extends EmailService {
@@ -100,9 +105,9 @@ class EmailServiceTest {
                              VistoRepository vistoRepository, GmailService gmailService,
                              OutlookService outlookService, WebSocketService webSocketService,
                              AIServiceClient aiServiceClient, HtmlSanitizerService htmlSanitizerService,
-                             Gmail gmail) {
+                             SyncJobService syncJobService, Gmail gmail) {
             super(emailRepository, oauthTokenRepository, vistoRepository, gmailService, outlookService,
-                    webSocketService, aiServiceClient, htmlSanitizerService);
+                    webSocketService, aiServiceClient, htmlSanitizerService, syncJobService);
             this.gmail = gmail;
         }
 

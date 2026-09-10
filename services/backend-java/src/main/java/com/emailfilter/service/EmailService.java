@@ -3,6 +3,7 @@ package com.emailfilter.service;
 import com.emailfilter.dto.EmailDTO;
 import com.emailfilter.model.EmailMessage;
 import com.emailfilter.model.OAuthToken;
+import com.emailfilter.model.SyncJob;
 import com.emailfilter.model.User;
 import com.emailfilter.model.Visto;
 import com.emailfilter.repository.EmailRepository;
@@ -51,6 +52,7 @@ public class EmailService {
     private final WebSocketService webSocketService;
     private final AIServiceClient aiServiceClient;
     private final HtmlSanitizerService htmlSanitizerService;
+    private final SyncJobService syncJobService;
 
     @Value("${email.sync.max-emails:1000}")
     int maxEmailsPerSync;
@@ -271,7 +273,9 @@ public class EmailService {
             return CompletableFuture.completedFuture(null);
         }
         syncingTimestamps.put(userId, System.currentTimeMillis());
+        SyncJob job = null;
         try {
+            job = syncJobService.start(userId, provider, "incremental");
             log.info("Fetching OAuth token for user={}, provider={}", userId, provider);
             var accessToken = getToken(user, provider);
             log.info("OAuth token obtained for user={}, provider={}", userId, provider);
@@ -308,13 +312,18 @@ public class EmailService {
             }
 
             int syncedCount = saveEmails(emails, user, provider);
+            syncJobService.updateProgress(job.getId(), emails.size(), emails.size());
             if ("google".equals(provider)) {
                 refreshLabelsAndStars(user, accessToken);
             }
             notifyUrgentEmails(user, emails);
+            syncJobService.complete(job.getId());
             log.info("Sync complete: {} new emails saved for user={}, provider={} ({} total fetched)", syncedCount, userId, provider, emails.size());
             webSocketService.sendNotification(userId.toString(), "sync_complete");
         } catch (RuntimeException e) {
+            if (job != null) {
+                syncJobService.fail(job.getId(), e.getMessage());
+            }
             log.error("Sync failed for user={}, provider={}: {}", userId, provider, e.getMessage(), e);
             webSocketService.sendNotification(userId.toString(), "sync_error: " + e.getMessage());
         } finally {
@@ -342,6 +351,7 @@ public class EmailService {
             return CompletableFuture.completedFuture(null);
         }
         syncingTimestamps.put(userId, System.currentTimeMillis());
+        SyncJob job = null;
         try {
             var accessToken = getToken(user, provider);
 
@@ -350,6 +360,8 @@ public class EmailService {
                 syncEmailsAsync(user, provider);
                 return CompletableFuture.completedFuture(null);
             }
+
+            job = syncJobService.start(userId, provider, "full");
 
             // Step 1: Get ALL message IDs from Gmail (cheap: ~5 units per 100 IDs)
             log.info("Fetching all Gmail message IDs for user={}", userId);
@@ -383,6 +395,7 @@ public class EmailService {
                 log.info("No new emails to fetch for user={}", userId);
                 // Still refresh starred/spam state for existing emails
                 refreshLabelsAndStars(user, accessToken);
+                syncJobService.complete(job.getId());
                 webSocketService.sendNotification(userId.toString(), "sync_complete");
                 return CompletableFuture.completedFuture(null);
             }
@@ -415,6 +428,7 @@ public class EmailService {
                 }
 
                 fetched += batch.size();
+                syncJobService.updateProgress(job.getId(), fetched, newIds.size());
                 webSocketService.sendNotification(userId.toString(),
                         "sync_progress:" + fetched + ":" + newIds.size());
 
@@ -425,12 +439,16 @@ public class EmailService {
 
             refreshLabelsAndStars(user, accessToken);
             notifyUrgentEmails(user, allSavedEmails);
+            syncJobService.complete(job.getId());
 
             log.info("Full sync complete: {} new emails saved for user={} ({} total in Gmail)",
                     fetched, userId, totalInGmail);
             webSocketService.sendNotification(userId.toString(), "sync_complete");
 
         } catch (RuntimeException e) {
+            if (job != null) {
+                syncJobService.fail(job.getId(), e.getMessage());
+            }
             log.error("Full sync failed for user={}, provider={}: {}", userId, provider, e.getMessage(), e);
             webSocketService.sendNotification(userId.toString(), "sync_error:" + e.getMessage());
         } finally {
