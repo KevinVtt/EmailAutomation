@@ -16,14 +16,15 @@ async def test_analyze_single_email_success(httpx_mock):
         url="https://api.groq.com/openai/v1/chat/completions",
         method="POST",
         json={
-            "choices": [{"message": {"content": '[{"id":"1","label":"work","priority":8,"requires_action":true,"reason":"Reunión de trabajo","urgency":"medium","urgency_reason":"Requiere atención pero sin fecha límite dura"}]'}}]
+            "choices": [{"message": {"content": '[{"id":"1","label":"work","priority":6,"requires_action":true,"reason":"Reunión de trabajo","urgency":"medium","urgency_reason":"Requiere atención pero sin fecha límite dura"}]'}}]
         },
     )
 
     result = await analyze_single_email(email)
     assert result["label"] == "work"
-    assert result["priority"] == 8
+    assert result["priority"] == 6
     assert result["requires_action"] is True
+    # urgency is computed in Python: 4-7 (or <=3 with action) => medium
     assert result["urgency"] == "medium"
     assert "urgency_reason" in result
 
