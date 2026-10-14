@@ -72,6 +72,8 @@ psql -U %PGSUPERUSER% -h %PGHOST% -p %PGPORT% -d %POSTGRES_DB% -v ON_ERROR_STOP=
 if errorlevel 1 ( echo ERROR en 01-init.sql. & pause & exit /b 1 )
 psql -U %PGSUPERUSER% -h %PGHOST% -p %PGPORT% -d %POSTGRES_DB% -v ON_ERROR_STOP=1 -f "infrastructure\postgres\init\02-sync-jobs.sql"
 if errorlevel 1 ( echo ERROR en 02-sync-jobs.sql. & pause & exit /b 1 )
+psql -U %PGSUPERUSER% -h %PGHOST% -p %PGPORT% -d %POSTGRES_DB% -v ON_ERROR_STOP=1 -f "infrastructure\postgres\init\03-gmail-history.sql"
+if errorlevel 1 ( echo ERROR en 03-gmail-history.sql. & pause & exit /b 1 )
 
 echo.
 echo ============================================
