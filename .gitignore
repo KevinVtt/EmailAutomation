@@ -16,6 +16,9 @@ target/
 *.jar
 *.war
 
+# Local tooling (e.g. portable Maven in .tools/maven)
+.tools/
+
 # Python
 __pycache__/
 *.pyc
@@ -73,3 +76,6 @@ playwright-report/
 
 # Markdown documentation (untracked)
 *.md
+
+# graphify: local cache is regenerable; graph.json is the committed artifact
+graphify-out/cache/

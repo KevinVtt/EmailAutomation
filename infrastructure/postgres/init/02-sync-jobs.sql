@@ -1,5 +1,5 @@
 -- Sync jobs tracking table (CLAUDE_HELP.md §2.1)
-CREATE TABLE sync_jobs (
+CREATE TABLE IF NOT EXISTS sync_jobs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     provider VARCHAR(50) NOT NULL,
@@ -11,4 +11,4 @@ CREATE TABLE sync_jobs (
     started_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
-CREATE INDEX idx_sync_jobs_user_status ON sync_jobs(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_sync_jobs_user_status ON sync_jobs(user_id, status);
