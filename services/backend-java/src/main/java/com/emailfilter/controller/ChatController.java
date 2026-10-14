@@ -112,18 +112,22 @@ public class ChatController {
         log.info("=== CHAT WEBSOCKET FIN === userId={}", userId);
     }
 
-    @SuppressWarnings("unchecked")
     private Map<String, String> extractCriteria(Map<String, Object> aiResponse) {
         var criteria = aiResponse.get("criteria");
-        if (criteria instanceof Map) {
-            try {
-                return (Map<String, String>) criteria;
-            } catch (ClassCastException e) {
-                log.warn("Failed to cast criteria to Map<String, String>: {}", e.getMessage());
-                return Map.of();
-            }
+        if (!(criteria instanceof Map<?, ?> raw)) {
+            return Map.of();
         }
-        return Map.of();
+        // The AI service may return non-string scalars (e.g. "size": 20, booleans).
+        // Coerce every value to String so the Map<String, String> contract holds and
+        // downstream parsing (Boolean.parseBoolean / Integer.parseInt) works.
+        var result = new HashMap<String, String>();
+        for (var entry : raw.entrySet()) {
+            if (entry.getKey() == null || entry.getValue() == null) {
+                continue;
+            }
+            result.put(entry.getKey().toString(), entry.getValue().toString());
+        }
+        return result;
     }
 
     private int extractSize(Map<String, String> criteria) {

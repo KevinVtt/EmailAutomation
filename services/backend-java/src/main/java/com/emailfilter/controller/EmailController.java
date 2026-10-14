@@ -1,6 +1,7 @@
 package com.emailfilter.controller;
 
 import com.emailfilter.dto.EmailDTO;
+import com.emailfilter.dto.PrioritySummaryDTO;
 import com.emailfilter.dto.RewriteRequest;
 import com.emailfilter.security.UserDetailsServiceImpl;
 import com.emailfilter.service.AIServiceClient;
@@ -98,7 +99,10 @@ public class EmailController {
             return ResponseEntity.badRequest().body(Map.of("error", "provider is required"));
         }
         var user = userDetailsService.loadUserEntityById(userId);
-        emailService.syncEmails(user, provider);
+        // Llamada directa al método @Async: si se pasara por un wrapper propio, la
+        // auto-invocación saltearía el proxy de Spring y la sync correría sincrónica
+        // en el hilo del request (el 202 no volvía hasta terminar).
+        emailService.syncEmailsAsync(user, provider);
         return ResponseEntity.accepted().body(Map.of("status", "syncing"));
     }
 
@@ -119,7 +123,7 @@ public class EmailController {
             return ResponseEntity.badRequest().body(Map.of("error", "provider is required"));
         }
         var user = userDetailsService.loadUserEntityById(userId);
-        emailService.syncAllEmails(user, provider);
+        emailService.syncAllEmailsAsync(user, provider);
         return ResponseEntity.accepted().body(Map.of("status", "syncing", "mode", "full"));
     }
 
@@ -129,6 +133,12 @@ public class EmailController {
             @RequestParam(defaultValue = "today") String date) {
         var userId = getUserId(auth);
         return ResponseEntity.ok(emailService.getDailySummary(userId, date));
+    }
+
+    @GetMapping("/priority-summary")
+    public ResponseEntity<PrioritySummaryDTO> getPrioritySummary(Authentication auth) {
+        var userId = getUserId(auth);
+        return ResponseEntity.ok(emailService.buildPrioritySummary(userId));
     }
 
     @GetMapping("/count")

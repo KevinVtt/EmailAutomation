@@ -20,29 +20,11 @@ spring:
   security:
     oauth2:
       client:
-        registration:
-          google:
-            authorization-grant-type: authorization_code
-            client-id: ${GOOGLE_CLIENT_ID}
-            client-secret: ${GOOGLE_CLIENT_SECRET}
-            redirect-uri: ${GOOGLE_REDIRECT_URI:http://localhost:8080/api/auth/callback/google}
-            scope:
-              - email
-              - profile
-              - https://www.googleapis.com/auth/gmail.readonly
-              - https://www.googleapis.com/auth/gmail.modify
-          outlook:
-            authorization-grant-type: authorization_code
-            client-id: ${OUTLOOK_CLIENT_ID}
-            client-secret: ${OUTLOOK_CLIENT_SECRET}
-            redirect-uri: ${OUTLOOK_REDIRECT_URI:http://localhost:8080/api/auth/callback/outlook}
-            scope:
-              - openid
-              - email
-              - profile
-              - Mail.Read
-              - Mail.ReadWrite
-              - offline_access
+        # NOTE: there are intentionally no `registration` entries here. The app
+        # implements the OAuth2 authorization-code flow manually (see AuthController):
+        # it builds the provider URL and exchanges the code itself, so Spring's OAuth2
+        # client registration is unused. Leaving it present with empty client ids would
+        # also make OAuth2ClientAutoConfiguration fail with "Client id must not be empty".
         provider:
           outlook:
             authorization-uri: https://login.microsoftonline.com/${OUTLOOK_TENANT:common}/oauth2/v2.0/authorize
@@ -59,12 +41,31 @@ ai:
   service:
     url: ${AI_SERVICE_URL:http://localhost:8000}
 
+# Aliases used by AuthController (@Value("${google.client-id}") etc.), resolved
+# directly from the environment so the backend does not depend on relaxed binding.
+google:
+  client-id: ${GOOGLE_CLIENT_ID:}
+  client-secret: ${GOOGLE_CLIENT_SECRET:}
+  redirect-uri: ${GOOGLE_REDIRECT_URI:http://localhost:3001/auth/callback}
+
+outlook:
+  client-id: ${OUTLOOK_CLIENT_ID:}
+  client-secret: ${OUTLOOK_CLIENT_SECRET:}
+  redirect-uri: ${OUTLOOK_REDIRECT_URI:http://localhost:3001/auth/callback}
+  tenant: ${OUTLOOK_TENANT:common}
+
 cors:
-  allowed-origins: ${FRONTEND_URL:http://localhost:3000}
+  allowed-origins: ${FRONTEND_URL:http://localhost:3001}
 
 email:
   sync:
     max-emails: ${EMAIL_SYNC_MAX_EMAILS:1000}
+    # Pausa entre cada messages.get (ms) para no superar la cuota por usuario de
+    # Gmail (totalQueryCostPerMinutePerUser=6000). 250ms ≈ 240 req/min.
+    # Es un espaciado global: fija la tasa agregada aunque se descargue en paralelo.
+    request-delay-ms: ${EMAIL_SYNC_REQUEST_DELAY_MS:250}
+    # Hilos de descarga de detalle del full sync (solo solapa la latencia de red).
+    fetch-concurrency: ${EMAIL_SYNC_FETCH_CONCURRENCY:6}
 
 logging:
   level:

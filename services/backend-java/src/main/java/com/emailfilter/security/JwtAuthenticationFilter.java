@@ -1,18 +1,22 @@
 package com.emailfilter.security;
 
+import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
@@ -28,13 +32,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         if (token != null) {
             if (jwtTokenProvider.isAccessToken(token)) {
-                var userId = jwtTokenProvider.getUserIdFromToken(token);
-                var userDetails = userDetailsService.loadUserById(userId);
+                try {
+                    var userId = jwtTokenProvider.getUserIdFromToken(token);
+                    var userDetails = userDetailsService.loadUserById(userId);
 
-                var auth = new UsernamePasswordAuthenticationToken(
-                        userDetails, null, userDetails.getAuthorities());
-                auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                SecurityContextHolder.getContext().setAuthentication(auth);
+                    var auth = new UsernamePasswordAuthenticationToken(
+                            userDetails, null, userDetails.getAuthorities());
+                    auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                    SecurityContextHolder.getContext().setAuthentication(auth);
+                } catch (UsernameNotFoundException | JwtException | IllegalArgumentException e) {
+                    // Token con firma válida pero usuario inexistente (p. ej. base recreada) o token
+                    // corrupto. No autenticamos: el entry point responde 401 y el frontend limpia la
+                    // sesión. Antes esto propagaba un 500 "User not found".
+                    SecurityContextHolder.clearContext();
+                    log.debug("Token ignorado ({}): {}", e.getClass().getSimpleName(), e.getMessage());
+                }
             } else {
                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                 return;

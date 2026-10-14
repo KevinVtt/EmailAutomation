@@ -42,4 +42,20 @@ public interface EmailRepository extends JpaRepository<EmailMessage, UUID>,
     @Transactional
     @Query("UPDATE EmailMessage e SET e.labels = CASE WHEN e.labels IS NULL OR e.labels = '' THEN 'SPAM' ELSE CONCAT(e.labels, ',SPAM') END WHERE e.user.id = :userId AND e.providerEmailId IN :spamIds AND (e.labels IS NULL OR e.labels NOT LIKE '%SPAM%')")
     int addSpamLabelByProviderEmailIds(@Param("userId") UUID userId, @Param("spamIds") Collection<String> spamIds);
+
+    // --- Priority summary counts (CLAUDE_HELP.md §3.2) ---
+    // PROXY: no `urgency` column exists — Gmail auto-marks IMPORTANT, so "urgentes"
+    // = unread + IMPORTANT label (best available urgency proxy).
+    @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId AND e.isRead = false AND e.labels LIKE '%IMPORTANT%'")
+    long countUrgentesByUserId(@Param("userId") UUID userId);
+
+    // PROXY: matches the existing "destacados" filter semantics (isStarred OR IMPORTANT) + unread.
+    @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId AND e.isRead = false AND (e.isStarred = true OR e.labels LIKE '%IMPORTANT%')")
+    long countDestacadosSinLeerByUserId(@Param("userId") UUID userId);
+
+    // PROXY: sent emails are NOT synced (inbox+spam only), so a thread-based "no reply"
+    // query would count everything. Unread received emails are the honest proxy for
+    // "waiting for your response".
+    @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId AND e.isRead = false AND e.fromAddress IS NOT NULL AND e.fromAddress <> :userEmail")
+    long countPendientesRespuestaByUserId(@Param("userId") UUID userId, @Param("userEmail") String userEmail);
 }

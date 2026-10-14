@@ -1,5 +1,8 @@
 package com.emailfilter.service;
 
+import com.emailfilter.exception.PermanentApiException;
+import com.emailfilter.exception.TransientApiException;
+import com.google.api.client.googleapis.json.GoogleJsonResponseException;
 import com.google.api.services.gmail.Gmail;
 import com.google.api.services.gmail.model.ListMessagesResponse;
 import com.google.api.services.gmail.model.Message;
@@ -9,13 +12,18 @@ import com.google.api.services.gmail.model.MessagePartHeader;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.retry.backoff.FixedBackOffPolicy;
+import org.springframework.retry.policy.SimpleRetryPolicy;
+import org.springframework.retry.support.RetryTemplate;
 
 import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -36,7 +44,8 @@ class GmailServiceTest {
     private static class TestableGmailService extends GmailService {
         private final Gmail gmail;
 
-        TestableGmailService(Gmail gmail) {
+        TestableGmailService(Gmail gmail, RetryTemplate retryTemplate) {
+            super(retryTemplate);
             this.gmail = gmail;
         }
 
@@ -49,7 +58,7 @@ class GmailServiceTest {
     @BeforeEach
     void setUp() throws Exception {
         gmail = mock(Gmail.class);
-        gmailService = new TestableGmailService(gmail);
+        gmailService = new TestableGmailService(gmail, fastRetryTemplate());
         listRequest = mock(Gmail.Users.Messages.List.class);
         var users = mock(Gmail.Users.class);
         var messages = mock(Gmail.Users.Messages.class);
@@ -59,6 +68,24 @@ class GmailServiceTest {
         lenient().when(listRequest.setQ(anyString())).thenReturn(listRequest);
         lenient().when(listRequest.setMaxResults(anyLong())).thenReturn(listRequest);
         lenient().when(listRequest.setPageToken(anyString())).thenReturn(listRequest);
+    }
+
+    private RetryTemplate fastRetryTemplate() {
+        RetryTemplate template = new RetryTemplate();
+        SimpleRetryPolicy policy = new SimpleRetryPolicy(
+                5, Map.<Class<? extends Throwable>, Boolean>of(TransientApiException.class, true));
+        template.setRetryPolicy(policy);
+        FixedBackOffPolicy backOff = new FixedBackOffPolicy();
+        backOff.setBackOffPeriod(0);
+        template.setBackOffPolicy(backOff);
+        return template;
+    }
+
+    private GoogleJsonResponseException mockGjre(int status) {
+        var gjre = mock(GoogleJsonResponseException.class);
+        when(gjre.getStatusCode()).thenReturn(status);
+        when(gjre.getHeaders()).thenReturn(new com.google.api.client.http.HttpHeaders());
+        return gjre;
     }
 
     @Test
@@ -139,6 +166,16 @@ class GmailServiceTest {
     }
 
     @Test
+    void fetchMessagesByIds_downloadsEveryIdInOrder() throws Exception {
+        stubMessageDetails();
+
+        var result = gmailService.fetchMessagesByIds(gmail, List.of("a", "b", "c"));
+
+        assertEquals(List.of("a", "b", "c"),
+                result.stream().map(com.emailfilter.model.EmailMessage::getProviderEmailId).toList());
+    }
+
+    @Test
     void buildMimeMessage_containsHeadersAndBody() {
         var mime = gmailService.buildMimeMessage("to@example.com", "Re: Hola", "Cuerpo");
 
@@ -164,5 +201,35 @@ class GmailServiceTest {
         assertTrue(decoded.contains("To: to@example.com"));
         assertTrue(decoded.contains("Subject: Re: Hola"));
         assertTrue(decoded.contains("Content-Type: text/plain; charset=UTF-8"));
+    }
+
+    /**
+     * A 403 from Gmail with reason "rateLimitExceeded" is a per-user quota error,
+     * NOT a permission error: it must be retried (TransientApiException), otherwise
+     * a full sync aborts and leaves 0 emails (the original bug).
+     */
+    @Test
+    void rateLimit403_isTransientAndRetried() throws Exception {
+        var gjre = mockGjre(403);
+        var details = new com.google.api.client.googleapis.json.GoogleJsonError();
+        var errorInfo = new com.google.api.client.googleapis.json.GoogleJsonError.ErrorInfo();
+        errorInfo.setReason("rateLimitExceeded");
+        details.setErrors(List.of(errorInfo));
+        when(gjre.getDetails()).thenReturn(details);
+        when(listRequest.execute()).thenThrow(gjre);
+
+        assertThrows(TransientApiException.class, () -> gmailService.fetchAllEmails("token", 100, 5));
+    }
+
+    /**
+     * A 403 without a quota reason (e.g. revoked permissions) must stay permanent
+     * so the RetryTemplate does not waste attempts.
+     */
+    @Test
+    void permission403_isPermanent() throws Exception {
+        var gjre = mockGjre(403);
+        when(listRequest.execute()).thenThrow(gjre);
+
+        assertThrows(PermanentApiException.class, () -> gmailService.fetchAllEmails("token", 100, 5));
     }
 }

@@ -23,7 +23,8 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+// disabledWithoutDocker: se saltea (en vez de fallar) cuando no hay daemon de Docker.
+@Testcontainers(disabledWithoutDocker = true)
 @ActiveProfiles("test")
 class EmailFilterIntegrationTest {
 

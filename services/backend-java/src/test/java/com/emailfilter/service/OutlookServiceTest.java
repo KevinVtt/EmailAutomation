@@ -8,6 +8,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.retry.support.RetryTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.HttpClientErrorException;
@@ -37,7 +38,7 @@ class OutlookServiceTest {
 
     @BeforeEach
     void setUp() {
-        outlookService = new OutlookService();
+        outlookService = new OutlookService(new RetryTemplate());
         ReflectionTestUtils.setField(outlookService, "tokenUri", TOKEN_URI);
         var restTemplate = (RestTemplate) ReflectionTestUtils.getField(outlookService, "restTemplate");
         server = MockRestServiceServer.createServer(restTemplate);

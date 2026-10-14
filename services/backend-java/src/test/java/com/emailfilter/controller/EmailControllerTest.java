@@ -3,6 +3,7 @@ package com.emailfilter.controller;
 import com.emailfilter.config.CorsConfig;
 import com.emailfilter.config.SecurityConfig;
 import com.emailfilter.dto.EmailDTO;
+import com.emailfilter.dto.PrioritySummaryDTO;
 import com.emailfilter.security.JwtTokenProvider;
 import com.emailfilter.security.UserDetailsServiceImpl;
 import com.emailfilter.service.AIServiceClient;
@@ -24,6 +25,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -135,6 +137,25 @@ class EmailControllerTest {
 
     @Test
     @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
+    void getPrioritySummary_returnsDto() throws Exception {
+        var summary = new PrioritySummaryDTO(3, 12, 5);
+        when(emailService.buildPrioritySummary(any())).thenReturn(summary);
+
+        mockMvc.perform(get("/api/emails/priority-summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.urgentes").value(3))
+                .andExpect(jsonPath("$.destacadosSinLeer").value(12))
+                .andExpect(jsonPath("$.pendientesRespuesta").value(5));
+    }
+
+    @Test
+    void getPrioritySummary_unauthenticated_returns4xx() throws Exception {
+        mockMvc.perform(get("/api/emails/priority-summary"))
+                .andExpect(status().is4xxClientError());
+    }
+
+    @Test
+    @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
     void sendEmail_returnsOk() throws Exception {
         when(emailService.sendReply(any(), eq("google"), eq("12345"), anyString()))
                 .thenReturn(Map.of("status", "sent", "messageId", "msg-1"));
@@ -158,5 +179,30 @@ class EmailControllerTest {
                                 {"provider": "google", "emailId": "12345"}
                                 """))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
+    void syncEndpoints_returnAcceptedAndDelegateToAsync() throws Exception {
+        mockMvc.perform(post("/api/emails/sync")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"provider": "google"}
+                                """))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("syncing"));
+
+        mockMvc.perform(post("/api/emails/sync/full")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"provider": "google"}
+                                """))
+                .andExpect(status().isAccepted());
+
+        // Debe delegar en los métodos @Async: si el controller llamara a un wrapper
+        // propio, la auto-invocación saltearía el proxy de Spring y la sync correría
+        // sincrónica en el hilo del request (el 202 no volvía hasta terminar).
+        verify(emailService).syncEmailsAsync(any(), eq("google"));
+        verify(emailService).syncAllEmailsAsync(any(), eq("google"));
     }
 }

@@ -1,6 +1,7 @@
 package com.emailfilter.service;
 
 import com.emailfilter.dto.EmailDTO;
+import com.emailfilter.dto.PrioritySummaryDTO;
 import com.emailfilter.model.EmailMessage;
 import com.emailfilter.model.OAuthToken;
 import com.emailfilter.model.SyncJob;
@@ -8,7 +9,10 @@ import com.emailfilter.model.User;
 import com.emailfilter.model.Visto;
 import com.emailfilter.repository.EmailRepository;
 import com.emailfilter.repository.OAuthTokenRepository;
+import com.emailfilter.repository.UserRepository;
 import com.emailfilter.repository.VistoRepository;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -53,6 +57,7 @@ public class EmailService {
     private final AIServiceClient aiServiceClient;
     private final HtmlSanitizerService htmlSanitizerService;
     private final SyncJobService syncJobService;
+    private final UserRepository userRepository;
 
     @Value("${email.sync.max-emails:1000}")
     int maxEmailsPerSync;
@@ -85,40 +90,28 @@ public class EmailService {
             var predicates = new ArrayList<Predicate>();
             predicates.add(cb.equal(root.get("user").get("id"), userId));
 
-            filters.forEach((key, value) -> {
-                if (value == null || value.isBlank()) return;
+            // subjectContains and bodyContains are evaluated together with OR semantics:
+            // a match in either the subject OR the body is enough. Combining them with
+            // AND (as before) almost always returned zero results, because the AI sends
+            // the same search terms in both fields.
+            var subjectRaw = filters.get("subjectContains");
+            var bodyRaw = filters.get("bodyContains");
+            Predicate subjectPredicate = (subjectRaw == null || subjectRaw.isBlank())
+                    ? null
+                    : buildContainsPredicate(cb, root.get("subject"), subjectRaw);
+            Predicate bodyPredicate = (bodyRaw == null || bodyRaw.isBlank())
+                    ? null
+                    : buildContainsPredicate(cb, root.get("bodyPreview"), bodyRaw);
+
+            for (var entry : filters.entrySet()) {
+                var key = entry.getKey();
+                var value = entry.getValue();
+                if (value == null || value.isBlank()) continue;
                 switch (key) {
                     case "fromAddress" ->
                         predicates.add(cb.like(cb.lower(root.get("fromAddress")), "%" + escapeLike(value.toLowerCase()) + "%"));
-                    case "subjectContains" -> {
-                        var terms = value.split(",");
-                        if (terms.length == 1) {
-                            predicates.add(cb.like(cb.lower(root.get("subject")), "%" + escapeLike(terms[0].trim().toLowerCase()) + "%"));
-                        } else {
-                            var orPredicates = new ArrayList<Predicate>();
-                            for (var term : terms) {
-                                var trimmed = term.trim();
-                                if (!trimmed.isEmpty()) {
-                                    orPredicates.add(cb.like(cb.lower(root.get("subject")), "%" + escapeLike(trimmed.toLowerCase()) + "%"));
-                                }
-                            }
-                            predicates.add(cb.or(orPredicates.toArray(new Predicate[0])));
-                        }
-                    }
-                    case "bodyContains" -> {
-                        var terms = value.split(",");
-                        if (terms.length == 1) {
-                            predicates.add(cb.like(cb.lower(root.get("bodyPreview")), "%" + escapeLike(terms[0].trim().toLowerCase()) + "%"));
-                        } else {
-                            var orPredicates = new ArrayList<Predicate>();
-                            for (var term : terms) {
-                                var trimmed = term.trim();
-                                if (!trimmed.isEmpty()) {
-                                    orPredicates.add(cb.like(cb.lower(root.get("bodyPreview")), "%" + escapeLike(trimmed.toLowerCase()) + "%"));
-                                }
-                            }
-                            predicates.add(cb.or(orPredicates.toArray(new Predicate[0])));
-                        }
+                    case "subjectContains", "bodyContains" -> {
+                        // Handled together below to apply OR semantics.
                     }
                     case "isRead" -> predicates.add(cb.equal(root.get("isRead"), Boolean.parseBoolean(value)));
                     case "isStarred" -> predicates.add(cb.equal(root.get("isStarred"), Boolean.parseBoolean(value)));
@@ -133,9 +126,19 @@ public class EmailService {
                     case "dateFrom" ->
                         predicates.add(cb.greaterThanOrEqualTo(root.get("receivedAt"), Instant.parse(value)));
                     case "dateTo" ->
-                        predicates.add(cb.lessThanOrEqualTo(root.get("receivedAt"), Instant.parse(value)));
+                        // Exclusive upper bound: the AI sends 00:00 of the day after the
+                        // requested range, so use < (not <=) to avoid leaking that day.
+                        predicates.add(cb.lessThan(root.get("receivedAt"), Instant.parse(value)));
                 }
-            });
+            }
+
+            if (subjectPredicate != null || bodyPredicate != null) {
+                if (subjectPredicate != null && bodyPredicate != null) {
+                    predicates.add(cb.or(subjectPredicate, bodyPredicate));
+                } else {
+                    predicates.add(subjectPredicate != null ? subjectPredicate : bodyPredicate);
+                }
+            }
 
             return cb.and(predicates.toArray(new Predicate[0]));
         };
@@ -144,6 +147,27 @@ public class EmailService {
         var emailPage = emailRepository.findAll(spec, pageable);
         var vistoEmailIds = fetchVistoEmailIds(userId, emailPage.getContent());
         return emailPage.map(email -> toDTO(email, vistoEmailIds));
+    }
+
+    /**
+     * Builds a "contains" predicate for a text column. Comma-separated terms are
+     * combined with OR, so "term1,term2" matches rows containing either term.
+     */
+    private Predicate buildContainsPredicate(CriteriaBuilder cb, Path<String> path, String value) {
+        var orPredicates = new ArrayList<Predicate>();
+        for (var term : value.split(",")) {
+            var trimmed = term.trim();
+            if (!trimmed.isEmpty()) {
+                orPredicates.add(cb.like(cb.lower(path), "%" + escapeLike(trimmed.toLowerCase()) + "%"));
+            }
+        }
+        if (orPredicates.isEmpty()) {
+            return cb.conjunction();
+        }
+        if (orPredicates.size() == 1) {
+            return orPredicates.get(0);
+        }
+        return cb.or(orPredicates.toArray(new Predicate[0]));
     }
 
     public boolean isSyncing(UUID userId) {
@@ -191,6 +215,16 @@ public class EmailService {
                 "emailCount", totalElements,
                 "date", targetDate.toString()
         );
+    }
+
+    @Transactional(readOnly = true)
+    public PrioritySummaryDTO buildPrioritySummary(UUID userId) {
+        var user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found: " + userId));
+        long urgentes = emailRepository.countUrgentesByUserId(userId);
+        long destacadosSinLeer = emailRepository.countDestacadosSinLeerByUserId(userId);
+        long pendientesRespuesta = emailRepository.countPendientesRespuestaByUserId(userId, user.getEmail());
+        return new PrioritySummaryDTO(urgentes, destacadosSinLeer, pendientesRespuesta);
     }
 
     private void notifyUrgentEmails(User user, List<EmailMessage> emails) {
@@ -333,15 +367,6 @@ public class EmailService {
         return CompletableFuture.completedFuture(null);
     }
 
-    public int syncEmails(User user, String provider) {
-        syncEmailsAsync(user, provider);
-        return 0;
-    }
-
-    public void syncAllEmails(User user, String provider) {
-        syncAllEmailsAsync(user, provider);
-    }
-
     @Async("emailSyncExecutor")
     public CompletableFuture<Void> syncAllEmailsAsync(User user, String provider) {
         var userId = user.getId();
@@ -411,16 +436,7 @@ public class EmailService {
                 }
 
                 var batch = newIds.subList(i, Math.min(i + batchSize, newIds.size()));
-                var batchEmails = new ArrayList<EmailMessage>();
-
-                for (var msgId : batch) {
-                    try {
-                        var email = fetchMessageById(gmail, msgId);
-                        if (email != null) batchEmails.add(email);
-                    } catch (Exception e) {
-                        log.warn("Failed to fetch message {}: {}", msgId, e.getMessage());
-                    }
-                }
+                var batchEmails = gmailService.fetchMessagesByIds(gmail, batch);
 
                 if (!batchEmails.isEmpty()) {
                     saveEmails(batchEmails, user, provider);
@@ -471,60 +487,6 @@ public class EmailService {
         } catch (Exception e) {
             throw new RuntimeException("Failed to build Gmail client", e);
         }
-    }
-
-    private EmailMessage fetchMessageById(com.google.api.services.gmail.Gmail gmail, String messageId) {
-        try {
-            var full = gmail.users().messages().get("me", messageId).setFormat("full").execute();
-            var payload = full.getPayload();
-            if (payload == null) return null;
-
-            var headers = payload.getHeaders();
-            var subject = getHeaderValue(headers, "Subject");
-            var from = getHeaderValue(headers, "From");
-            var to = getHeaderValue(headers, "To");
-            var snippet = full.getSnippet();
-
-            var body = "";
-            if (payload.getParts() != null) {
-                body = gmailService.getBodyFromPartsPublic(payload.getParts());
-            } else if (payload.getBody() != null && payload.getBody().getData() != null) {
-                body = new String(java.util.Base64.getUrlDecoder().decode(payload.getBody().getData()));
-            }
-
-            var labelIds = full.getLabelIds() != null ? full.getLabelIds() : List.<String>of();
-            var labels = String.join(",", labelIds);
-            var isRead = !labelIds.contains("UNREAD");
-            var isStarred = labelIds.contains("STARRED");
-
-            var receivedAt = Instant.ofEpochMilli(full.getInternalDate());
-
-            var email = new EmailMessage();
-            email.setProviderEmailId(full.getId());
-            email.setThreadId(full.getThreadId());
-            email.setSubject(subject);
-            email.setFromAddress(from);
-            email.setToAddresses(to);
-            email.setBodyPreview(snippet);
-            email.setBodyHtml(body);
-            email.setLabels(labels);
-            email.setRead(isRead);
-            email.setStarred(isStarred);
-            email.setReceivedAt(receivedAt);
-            return email;
-
-        } catch (IOException e) {
-            log.warn("Failed to fetch message {}: {}", messageId, e.getMessage());
-            return null;
-        }
-    }
-
-    private String getHeaderValue(List<com.google.api.services.gmail.model.MessagePartHeader> headers, String name) {
-        return headers.stream()
-                .filter(h -> h.getName().equalsIgnoreCase(name))
-                .map(com.google.api.services.gmail.model.MessagePartHeader::getValue)
-                .findFirst()
-                .orElse("");
     }
 
     @Transactional

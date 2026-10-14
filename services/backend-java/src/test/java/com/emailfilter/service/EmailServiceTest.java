@@ -6,6 +6,7 @@ import com.emailfilter.model.SyncJob;
 import com.emailfilter.model.User;
 import com.emailfilter.repository.EmailRepository;
 import com.emailfilter.repository.OAuthTokenRepository;
+import com.emailfilter.repository.UserRepository;
 import com.emailfilter.repository.VistoRepository;
 import com.google.api.services.gmail.Gmail;
 import com.google.api.services.gmail.model.ListMessagesResponse;
@@ -75,6 +76,8 @@ class EmailServiceTest {
     @Mock
     private SyncJobService syncJobService;
     @Mock
+    private UserRepository userRepository;
+    @Mock
     private Gmail gmail;
 
     private EmailService emailService;
@@ -83,7 +86,7 @@ class EmailServiceTest {
     @BeforeEach
     void setUp() throws Exception {
         emailService = new TestableEmailService(emailRepository, oauthTokenRepository, vistoRepository,
-                gmailService, outlookService, webSocketService, aiServiceClient, htmlSanitizerService, syncJobService, gmail);
+                gmailService, outlookService, webSocketService, aiServiceClient, htmlSanitizerService, syncJobService, userRepository, gmail);
         listRequest = mock(Gmail.Users.Messages.List.class);
         var users = mock(Gmail.Users.class);
         var messages = mock(Gmail.Users.Messages.class);
@@ -105,9 +108,9 @@ class EmailServiceTest {
                              VistoRepository vistoRepository, GmailService gmailService,
                              OutlookService outlookService, WebSocketService webSocketService,
                              AIServiceClient aiServiceClient, HtmlSanitizerService htmlSanitizerService,
-                             SyncJobService syncJobService, Gmail gmail) {
+                             SyncJobService syncJobService, UserRepository userRepository, Gmail gmail) {
             super(emailRepository, oauthTokenRepository, vistoRepository, gmailService, outlookService,
-                    webSocketService, aiServiceClient, htmlSanitizerService, syncJobService);
+                    webSocketService, aiServiceClient, htmlSanitizerService, syncJobService, userRepository);
             this.gmail = gmail;
         }
 
@@ -388,6 +391,41 @@ class EmailServiceTest {
     }
 
     @Test
+    void syncAllEmailsAsync_newEmails_fetchesEachAndSaves() throws Exception {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var token = OAuthToken.builder()
+                .accessToken("test-access-token")
+                .expiresAt(Instant.now().plusSeconds(3600))
+                .build();
+
+        when(listRequest.execute())
+                .thenReturn(new ListMessagesResponse()
+                        .setMessages(List.of(new Message().setId("new-1"), new Message().setId("new-2")))
+                        .setNextPageToken(null))
+                .thenReturn(new ListMessagesResponse().setNextPageToken(null))
+                .thenReturn(new ListMessagesResponse().setNextPageToken(null))
+                .thenReturn(new ListMessagesResponse().setNextPageToken(null));
+
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
+                .thenReturn(Optional.of(token));
+        when(emailRepository.findProviderEmailIdsByUserId(eq(userId), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.<String>of(), PageRequest.of(0, 1000), 0));
+        when(gmailService.fetchMessagesByIds(eq(gmail),
+                argThat(ids -> ids != null && ids.containsAll(List.of("new-1", "new-2")))))
+                .thenReturn(List.of(
+                        EmailMessage.builder().providerEmailId("new-1").build(),
+                        EmailMessage.builder().providerEmailId("new-2").build()));
+
+        emailService.syncAllEmailsAsync(user, "google").join();
+
+        verify(gmailService).fetchMessagesByIds(eq(gmail), argThat(ids -> ids.size() == 2));
+        verify(emailRepository).saveAll(argThat(list ->
+                ((java.util.List<?>) list).size() == 2));
+        verify(webSocketService).sendNotification(userId.toString(), "sync_complete");
+    }
+
+    @Test
     void getDailySummary_today_returnsSummary() {
         var userId = UUID.randomUUID();
         var email = EmailMessage.builder()
@@ -425,6 +463,24 @@ class EmailServiceTest {
         assertEquals(0, result.get("emailCount"));
         assertEquals(LocalDate.now().minusDays(1).toString(), result.get("date"));
         verify(aiServiceClient, never()).summarizeEmails(any());
+    }
+
+    @Test
+    void buildPrioritySummary_returnsCountsFromRepository() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).email("me@example.com").build();
+
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(emailRepository.countUrgentesByUserId(userId)).thenReturn(3L);
+        when(emailRepository.countDestacadosSinLeerByUserId(userId)).thenReturn(12L);
+        when(emailRepository.countPendientesRespuestaByUserId(userId, "me@example.com")).thenReturn(5L);
+
+        var result = emailService.buildPrioritySummary(userId);
+
+        assertEquals(3L, result.getUrgentes());
+        assertEquals(12L, result.getDestacadosSinLeer());
+        assertEquals(5L, result.getPendientesRespuesta());
+        verify(emailRepository).countPendientesRespuestaByUserId(userId, "me@example.com");
     }
 
     @Test
