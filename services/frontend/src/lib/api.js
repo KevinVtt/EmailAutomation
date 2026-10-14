@@ -135,6 +135,8 @@ export const api = {
       request('/api/emails/count').catch(() => ({ count: 0 })),
     summary: (date = 'today') =>
       request(`/api/emails/summary?date=${date}`),
+    prioritySummary: () =>
+      request('/api/emails/priority-summary'),
     send: (provider, emailId, body) =>
       request('/api/emails/send', {
         method: 'POST',

@@ -95,6 +95,21 @@ describe('api lib', () => {
     expect(result).toEqual(mockResponse);
   });
 
+  it('emails.prioritySummary calls correct endpoint and returns parsed body', async () => {
+    const mockResponse = { urgentes: 3, destacadosSinLeer: 12, pendientesRespuesta: 5 };
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      text: () => Promise.resolve(JSON.stringify(mockResponse)),
+    });
+
+    const result = await api.emails.prioritySummary();
+    const callUrl = global.fetch.mock.calls[0][0];
+    expect(callUrl).toContain('/api/emails/priority-summary');
+    expect(result).toEqual(mockResponse);
+  });
+
   it('emails.send POSTs to the send endpoint with the correct body', async () => {
     const mockResponse = { status: 'sent', messageId: 'msg-123' };
     global.fetch = vi.fn().mockResolvedValue({

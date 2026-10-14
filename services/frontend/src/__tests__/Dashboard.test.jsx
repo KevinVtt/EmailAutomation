@@ -16,6 +16,7 @@ vi.mock('../lib/api', () => ({
       syncFull: vi.fn(),
       syncStatus: vi.fn(),
       summary: vi.fn(),
+      prioritySummary: vi.fn(),
     },
   },
 }));
@@ -61,6 +62,32 @@ describe('Dashboard', () => {
     renderDashboard();
 
     expect(screen.getByTestId('dashboard-loading')).toBeTruthy();
+  });
+
+  it('releases the sync UI when the status poll never reports completion', async () => {
+    vi.useFakeTimers();
+    try {
+      // Deja correr el auto-sync de este test (beforeEach lo desactiva).
+      sessionStorage.removeItem('autoSynced');
+      api.emails.count.mockResolvedValue({ count: 0 });
+      api.emails.filter.mockResolvedValue({ totalElements: 0 });
+      api.emails.syncFull.mockResolvedValue({ status: 'syncing', mode: 'full' });
+      api.emails.syncStatus.mockResolvedValue({ syncing: true });
+      api.emails.summary.mockResolvedValue({ summary: 'Sin novedades.', emailCount: 0, date: '2026-09-09' });
+      api.emails.prioritySummary.mockResolvedValue({ urgentes: 0, destacadosSinLeer: 0, pendientesRespuesta: 0 });
+
+      renderDashboard();
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+      expect(screen.getByText('Sincronizando...')).toBeTruthy();
+
+      // El poll nunca ve terminar la sync; el timer de seguridad (10 min) debe
+      // sacar la UI de 'syncing' igual (antes quedaba pegada para siempre).
+      await act(async () => { await vi.advanceTimersByTimeAsync(600001); });
+      expect(screen.queryByText('Sincronizando...')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('renders the stat cards and the 7-day chart from existing endpoints', async () => {
@@ -183,5 +210,44 @@ describe('Dashboard', () => {
     expect(screen.queryByText('**Importante:**')).toBeNull();
     expect(screen.getByText('Item uno')).toBeTruthy();
     expect(screen.getByText('Item dos')).toBeTruthy();
+  });
+
+  it('renders the Resumen priorizado card with the three priority numbers', async () => {
+    api.emails.count.mockResolvedValue({ count: 120 });
+    api.emails.filter.mockResolvedValue({ totalElements: 0 });
+    api.emails.summary.mockResolvedValue({ summary: 'Sin novedades.', emailCount: 0, date: '2026-09-09' });
+    api.emails.prioritySummary.mockResolvedValue({
+      urgentes: 3,
+      destacadosSinLeer: 12,
+      pendientesRespuesta: 5,
+    });
+
+    renderDashboard();
+
+    expect(await screen.findByText('Resumen priorizado')).toBeTruthy();
+    expect(await screen.findByText('3')).toBeTruthy();
+    expect(screen.getByText('12')).toBeTruthy();
+    expect(screen.getByText('5')).toBeTruthy();
+    expect(screen.getByText('urgentes')).toBeTruthy();
+    expect(screen.getByText('destacados sin leer')).toBeTruthy();
+    expect(screen.getByText('esperando respuesta')).toBeTruthy();
+  });
+
+  it('shows an error with retry when the priority summary fetch fails', async () => {
+    api.emails.count.mockResolvedValue({ count: 120 });
+    api.emails.filter.mockResolvedValue({ totalElements: 0 });
+    api.emails.summary.mockResolvedValue({ summary: 'Sin novedades.', emailCount: 0, date: '2026-09-09' });
+    api.emails.prioritySummary.mockRejectedValue(new Error('Network error'));
+
+    renderDashboard();
+
+    expect(await screen.findByText('Network error')).toBeTruthy();
+
+    api.emails.prioritySummary.mockResolvedValue({ urgentes: 1, destacadosSinLeer: 2, pendientesRespuesta: 3 });
+    fireEvent.click(screen.getByText('Reintentar'));
+
+    expect(await screen.findByText('1')).toBeTruthy();
+    expect(screen.getByText('2')).toBeTruthy();
+    expect(screen.getByText('3')).toBeTruthy();
   });
 });

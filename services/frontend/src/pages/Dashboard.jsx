@@ -11,7 +11,7 @@ import remarkGfm from 'remark-gfm';
 import {
   Mail, MailOpen, Star, ShieldAlert, RefreshCw, Loader2, AlertCircle,
   Check, Clock, Database, ChevronDown, WifiOff, BarChart3,
-  Sparkles, AlertTriangle, X,
+  Sparkles, AlertTriangle, X, Target,
 } from 'lucide-react';
 
 const STAT_CARDS = [
@@ -72,8 +72,12 @@ export default function Dashboard() {
   const [dailySummary, setDailySummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(true);
   const [summaryError, setSummaryError] = useState(null);
+  const [prioritySummary, setPrioritySummary] = useState(null);
+  const [priorityLoading, setPriorityLoading] = useState(true);
+  const [priorityError, setPriorityError] = useState(null);
   const [urgentEmails, setUrgentEmails] = useState(null);
   const pollIntervalRef = useRef(null);
+  const syncSafetyRef = useRef(null);
 
   const fetchStats = useCallback(async () => {
     setLoading(true);
@@ -137,20 +141,53 @@ export default function Dashboard() {
     }
   }, []);
 
+  const fetchPrioritySummary = useCallback(async () => {
+    setPriorityLoading(true);
+    setPriorityError(null);
+    try {
+      const data = await api.emails.prioritySummary();
+      setPrioritySummary(data);
+    } catch (err) {
+      console.error('Failed to fetch priority summary', err);
+      setPriorityError(err.message || 'Error al cargar resumen priorizado');
+    } finally {
+      setPriorityLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchStats();
     fetchSummary();
-  }, [fetchStats, fetchSummary]);
+    fetchPrioritySummary();
+  }, [fetchStats, fetchSummary, fetchPrioritySummary]);
+
+  // Corta el poll y el timer de seguridad del sync en curso.
+  const stopSyncPoll = useCallback(() => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    if (syncSafetyRef.current) {
+      clearTimeout(syncSafetyRef.current);
+      syncSafetyRef.current = null;
+    }
+  }, []);
+
+  // Único punto de cierre del sync: siempre saca la UI de 'syncing' (antes el
+  // timer de seguridad cortaba el poll pero dejaba el botón pegado para siempre).
+  const finishSync = useCallback((status) => {
+    stopSyncPoll();
+    setSyncStatus(status);
+    setSyncMode(null);
+    if (status === 'success') fetchStats();
+    setTimeout(() => {
+      setSyncStatus(null);
+      setSyncProgress({ current: 0, total: 0 });
+    }, status === 'error' ? 5000 : 3000);
+  }, [stopSyncPoll, fetchStats]);
 
   // Clear the sync-status poll if the dashboard unmounts mid-sync.
-  useEffect(() => {
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
-    };
-  }, []);
+  useEffect(() => stopSyncPoll, [stopSyncPoll]);
 
   const handleSync = useCallback(async (provider, mode = 'incremental') => {
     try {
@@ -165,36 +202,28 @@ export default function Dashboard() {
       }
 
       // Fallback: poll sync status in case WebSocket notification doesn't arrive
+      stopSyncPoll();
       pollIntervalRef.current = setInterval(async () => {
         try {
           const status = await api.emails.syncStatus();
           if (!status.syncing) {
-            clearInterval(pollIntervalRef.current);
-            pollIntervalRef.current = null;
-            setSyncStatus('success');
-            setSyncMode(null);
-            setTimeout(() => { setSyncStatus(null); setSyncProgress({ current: 0, total: 0 }); }, 3000);
-            fetchStats();
+            finishSync('success');
           }
         } catch {
           // Ignore poll errors
         }
       }, 2000);
-      // Safety: stop polling after 10 minutes for full sync, 3 minutes for incremental
+      // Safety: si el poll no ve terminar la sync, liberamos la UI igual (antes
+      // solo se cortaba el interval y el botón quedaba en "Sincronizando...").
       const timeout = mode === 'full' ? 600000 : 180000;
-      setTimeout(() => {
-        if (pollIntervalRef.current) {
-          clearInterval(pollIntervalRef.current);
-          pollIntervalRef.current = null;
-        }
+      syncSafetyRef.current = setTimeout(() => {
+        if (pollIntervalRef.current) finishSync('error');
       }, timeout);
     } catch (err) {
       console.error('Failed to trigger sync', err);
-      setSyncStatus('error');
-      setSyncMode(null);
-      setTimeout(() => { setSyncStatus(null); setSyncProgress({ current: 0, total: 0 }); }, 5000);
+      finishSync('error');
     }
-  }, [fetchStats]);
+  }, [finishSync, stopSyncPoll]);
 
   const onChat = useCallback((data) => {
     if (data.type === 'chat_response' && data.data) {
@@ -207,10 +236,7 @@ export default function Dashboard() {
 
     const msg = data.message;
     if (msg === 'sync_complete') {
-      setSyncStatus('success');
-      setSyncMode(null);
-      setTimeout(() => { setSyncStatus(null); setSyncProgress({ current: 0, total: 0 }); }, 3000);
-      fetchStats();
+      finishSync('success');
     } else if (typeof msg === 'string' && msg.startsWith('sync_progress:')) {
       // sync_progress:current:total
       const parts = msg.split(':');
@@ -220,9 +246,7 @@ export default function Dashboard() {
       setSyncStatus('syncing');
     } else if (typeof msg === 'string' && msg.startsWith('sync_error')) {
       console.error('Sync error:', msg);
-      setSyncStatus('error');
-      setSyncMode(null);
-      setTimeout(() => { setSyncStatus(null); setSyncProgress({ current: 0, total: 0 }); }, 5000);
+      finishSync('error');
     } else if (typeof msg === 'string' && msg.startsWith('urgent_emails:')) {
       const rest = msg.slice('urgent_emails:'.length);
       const sepIdx = rest.indexOf(':');
@@ -230,7 +254,7 @@ export default function Dashboard() {
       const subjects = sepIdx >= 0 ? rest.slice(sepIdx + 1) : '';
       setUrgentEmails({ count, subjects });
     }
-  }, [fetchStats]);
+  }, [finishSync]);
 
   useWebSocket(localStorage.getItem('accessToken'), {
     onNotifications,
@@ -529,6 +553,76 @@ export default function Dashboard() {
                       {dailySummary.emailCount} correos · {format(new Date(dailySummary.date + 'T00:00:00'), 'dd/MM/yyyy')}
                     </div>
                   </>
+                ) : null}
+              </div>
+
+              <div className="card dark:bg-gray-800 dark:border-gray-700">
+                <div className="flex items-center gap-2 mb-4">
+                  <Target className="w-5 h-5 text-primary-600" />
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Resumen priorizado</h2>
+                  <button
+                    onClick={fetchPrioritySummary}
+                    disabled={priorityLoading}
+                    className="ml-auto p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                    title="Actualizar resumen priorizado"
+                    aria-label="Actualizar resumen priorizado"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${priorityLoading ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
+
+                {priorityLoading && !prioritySummary ? (
+                  <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 py-4">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Calculando prioridades...</span>
+                  </div>
+                ) : priorityError ? (
+                  <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400 py-2">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    <span className="flex-1 min-w-0">{priorityError}</span>
+                    <button
+                      onClick={fetchPrioritySummary}
+                      className="px-2 py-1 text-xs font-medium rounded-lg border border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors flex-shrink-0"
+                    >
+                      Reintentar
+                    </button>
+                  </div>
+                ) : prioritySummary ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400">
+                        <AlertTriangle className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                          {prioritySummary.urgentes.toLocaleString()}
+                        </div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400 truncate">urgentes</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400">
+                        <Star className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                          {prioritySummary.destacadosSinLeer.toLocaleString()}
+                        </div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400 truncate">destacados sin leer</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400">
+                        <Clock className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                          {prioritySummary.pendientesRespuesta.toLocaleString()}
+                        </div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400 truncate">esperando respuesta</div>
+                      </div>
+                    </div>
+                  </div>
                 ) : null}
               </div>
             </>
