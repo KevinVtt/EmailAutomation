@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { AuthContext } from '../context/AuthContext';
 import { api } from '../lib/api';
 import EmailListView from '../components/EmailListView';
@@ -73,5 +73,19 @@ describe('EmailListView', () => {
     api.emails.filter.mockRejectedValue(new Error('Network error'));
     renderList();
     expect(await screen.findByText('Error al cargar emails')).toBeTruthy();
+  });
+
+  it('removes the email from the list when deleted from the detail', async () => {
+    const email = { ...mockEmail, providerEmailId: 'p1' };
+    api.emails.filter.mockResolvedValue({ content: [email], totalPages: 1 });
+    api.emails.get.mockResolvedValue({ ...email, visto: true, bodyHtml: '<p>Hola</p>' });
+    api.emails.action.mockResolvedValue({});
+    renderList();
+
+    fireEvent.click(await screen.findByText('Email destacado'));
+    fireEvent.click(await screen.findByTitle('Eliminar'));
+
+    await waitFor(() => expect(api.emails.action).toHaveBeenCalledWith('google', 'p1', 'trash'));
+    await waitFor(() => expect(screen.queryByText('Email destacado')).toBeNull());
   });
 });

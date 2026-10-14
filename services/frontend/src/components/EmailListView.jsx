@@ -71,6 +71,13 @@ export default function EmailListView({
     ));
   }, []);
 
+  // Tras borrar, el mail ya no existe en la DB: hay que sacarlo de la lista o
+  // sigue visible hasta el próximo fetch.
+  const handleEmailAction = useCallback((actionType) => {
+    if (actionType !== 'trash' || !selectedEmail) return;
+    setEmails(prev => prev.filter(e => e.id !== selectedEmail.id));
+  }, [selectedEmail]);
+
   const handleCloseDetail = useCallback(() => {
     setSelectedEmail(null);
   }, []);
@@ -124,7 +131,7 @@ export default function EmailListView({
         </div>
         {selectedEmail && (
           <div className="flex-1 min-w-0">
-            <EmailDetail email={selectedEmail} onClose={handleCloseDetail} onRead={handleEmailRead} />
+            <EmailDetail email={selectedEmail} onClose={handleCloseDetail} onRead={handleEmailRead} onAction={handleEmailAction} />
           </div>
         )}
       </div>
