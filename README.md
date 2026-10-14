@@ -210,6 +210,19 @@ run-frontend.bat
 
 Cada `.bat` compila e inicia su servicio en una ventana separada.
 
+#### Control del día a día: `servicios.bat`
+
+Una vez que ya corriste `start-local.bat` al menos una vez, usá **`servicios.bat`**:
+es una botonera que inicia, para, reinicia y muestra el estado de los 3 servicios
+sin compilar nada (arranca al instante).
+
+```bash
+servicios.bat            # abre la botonera
+servicios.bat status     # también acepta: start | stop | restart | status
+```
+
+La opción `[6] Salir y parar todo` para los 3 servicios y cierra la botonera.
+
 #### 5. Abrir la aplicación
 
 Abrí en tu navegador: **http://localhost:3001**
@@ -282,6 +295,7 @@ EmailAutomation/
 │   └── postgres/init/           # Scripts de inicialización SQL
 ├── docker-compose.yml           # Levantar todo con Docker
 ├── start-local.bat              # Levantar todo sin Docker (un solo clic)
+├── servicios.bat                # Botonera: iniciar / parar / reiniciar / estado
 ├── run-backend.bat              # Levantar solo el backend
 ├── run-frontend.bat             # Levantar solo el frontend
 ├── run-ai.bat                   # Levantar solo el servicio de IA
@@ -354,6 +368,9 @@ docker compose up -d frontend
 ```bash
 # Levantar todo junto
 start-local.bat
+
+# Controlar los servicios ya compilados (iniciar/parar/reiniciar/estado)
+servicios.bat
 
 # O uno por uno:
 run-backend.bat      # Backend Java (puerto 8080)
