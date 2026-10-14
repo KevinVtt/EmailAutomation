@@ -1,5 +1,6 @@
 package com.emailfilter.service;
 
+import com.emailfilter.dto.GmailHistoryChanges;
 import com.emailfilter.exception.PermanentApiException;
 import com.emailfilter.exception.TransientApiException;
 import com.google.api.client.googleapis.json.GoogleJsonResponseException;
@@ -18,12 +19,14 @@ import org.springframework.retry.support.RetryTemplate;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -326,6 +329,82 @@ public class GmailService {
 
     public void moveToTrash(String accessToken, String messageId) {
         modifyMessage(accessToken, messageId, List.of("TRASH"), List.of());
+    }
+
+    /**
+     * Cursor actual del buzón ({@code users.getProfile}). Se guarda para usarlo
+     * como {@code startHistoryId} en el próximo sync incremental.
+     */
+    public String getHistoryId(String accessToken) {
+        var gmail = buildGmailClient(accessToken);
+        var profile = retryTemplateExecute(() -> gmail.users().getProfile("me").execute());
+        return profile.getHistoryId() != null ? profile.getHistoryId().toString() : null;
+    }
+
+    /**
+     * Cambios del buzón desde {@code startHistoryId} ({@code users.history.list},
+     * 2 unidades de cuota). Un cursor vencido devuelve 404: se devuelve
+     * {@code null} para que el llamador haga un resync por fecha.
+     *
+     * <p>"Eliminar" en Gmail mueve el mail a la papelera (labelAdded TRASH), no
+     * emite {@code messageDeleted}, así que ambos cuentan como borrado local.
+     */
+    public GmailHistoryChanges listHistory(String accessToken, String startHistoryId) {
+        var gmail = buildGmailClient(accessToken);
+        var added = new LinkedHashSet<String>();
+        var deleted = new LinkedHashSet<String>();
+        String latestHistoryId = startHistoryId;
+        String pageToken = null;
+        try {
+            do {
+                final String currentToken = pageToken;
+                var response = retryTemplateExecute(() -> {
+                    var request = gmail.users().history().list("me")
+                            .setStartHistoryId(new BigInteger(startHistoryId))
+                            .setHistoryTypes(List.of("messageAdded", "messageDeleted", "labelAdded"))
+                            .setMaxResults(500L);
+                    if (currentToken != null && !currentToken.isBlank()) {
+                        request.setPageToken(currentToken);
+                    }
+                    return request.execute();
+                });
+
+                if (response.getHistory() != null) {
+                    for (var history : response.getHistory()) {
+                        if (history.getMessagesAdded() != null) {
+                            for (var item : history.getMessagesAdded()) {
+                                if (item.getMessage() != null) added.add(item.getMessage().getId());
+                            }
+                        }
+                        if (history.getMessagesDeleted() != null) {
+                            for (var item : history.getMessagesDeleted()) {
+                                if (item.getMessage() != null) deleted.add(item.getMessage().getId());
+                            }
+                        }
+                        // "Eliminar" en Gmail = mover a papelera: llega como labelAdded TRASH.
+                        if (history.getLabelsAdded() != null) {
+                            for (var item : history.getLabelsAdded()) {
+                                if (item.getMessage() != null && item.getLabelIds() != null
+                                        && item.getLabelIds().contains("TRASH")) {
+                                    deleted.add(item.getMessage().getId());
+                                }
+                            }
+                        }
+                    }
+                }
+                if (response.getHistoryId() != null) {
+                    latestHistoryId = response.getHistoryId().toString();
+                }
+                pageToken = response.getNextPageToken();
+            } while (pageToken != null && !pageToken.isBlank());
+        } catch (PermanentApiException e) {
+            log.warn("history.list startHistoryId={} is stale or invalid, a date-based resync is needed: {}",
+                    startHistoryId, e.getMessage());
+            return null;
+        }
+        log.info("history.list since {}: {} added, {} removed, new cursor {}",
+                startHistoryId, added.size(), deleted.size(), latestHistoryId);
+        return new GmailHistoryChanges(added, deleted, latestHistoryId);
     }
 
     public String sendEmail(String accessToken, String to, String subject, String body) {

@@ -38,6 +38,10 @@ public class OAuthToken {
     @Column(name = "expires_at")
     private Instant expiresAt;
 
+    /** Cursor de sincronización incremental de Gmail ({@code users.history.list}). */
+    @Column(name = "history_id")
+    private String historyId;
+
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;
 

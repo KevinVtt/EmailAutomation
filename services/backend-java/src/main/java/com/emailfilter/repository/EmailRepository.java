@@ -30,6 +30,12 @@ public interface EmailRepository extends JpaRepository<EmailMessage, UUID>,
 
     @Modifying
     @Transactional
+    @Query("DELETE FROM EmailMessage e WHERE e.user.id = :userId AND e.providerEmailId IN :providerEmailIds")
+    int deleteByUserIdAndProviderEmailIdIn(@Param("userId") UUID userId,
+                                           @Param("providerEmailIds") Collection<String> providerEmailIds);
+
+    @Modifying
+    @Transactional
     @Query("UPDATE EmailMessage e SET e.isStarred = false WHERE e.user.id = :userId")
     int unstarAllByUserId(@Param("userId") UUID userId);
 

@@ -4,11 +4,17 @@ import com.emailfilter.exception.PermanentApiException;
 import com.emailfilter.exception.TransientApiException;
 import com.google.api.client.googleapis.json.GoogleJsonResponseException;
 import com.google.api.services.gmail.Gmail;
+import com.google.api.services.gmail.model.ListHistoryResponse;
 import com.google.api.services.gmail.model.ListMessagesResponse;
 import com.google.api.services.gmail.model.Message;
 import com.google.api.services.gmail.model.MessagePart;
 import com.google.api.services.gmail.model.MessagePartBody;
 import com.google.api.services.gmail.model.MessagePartHeader;
+import com.google.api.services.gmail.model.History;
+import com.google.api.services.gmail.model.HistoryLabelAdded;
+import com.google.api.services.gmail.model.HistoryMessageAdded;
+import com.google.api.services.gmail.model.HistoryMessageDeleted;
+import com.google.api.services.gmail.model.Profile;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -16,6 +22,7 @@ import org.springframework.retry.backoff.FixedBackOffPolicy;
 import org.springframework.retry.policy.SimpleRetryPolicy;
 import org.springframework.retry.support.RetryTemplate;
 
+import java.math.BigInteger;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
@@ -23,6 +30,8 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -231,5 +240,61 @@ class GmailServiceTest {
         when(listRequest.execute()).thenThrow(gjre);
 
         assertThrows(PermanentApiException.class, () -> gmailService.fetchAllEmails("token", 100, 5));
+    }
+
+    @Test
+    void getHistoryId_readsProfileCursor() throws Exception {
+        var profileRequest = mock(Gmail.Users.GetProfile.class);
+        when(gmail.users().getProfile("me")).thenReturn(profileRequest);
+        when(profileRequest.execute()).thenReturn(new Profile().setHistoryId(new BigInteger("123")));
+
+        assertEquals("123", gmailService.getHistoryId("token"));
+    }
+
+    @Test
+    void listHistory_collectsAddedDeletedAndTrashedMessages() throws Exception {
+        var historyRequest = mock(Gmail.Users.History.List.class);
+        var history = mock(Gmail.Users.History.class);
+        when(gmail.users().history()).thenReturn(history);
+        when(history.list("me")).thenReturn(historyRequest);
+        when(historyRequest.setStartHistoryId(any())).thenReturn(historyRequest);
+        when(historyRequest.setHistoryTypes(any())).thenReturn(historyRequest);
+        when(historyRequest.setMaxResults(anyLong())).thenReturn(historyRequest);
+
+        var response = new ListHistoryResponse()
+                .setHistory(List.of(new History()
+                        .setMessagesAdded(List.of(
+                                new HistoryMessageAdded().setMessage(new Message().setId("added-1"))))
+                        .setMessagesDeleted(List.of(
+                                new HistoryMessageDeleted().setMessage(new Message().setId("perm-1"))))
+                        .setLabelsAdded(List.of(new HistoryLabelAdded()
+                                .setMessage(new Message().setId("trashed-1"))
+                                .setLabelIds(List.of("TRASH"))))))
+                .setHistoryId(new BigInteger("2000"))
+                .setNextPageToken(null);
+        when(historyRequest.execute()).thenReturn(response);
+
+        var changes = gmailService.listHistory("token", "1000");
+
+        assertNotNull(changes);
+        assertEquals(Set.of("added-1"), changes.addedIds());
+        assertEquals(Set.of("perm-1", "trashed-1"), changes.deletedIds());
+        assertEquals("2000", changes.latestHistoryId());
+    }
+
+    /** Un cursor vencido devuelve 404: se devuelve null para forzar el resync por fecha. */
+    @Test
+    void listHistory_expiredCursor_returnsNull() throws Exception {
+        var historyRequest = mock(Gmail.Users.History.List.class);
+        var history = mock(Gmail.Users.History.class);
+        when(gmail.users().history()).thenReturn(history);
+        when(history.list("me")).thenReturn(historyRequest);
+        when(historyRequest.setStartHistoryId(any())).thenReturn(historyRequest);
+        when(historyRequest.setHistoryTypes(any())).thenReturn(historyRequest);
+        when(historyRequest.setMaxResults(anyLong())).thenReturn(historyRequest);
+        var expired = mockGjre(404);
+        when(historyRequest.execute()).thenThrow(expired);
+
+        assertNull(gmailService.listHistory("token", "1"));
     }
 }

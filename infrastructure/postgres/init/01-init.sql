@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
     token_type        VARCHAR(50) DEFAULT 'Bearer',
     scope             TEXT,
     expires_at        TIMESTAMP WITH TIME ZONE,
+    history_id        VARCHAR(64),
     created_at        TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at        TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

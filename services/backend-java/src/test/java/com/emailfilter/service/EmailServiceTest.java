@@ -1,5 +1,7 @@
 package com.emailfilter.service;
 
+import com.emailfilter.dto.GmailHistoryChanges;
+import com.emailfilter.exception.TransientApiException;
 import com.emailfilter.model.EmailMessage;
 import com.emailfilter.model.OAuthToken;
 import com.emailfilter.model.SyncJob;
@@ -34,6 +36,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -42,11 +45,13 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -685,5 +690,113 @@ class EmailServiceTest {
 
         assertThrows(IllegalArgumentException.class,
                 () -> emailService.sendReply(user, "yahoo", "orig-1", "Hola"));
+    }
+
+    // --- moveToTrash: el borrado debe reflejarse en la base local ---
+
+    @Test
+    void moveToTrash_trashesOnGmailAndRemovesLocalRow() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var token = OAuthToken.builder()
+                .accessToken("t")
+                .expiresAt(Instant.now().plusSeconds(3600))
+                .build();
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
+                .thenReturn(Optional.of(token));
+
+        emailService.moveToTrash(user, "google", "msg-1");
+
+        verify(gmailService).moveToTrash("t", "msg-1");
+        verify(emailRepository).deleteByUserIdAndProviderEmailIdIn(eq(userId), argThat(ids -> ids.contains("msg-1")));
+        verify(vistoRepository).deleteByUserIdAndProviderEmailIdIn(eq(userId), argThat(ids -> ids.contains("msg-1")));
+    }
+
+    /**
+     * Si Gmail falla por cuota/red (transitorio), la fila local NO se borra: el
+     * mail sigue existiendo en Gmail y el usuario puede reintentar.
+     */
+    @Test
+    void moveToTrash_transientProviderError_keepsLocalRow() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var token = OAuthToken.builder()
+                .accessToken("t")
+                .expiresAt(Instant.now().plusSeconds(3600))
+                .build();
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
+                .thenReturn(Optional.of(token));
+        doThrow(new TransientApiException("429")).when(gmailService).moveToTrash("t", "msg-1");
+
+        assertThrows(TransientApiException.class, () -> emailService.moveToTrash(user, "google", "msg-1"));
+
+        verify(emailRepository, never()).deleteByUserIdAndProviderEmailIdIn(any(), anyCollection());
+        verify(vistoRepository, never()).deleteByUserIdAndProviderEmailIdIn(any(), anyCollection());
+    }
+
+    // --- history sync: baja de mails borrados en Gmail + alta de nuevos ---
+
+    @Test
+    void syncEmailsAsync_historySync_deletesRemovedAndFetchesAdded() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var token = OAuthToken.builder()
+                .accessToken("t")
+                .historyId("1000")
+                .expiresAt(Instant.now().plusSeconds(3600))
+                .build();
+
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
+                .thenReturn(Optional.of(token));
+        when(gmailService.listHistory("t", "1000")).thenReturn(
+                new GmailHistoryChanges(Set.of("new-1", "old-1"), Set.of("gone-1"), "2000"));
+        when(emailRepository.findProviderEmailIdsByUserId(eq(userId), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of("old-1"), PageRequest.of(0, 1000), 1));
+        var fetched = EmailMessage.builder()
+                .provider("google")
+                .providerEmailId("new-1")
+                .user(user)
+                .build();
+        when(gmailService.fetchMessagesByIds(any(), argThat(ids ->
+                ids.contains("new-1") && !ids.contains("old-1") && !ids.contains("gone-1"))))
+                .thenReturn(List.of(fetched));
+
+        emailService.syncEmailsAsync(user, "google").join();
+
+        verify(emailRepository).deleteByUserIdAndProviderEmailIdIn(eq(userId), argThat(ids -> ids.contains("gone-1")));
+        verify(vistoRepository).deleteByUserIdAndProviderEmailIdIn(eq(userId), argThat(ids -> ids.contains("gone-1")));
+        verify(emailRepository).saveAll(anyList());
+        verify(oauthTokenRepository).save(argThat(t -> "2000".equals(t.getHistoryId())));
+    }
+
+    @Test
+    void syncEmailsAsync_staleHistoryId_fallsBackToDateSyncAndReseedsCursor() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var token = OAuthToken.builder()
+                .accessToken("t")
+                .historyId("9999")
+                .expiresAt(Instant.now().plusSeconds(3600))
+                .build();
+        var lastEmail = EmailMessage.builder()
+                .provider("google")
+                .providerEmailId("last")
+                .receivedAt(Instant.now())
+                .user(user)
+                .build();
+
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
+                .thenReturn(Optional.of(token));
+        when(gmailService.listHistory("t", "9999")).thenReturn(null);
+        when(emailRepository.findTopByUserIdOrderByReceivedAtDesc(userId)).thenReturn(Optional.of(lastEmail));
+        when(emailRepository.findProviderEmailIdsByUserId(eq(userId), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 1000), 0));
+        when(gmailService.fetchIncrementalEmails(anyString(), any(Instant.class), anySet())).thenReturn(List.of());
+        when(gmailService.getHistoryId("t")).thenReturn("5555");
+
+        emailService.syncEmailsAsync(user, "google").join();
+
+        verify(gmailService).fetchIncrementalEmails(anyString(), any(Instant.class), anySet());
+        verify(oauthTokenRepository).save(argThat(t -> "5555".equals(t.getHistoryId())));
     }
 }

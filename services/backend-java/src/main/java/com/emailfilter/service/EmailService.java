@@ -1,7 +1,9 @@
 package com.emailfilter.service;
 
 import com.emailfilter.dto.EmailDTO;
+import com.emailfilter.dto.GmailHistoryChanges;
 import com.emailfilter.dto.PrioritySummaryDTO;
+import com.emailfilter.exception.TransientApiException;
 import com.emailfilter.model.EmailMessage;
 import com.emailfilter.model.OAuthToken;
 import com.emailfilter.model.SyncJob;
@@ -316,24 +318,7 @@ public class EmailService {
 
             List<EmailMessage> emails;
             if ("google".equals(provider)) {
-                // Check if we already have emails for this user
-                var lastEmailOpt = emailRepository.findTopByUserIdOrderByReceivedAtDesc(userId);
-                if (lastEmailOpt.isPresent()) {
-                    // Incremental sync: fetch only new emails since last sync
-                    var lastReceivedAt = lastEmailOpt.get().getReceivedAt();
-                    log.info("Incremental sync for user={}, fetching emails after {}", userId, lastReceivedAt);
-
-                    // Get existing provider email IDs to skip (lightweight query, no full entities)
-                    var existingIds = fetchAllProviderEmailIds(userId);
-
-                    emails = gmailService.fetchIncrementalEmails(accessToken, lastReceivedAt, existingIds);
-                    log.info("Incremental fetch: {} new emails for user={}", emails.size(), userId);
-                } else {
-                    // First sync: fetch all emails
-                    log.info("First sync for user={}, fetching all emails", userId);
-                    emails = gmailService.fetchAllEmails(accessToken, 100, maxEmailsPerSync);
-                    log.info("Initial fetch: {} emails for user={}", emails.size(), userId);
-                }
+                emails = syncGoogle(user, accessToken);
             } else if ("outlook".equals(provider)) {
                 log.info("Fetching emails from Outlook for user={}", userId);
                 var rawEmails = outlookService.fetchEmails(accessToken, 100);
@@ -472,6 +457,73 @@ public class EmailService {
             syncingTimestamps.remove(userId);
         }
         return CompletableFuture.completedFuture(null);
+    }
+
+    /**
+     * Sync incremental de Gmail. Con un cursor {@code historyId} guardado usa
+     * {@code history.list} (2 unidades): detecta altas Y bajas, así que un mail
+     * borrado en Gmail deja de aparecer. Sin cursor (o vencido) cae al fetch por
+     * fecha y guarda el cursor para la próxima.
+     */
+    private List<EmailMessage> syncGoogle(User user, String accessToken) {
+        var userId = user.getId();
+        var oauthToken = oauthTokenRepository
+                .findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google")
+                .orElseThrow(() -> new RuntimeException("No OAuth token found for provider: google"));
+
+        if (oauthToken.getHistoryId() != null) {
+            var changes = gmailService.listHistory(accessToken, oauthToken.getHistoryId());
+            if (changes != null) {
+                var emails = applyHistoryChanges(user, accessToken, changes);
+                persistHistoryId(oauthToken, changes.latestHistoryId());
+                return emails;
+            }
+            log.warn("Stale historyId for user={}, falling back to date-based sync", userId);
+        }
+
+        // Cursor ANTES de listar: así un cambio ocurrido durante el fetch no se pierde.
+        var cursor = gmailService.getHistoryId(accessToken);
+        var lastEmailOpt = emailRepository.findTopByUserIdOrderByReceivedAtDesc(userId);
+        List<EmailMessage> emails;
+        if (lastEmailOpt.isPresent()) {
+            var lastReceivedAt = lastEmailOpt.get().getReceivedAt();
+            log.info("Incremental sync for user={}, fetching emails after {}", userId, lastReceivedAt);
+            emails = gmailService.fetchIncrementalEmails(accessToken, lastReceivedAt, fetchAllProviderEmailIds(userId));
+        } else {
+            log.info("First sync for user={}, fetching all emails", userId);
+            emails = gmailService.fetchAllEmails(accessToken, 100, maxEmailsPerSync);
+        }
+        log.info("Incremental fetch: {} new emails for user={}", emails.size(), userId);
+        persistHistoryId(oauthToken, cursor);
+        return emails;
+    }
+
+    /** Aplica altas/bajas del history de Gmail sobre la base local y devuelve los mails nuevos. */
+    private List<EmailMessage> applyHistoryChanges(User user, String accessToken, GmailHistoryChanges changes) {
+        var userId = user.getId();
+
+        var deletedIds = changes.deletedIds();
+        if (!deletedIds.isEmpty()) {
+            emailRepository.deleteByUserIdAndProviderEmailIdIn(userId, deletedIds);
+            vistoRepository.deleteByUserIdAndProviderEmailIdIn(userId, deletedIds);
+            log.info("History sync: removed {} emails for user={}", deletedIds.size(), userId);
+        }
+
+        var existingIds = fetchAllProviderEmailIds(userId);
+        var newIds = changes.addedIds().stream()
+                .filter(id -> !deletedIds.contains(id))
+                .filter(id -> !existingIds.contains(id))
+                .toList();
+        if (newIds.isEmpty()) {
+            return List.of();
+        }
+        return gmailService.fetchMessagesByIds(buildGmailClient(accessToken), newIds);
+    }
+
+    private void persistHistoryId(OAuthToken oauthToken, String historyId) {
+        if (historyId == null) return;
+        oauthToken.setHistoryId(historyId);
+        oauthTokenRepository.save(oauthToken);
     }
 
     protected com.google.api.services.gmail.Gmail buildGmailClient(String accessToken) {
@@ -643,14 +695,23 @@ public class EmailService {
 
     @Transactional
     public void moveToTrash(User user, String provider, String emailId) {
-        // Sync with provider — best effort
+        var token = getToken(user, provider);
         try {
-            var token = getToken(user, provider);
             if ("google".equals(provider)) gmailService.moveToTrash(token, emailId);
             else outlookService.moveToTrash(token, emailId);
+        } catch (TransientApiException e) {
+            // El proveedor no respondió: se conserva la fila local para poder reintentar.
+            throw e;
         } catch (Exception e) {
+            // 4xx (p. ej. el mail ya no existe) o proveedor no-Google: se borra igual, es idempotente.
             log.warn("Failed to move to trash on {}: {}", provider, e.getMessage());
         }
+
+        // El listado muestra TODAS las filas locales, así que sin este borrado el
+        // mail seguiría apareciendo aunque ya no exista en Gmail.
+        emailRepository.deleteByUserIdAndProviderEmailIdIn(user.getId(), List.of(emailId));
+        vistoRepository.deleteByUserIdAndProviderEmailIdIn(user.getId(), List.of(emailId));
+        log.info("Email {} removed locally for user={}", emailId, user.getId());
     }
 
     @Transactional
