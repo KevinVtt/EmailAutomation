@@ -6,6 +6,7 @@ import com.emailfilter.dto.AuthResponse;
 import com.emailfilter.model.User;
 import com.emailfilter.repository.OAuthTokenRepository;
 import com.emailfilter.security.JwtTokenProvider;
+import com.emailfilter.security.TokenCryptoService;
 import com.emailfilter.security.UserDetailsServiceImpl;
 import com.emailfilter.service.AuthService;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,11 +24,15 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
+
+import com.jayway.jsonpath.JsonPath;
 
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -61,6 +66,9 @@ class AuthControllerTest {
     private OAuthTokenRepository oauthTokenRepository;
 
     @MockBean
+    private TokenCryptoService tokenCryptoService;
+
+    @MockBean
     private JwtTokenProvider jwtTokenProvider;
 
     @MockBean
@@ -74,18 +82,70 @@ class AuthControllerTest {
         ReflectionTestUtils.setField(authController, "restTemplate", restTemplate);
     }
 
+    private String issueState(String provider) throws Exception {
+        var result = mockMvc.perform(get("/api/auth/oauth2/" + provider)).andReturn();
+        var authUrl = JsonPath.<String>read(result.getResponse().getContentAsString(), "$.authUrl");
+        return UriComponentsBuilder.fromUriString(authUrl).build().getQueryParams().getFirst("state");
+    }
+
+    private void stubGoogleCallback() {
+        var response = AuthResponse.builder()
+                .userId(UUID.randomUUID())
+                .email("test@example.com")
+                .name("Test")
+                .accessToken("token")
+                .refreshToken("refresh")
+                .build();
+        var user = User.builder()
+                .id(UUID.randomUUID())
+                .email("test@example.com")
+                .build();
+        Map<String, Object> tokenResponse = Map.of(
+                "access_token", "access-token-123",
+                "refresh_token", "refresh-token-123",
+                "token_type", "Bearer",
+                "scope", "email profile",
+                "expires_in", 3600
+        );
+        Map<String, Object> userInfo = Map.of(
+                "id", "google-user-1",
+                "email", "test@example.com",
+                "name", "Test",
+                "picture", "https://example.com/avatar.png"
+        );
+        when(restTemplate.exchange(anyString(), eq(HttpMethod.POST), any(), eq(Map.class)))
+                .thenReturn(ResponseEntity.ok(tokenResponse));
+        when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), any(), eq(Map.class)))
+                .thenReturn(ResponseEntity.ok(userInfo));
+        when(authService.authenticateOAuth2User(anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(response);
+        when(authService.findByEmail(anyString())).thenReturn(user);
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(any(), anyString()))
+                .thenReturn(Optional.empty());
+    }
+
     @Test
     void getGoogleOAuthUrl_returnsUrl() throws Exception {
         mockMvc.perform(get("/api/auth/oauth2/google"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.authUrl").isString());
+                .andExpect(jsonPath("$.authUrl").isString())
+                .andExpect(jsonPath("$.authUrl", containsString("state=")));
+
+        var state = issueState("google");
+        org.junit.jupiter.api.Assertions.assertNotNull(state);
+        org.junit.jupiter.api.Assertions.assertFalse(state.isBlank());
     }
 
     @Test
     void getOutlookOAuthUrl_returnsUrl() throws Exception {
         mockMvc.perform(get("/api/auth/oauth2/outlook"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.authUrl").isString());
+                .andExpect(jsonPath("$.authUrl").isString())
+                .andExpect(jsonPath("$.authUrl", containsString("state=")));
+
+        var state = issueState("outlook");
+        org.junit.jupiter.api.Assertions.assertNotNull(state);
+        org.junit.jupiter.api.Assertions.assertFalse(state.isBlank());
     }
 
     @Test
@@ -127,7 +187,8 @@ class AuthControllerTest {
         when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(any(), anyString()))
                 .thenReturn(Optional.empty());
 
-        var body = "{\"authorizationCode\":\"code123\",\"provider\":\"google\"}";
+        var body = "{\"authorizationCode\":\"code123\",\"provider\":\"google\",\"state\":\""
+                + issueState("google") + "\"}";
 
         mockMvc.perform(post("/api/auth/callback/google")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -231,7 +292,7 @@ class AuthControllerTest {
         when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(any(), anyString()))
                 .thenReturn(Optional.empty());
 
-        var body = "{\"authorizationCode\":\"code123\"}";
+        var body = "{\"authorizationCode\":\"code123\",\"state\":\"" + issueState("outlook") + "\"}";
 
         mockMvc.perform(post("/api/auth/callback/outlook")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -287,12 +348,52 @@ class AuthControllerTest {
         when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(any(), anyString()))
                 .thenReturn(Optional.empty());
 
-        var body = "{\"authorizationCode\":\"code123\"}";
+        var body = "{\"authorizationCode\":\"code123\",\"state\":\"" + issueState("outlook") + "\"}";
 
         mockMvc.perform(post("/api/auth/callback/outlook")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.email").value("test@outlook.com"));
+    }
+
+    @Test
+    void handleCallback_missingState_returnsUnauthorized() throws Exception {
+        var body = "{\"authorizationCode\":\"code123\",\"provider\":\"google\"}";
+
+        mockMvc.perform(post("/api/auth/callback/google")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").exists());
+    }
+
+    @Test
+    void handleCallback_unknownState_returnsUnauthorized() throws Exception {
+        var body = "{\"authorizationCode\":\"code123\",\"provider\":\"google\",\"state\":\"forged-state\"}";
+
+        mockMvc.perform(post("/api/auth/callback/google")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").exists());
+    }
+
+    @Test
+    void handleCallback_reusedState_returnsUnauthorized() throws Exception {
+        stubGoogleCallback();
+        var state = issueState("google");
+        var body = "{\"authorizationCode\":\"code123\",\"provider\":\"google\",\"state\":\"" + state + "\"}";
+
+        mockMvc.perform(post("/api/auth/callback/google")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/auth/callback/google")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").exists());
     }
 }

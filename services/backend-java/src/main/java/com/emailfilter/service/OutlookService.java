@@ -27,7 +27,7 @@ public class OutlookService {
     private final RestTemplate restTemplate = new RestTemplate();
     private final RetryTemplate externalApiRetryTemplate;
 
-    @Value("${spring.security.oauth2.client.provider.outlook.token-uri}")
+    @Value("${outlook.token-uri}")
     private String tokenUri;
 
     public List<Map<String, Object>> fetchEmails(String accessToken, int maxResults) {
@@ -185,7 +185,7 @@ public class OutlookService {
         T execute();
     }
 
-    public String refreshAccessToken(String refreshToken, String clientId, String clientSecret, String tenant) {
+    public Map<String, Object> refreshAccessToken(String refreshToken, String clientId, String clientSecret, String tenant) {
         var body = new LinkedMultiValueMap<String, String>();
         body.add("client_id", clientId);
         body.add("client_secret", clientSecret);
@@ -202,6 +202,6 @@ public class OutlookService {
                 entity,
                 Map.class
         );
-        return (String) response.getBody().get("access_token");
+        return response.getBody();
     }
 }

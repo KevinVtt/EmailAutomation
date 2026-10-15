@@ -11,7 +11,8 @@ export default function Callback() {
 
   useEffect(() => {
     const code = searchParams.get('code');
-    const state = searchParams.get('state');
+    const state = sessionStorage.getItem('oauthState');
+    sessionStorage.removeItem('oauthState');
     let provider = sessionStorage.getItem('oauthProvider');
     sessionStorage.removeItem('oauthProvider');
     if (!provider) provider = searchParams.get('provider');
@@ -25,7 +26,7 @@ export default function Callback() {
       return;
     }
 
-    login(provider, code)
+    login(provider, code, state)
       .then(() => navigate('/', { replace: true }))
       .catch((err) => {
         console.error('Auth callback failed', err);

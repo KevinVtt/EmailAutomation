@@ -16,8 +16,8 @@ export function AuthProvider({ children }) {
     setLoading(false);
   }, []);
 
-  const login = useCallback(async (provider, authorizationCode) => {
-    const response = await api.auth.callback(provider, authorizationCode);
+  const login = useCallback(async (provider, authorizationCode, state) => {
+    const response = await api.auth.callback(provider, authorizationCode, state);
     storeAuth(response, provider);
     setUser({
       id: response.userId,

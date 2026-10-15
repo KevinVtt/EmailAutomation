@@ -2,18 +2,17 @@ import { useEffect, useRef } from 'react';
 import {
   connectWebSocket,
   disconnectWebSocket,
-  subscribeToUser,
+  subscribeToTopic,
   unsubscribe,
 } from '../lib/websocket';
 
-function extractUserId(token) {
-  try {
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    return payload.sub || '';
-  } catch {
-    return '';
-  }
-}
+// The backend resolves the authenticated user from the STOMP session, so user
+// destinations must not carry a userId in the path.
+const USER_TOPICS = {
+  emails: '/user/queue/emails',
+  chat: '/user/queue/chat',
+  notifications: '/user/queue/notifications',
+};
 
 export function useWebSocket(token, handlers = {}) {
   const handlersRef = useRef(handlers);
@@ -22,23 +21,20 @@ export function useWebSocket(token, handlers = {}) {
   useEffect(() => {
     if (!token) return;
 
-    const userId = extractUserId(token);
-    if (!userId) return;
-
     const client = connectWebSocket(token, {
       onConnect: () => {
         if (handlersRef.current.onEmails) {
-          subscribeToUser(userId, 'queue/emails', (data) => {
+          subscribeToTopic(USER_TOPICS.emails, (data) => {
             handlersRef.current.onEmails(data);
           });
         }
         if (handlersRef.current.onChat) {
-          subscribeToUser(userId, 'queue/chat', (data) => {
+          subscribeToTopic(USER_TOPICS.chat, (data) => {
             handlersRef.current.onChat(data);
           });
         }
         if (handlersRef.current.onNotifications) {
-          subscribeToUser(userId, 'queue/notifications', (data) => {
+          subscribeToTopic(USER_TOPICS.notifications, (data) => {
             handlersRef.current.onNotifications(data);
           });
         }
@@ -49,9 +45,9 @@ export function useWebSocket(token, handlers = {}) {
     });
 
     return () => {
-      unsubscribe(`/user/${userId}/queue/emails`);
-      unsubscribe(`/user/${userId}/queue/chat`);
-      unsubscribe(`/user/${userId}/queue/notifications`);
+      unsubscribe(USER_TOPICS.emails);
+      unsubscribe(USER_TOPICS.chat);
+      unsubscribe(USER_TOPICS.notifications);
       disconnectWebSocket();
     };
   }, [token]);

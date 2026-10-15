@@ -45,6 +45,7 @@ class JwtTokenProviderTest {
         var token = tokenProvider.generateAccessToken(UUID.randomUUID(), "test@example.com");
 
         assertTrue(tokenProvider.isAccessToken(token));
+        assertFalse(tokenProvider.isRefreshToken(token));
     }
 
     @Test
@@ -52,11 +53,17 @@ class JwtTokenProviderTest {
         var token = tokenProvider.generateRefreshToken(UUID.randomUUID());
 
         assertFalse(tokenProvider.isAccessToken(token));
+        assertTrue(tokenProvider.isRefreshToken(token));
     }
 
     @Test
     void isAccessToken_invalidToken_returnsFalse() {
         assertFalse(tokenProvider.isAccessToken("invalid.jwt.token"));
+    }
+
+    @Test
+    void isRefreshToken_invalidToken_returnsFalse() {
+        assertFalse(tokenProvider.isRefreshToken("invalid.jwt.token"));
     }
 
     @Test

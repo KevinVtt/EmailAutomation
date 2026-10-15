@@ -10,6 +10,7 @@ import com.emailfilter.repository.EmailRepository;
 import com.emailfilter.repository.OAuthTokenRepository;
 import com.emailfilter.repository.UserRepository;
 import com.emailfilter.repository.VistoRepository;
+import com.emailfilter.security.TokenCryptoService;
 import com.google.api.services.gmail.Gmail;
 import com.google.api.services.gmail.model.ListMessagesResponse;
 import com.google.api.services.gmail.model.Message;
@@ -83,6 +84,8 @@ class EmailServiceTest {
     @Mock
     private UserRepository userRepository;
     @Mock
+    private TokenCryptoService tokenCryptoService;
+    @Mock
     private Gmail gmail;
 
     private EmailService emailService;
@@ -91,7 +94,10 @@ class EmailServiceTest {
     @BeforeEach
     void setUp() throws Exception {
         emailService = new TestableEmailService(emailRepository, oauthTokenRepository, vistoRepository,
-                gmailService, outlookService, webSocketService, aiServiceClient, htmlSanitizerService, syncJobService, userRepository, gmail);
+                gmailService, outlookService, webSocketService, aiServiceClient, htmlSanitizerService, syncJobService, userRepository, tokenCryptoService, gmail);
+        // El crypto real deja texto plano sin "enc:" tal cual; el mock debe imitarlo.
+        lenient().when(tokenCryptoService.decrypt(any())).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(tokenCryptoService.encrypt(any())).thenAnswer(inv -> inv.getArgument(0));
         listRequest = mock(Gmail.Users.Messages.List.class);
         var users = mock(Gmail.Users.class);
         var messages = mock(Gmail.Users.Messages.class);
@@ -113,9 +119,11 @@ class EmailServiceTest {
                              VistoRepository vistoRepository, GmailService gmailService,
                              OutlookService outlookService, WebSocketService webSocketService,
                              AIServiceClient aiServiceClient, HtmlSanitizerService htmlSanitizerService,
-                             SyncJobService syncJobService, UserRepository userRepository, Gmail gmail) {
+                             SyncJobService syncJobService, UserRepository userRepository,
+                             TokenCryptoService tokenCryptoService, Gmail gmail) {
             super(emailRepository, oauthTokenRepository, vistoRepository, gmailService, outlookService,
-                    webSocketService, aiServiceClient, htmlSanitizerService, syncJobService, userRepository);
+                    webSocketService, aiServiceClient, htmlSanitizerService, syncJobService, userRepository,
+                    tokenCryptoService);
             this.gmail = gmail;
         }
 
@@ -280,7 +288,8 @@ class EmailServiceTest {
                 .isRead(true)
                 .build();
 
-        when(emailRepository.findByProviderEmailIdAndUserId("email-1", userId)).thenReturn(Optional.of(existing));
+        when(emailRepository.findByUserIdAndProviderEmailIdIn(eq(userId), anyCollection()))
+                .thenReturn(List.of(existing));
 
         var count = emailService.saveEmails(List.of(incoming), user, "google");
 
@@ -302,7 +311,8 @@ class EmailServiceTest {
                 .subject("New")
                 .build();
 
-        when(emailRepository.findByProviderEmailIdAndUserId("new-1", userId)).thenReturn(Optional.empty());
+        when(emailRepository.findByUserIdAndProviderEmailIdIn(eq(userId), anyCollection()))
+                .thenReturn(List.of());
 
         var count = emailService.saveEmails(List.of(incoming), user, "google");
 
@@ -451,7 +461,7 @@ class EmailServiceTest {
 
         assertEquals("Resumen del día", result.get("summary"));
         assertEquals(1L, result.get("emailCount"));
-        assertEquals(LocalDate.now().toString(), result.get("date"));
+        assertEquals(LocalDate.now(EmailService.getSummaryZone()).toString(), result.get("date"));
         verify(aiServiceClient).summarizeEmails(any());
     }
 
@@ -466,7 +476,7 @@ class EmailServiceTest {
 
         assertEquals("No hay correos para resumir.", result.get("summary"));
         assertEquals(0, result.get("emailCount"));
-        assertEquals(LocalDate.now().minusDays(1).toString(), result.get("date"));
+        assertEquals(LocalDate.now(EmailService.getSummaryZone()).minusDays(1).toString(), result.get("date"));
         verify(aiServiceClient, never()).summarizeEmails(any());
     }
 
@@ -573,7 +583,8 @@ class EmailServiceTest {
                 .thenReturn(Optional.of(token));
         when(gmailService.fetchIncrementalEmails(anyString(), any(Instant.class), anySet()))
                 .thenReturn(List.of(newEmail));
-        when(emailRepository.findByProviderEmailIdAndUserId("new-1", userId)).thenReturn(Optional.empty());
+        when(emailRepository.findByUserIdAndProviderEmailIdIn(eq(userId), anyCollection()))
+                .thenReturn(List.of());
         when(aiServiceClient.analyzeEmails(any()))
                 .thenReturn(Map.of("classifications", List.of(Map.of("id", "new-1", "urgency", "high"))));
 
@@ -616,7 +627,8 @@ class EmailServiceTest {
                 .thenReturn(Optional.of(token));
         when(gmailService.fetchIncrementalEmails(anyString(), any(Instant.class), anySet()))
                 .thenReturn(List.of(newEmail));
-        when(emailRepository.findByProviderEmailIdAndUserId("new-1", userId)).thenReturn(Optional.empty());
+        when(emailRepository.findByUserIdAndProviderEmailIdIn(eq(userId), anyCollection()))
+                .thenReturn(List.of());
         when(aiServiceClient.analyzeEmails(any()))
                 .thenReturn(Map.of("classifications", List.of(Map.of("id", "new-1", "urgency", "low"))));
 
@@ -690,6 +702,59 @@ class EmailServiceTest {
 
         assertThrows(IllegalArgumentException.class,
                 () -> emailService.sendReply(user, "yahoo", "orig-1", "Hola"));
+    }
+
+    // --- Finding 2: refresh rota el refresh_token y hay que persistirlo ---
+
+    @Test
+    void getToken_expiredOutlookToken_persistsRotatedRefreshTokenAndExpiresIn() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var expired = OAuthToken.builder()
+                .provider("outlook")
+                .accessToken("old-access")
+                .refreshToken("old-refresh")
+                .expiresAt(Instant.now().minusSeconds(60))
+                .build();
+
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "outlook"))
+                .thenReturn(Optional.of(expired));
+        when(outlookService.refreshAccessToken(eq("old-refresh"), any(), any(), any()))
+                .thenReturn(Map.of(
+                        "access_token", "new-access",
+                        "refresh_token", "rotated-refresh",
+                        "expires_in", 3600));
+
+        emailService.markAsRead(user, "outlook", "msg-1");
+
+        assertEquals("new-access", expired.getAccessToken());
+        assertEquals("rotated-refresh", expired.getRefreshToken());
+        assertTrue(expired.getExpiresAt().isAfter(Instant.now().plusSeconds(3000)));
+        verify(oauthTokenRepository).save(expired);
+        verify(outlookService).markAsRead("new-access", "msg-1");
+    }
+
+    @Test
+    void getToken_expiredTokenWithoutRefreshToken_keepsOldRefreshAndUsesFallback() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var expired = OAuthToken.builder()
+                .provider("outlook")
+                .accessToken("old-access")
+                .refreshToken("old-refresh")
+                .expiresAt(Instant.now().minusSeconds(60))
+                .build();
+
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "outlook"))
+                .thenReturn(Optional.of(expired));
+        when(outlookService.refreshAccessToken(eq("old-refresh"), any(), any(), any()))
+                .thenReturn(Map.of("access_token", "new-access"));
+
+        emailService.markAsRead(user, "outlook", "msg-1");
+
+        assertEquals("new-access", expired.getAccessToken());
+        assertEquals("old-refresh", expired.getRefreshToken());
+        assertTrue(expired.getExpiresAt().isAfter(Instant.now().plusSeconds(3000)));
     }
 
     // --- moveToTrash: el borrado debe reflejarse en la base local ---
@@ -798,5 +863,143 @@ class EmailServiceTest {
 
         verify(gmailService).fetchIncrementalEmails(anyString(), any(Instant.class), anySet());
         verify(oauthTokenRepository).save(argThat(t -> "5555".equals(t.getHistoryId())));
+    }
+
+    // --- Finding 1: full sync de no-Google debe delegar SIN tomar el lock ---
+
+    @Test
+    void syncAllEmailsAsync_outlookProvider_delegatesToIncrementalSync() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var token = OAuthToken.builder()
+                .accessToken("test-access-token")
+                .expiresAt(Instant.now().plusSeconds(3600))
+                .build();
+
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "outlook"))
+                .thenReturn(Optional.of(token));
+        when(outlookService.fetchEmails("test-access-token", 100)).thenReturn(List.of());
+
+        emailService.syncAllEmailsAsync(user, "outlook").join();
+
+        verify(syncJobService).start(eq(userId), eq("outlook"), eq("incremental"));
+        verify(outlookService).fetchEmails("test-access-token", 100);
+    }
+
+    // --- Finding 2: la zona de "hoy" es Buenos Aires, no la del servidor ---
+
+    @Test
+    void getSummaryZone_usesBuenosAiresFixedUtcMinus3() {
+        var zone = EmailService.getSummaryZone();
+        assertEquals("America/Argentina/Buenos_Aires", zone.getId());
+        assertEquals(-3, zone.getRules().getOffset(Instant.now()).getTotalSeconds() / 3600);
+    }
+
+    // --- Finding 3: al refrescar labels se quita el SPAM viejo ---
+
+    @Test
+    void refreshLabelsAndStars_withoutSpam_removesStaleSpamLabel() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+
+        emailService.refreshLabelsAndStars(user, "access-token");
+
+        verify(emailRepository).removeSpamLabelByUserId(userId);
+        verify(emailRepository, never()).addSpamLabelByProviderEmailIds(any(), anyCollection());
+    }
+
+    // --- Finding 4a: una sola query para resolver existentes ---
+
+    @Test
+    void saveEmails_manyEmails_looksUpExistingRowsInSingleQuery() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var emails = new ArrayList<EmailMessage>();
+        for (int i = 0; i < 50; i++) {
+            emails.add(EmailMessage.builder().providerEmailId("id-" + i).build());
+        }
+
+        when(emailRepository.findByUserIdAndProviderEmailIdIn(eq(userId), anyCollection()))
+                .thenReturn(List.of());
+
+        var count = emailService.saveEmails(emails, user, "google");
+
+        assertEquals(50, count);
+        verify(emailRepository, times(1)).findByUserIdAndProviderEmailIdIn(eq(userId), anyCollection());
+        verify(emailRepository, never()).findByProviderEmailIdAndUserId(anyString(), any());
+    }
+
+    // --- Finding 4b: la lista para analizar urgencias queda acotada a 20 ---
+
+    @Test
+    void syncAllEmailsAsync_keepsOnlyLast20SavedEmailsForUrgentAnalysis() throws Exception {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var token = OAuthToken.builder()
+                .accessToken("test-access-token")
+                .expiresAt(Instant.now().plusSeconds(3600))
+                .build();
+
+        var inboxMessages = new ArrayList<Message>();
+        for (int i = 0; i < 25; i++) inboxMessages.add(new Message().setId("e-" + i));
+        when(listRequest.execute())
+                .thenReturn(new ListMessagesResponse().setMessages(inboxMessages).setNextPageToken(null))
+                .thenReturn(new ListMessagesResponse().setMessages(List.of()).setNextPageToken(null))
+                .thenReturn(new ListMessagesResponse().setMessages(List.of()).setNextPageToken(null))
+                .thenReturn(new ListMessagesResponse().setMessages(List.of()).setNextPageToken(null));
+
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
+                .thenReturn(Optional.of(token));
+        when(emailRepository.findProviderEmailIdsByUserId(eq(userId), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 1000), 0));
+
+        var fetchedEmails = new ArrayList<EmailMessage>();
+        for (int i = 0; i < 25; i++) {
+            fetchedEmails.add(EmailMessage.builder().providerEmailId("e-" + i).build());
+        }
+        when(gmailService.fetchMessagesByIds(eq(gmail), any())).thenReturn(fetchedEmails);
+        when(aiServiceClient.analyzeEmails(any())).thenReturn(Map.of("classifications", List.of()));
+
+        emailService.syncAllEmailsAsync(user, "google").join();
+
+        var captor = ArgumentCaptor.forClass(List.class);
+        verify(aiServiceClient).analyzeEmails(captor.capture());
+        var analyzed = captor.getValue();
+        assertEquals(20, analyzed.size());
+        // Al recortar a los ÚLTIMOS 20, el primero de la tanda es e-5 (no e-0).
+        assertEquals("e-5", ((com.emailfilter.dto.EmailDTO) analyzed.get(0)).getProviderEmailId());
+    }
+
+    // --- Finding 5: stats del dashboard ---
+
+    @Test
+    void getStats_returnsCountsAndSevenDayPerDayBuckets() {
+        var userId = UUID.randomUUID();
+        when(emailRepository.findByUserIdOrderByReceivedAtDesc(eq(userId), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 1), 42));
+        when(emailRepository.countUnreadByUserId(userId)).thenReturn(7L);
+        when(emailRepository.countStarredByUserId(userId)).thenReturn(3L);
+        when(emailRepository.countSpamByUserId(userId)).thenReturn(2L);
+
+        var zone = EmailService.getSummaryZone();
+        var today = LocalDate.now(zone);
+        var noonToday = today.atTime(12, 0).atZone(zone).toInstant();
+        when(emailRepository.findReceivedAtByUserIdSince(eq(userId), any(Instant.class)))
+                .thenReturn(List.of(noonToday, noonToday));
+
+        var stats = emailService.getStats(userId);
+
+        assertEquals(42L, stats.get("total"));
+        assertEquals(7L, stats.get("unread"));
+        assertEquals(3L, stats.get("starred"));
+        assertEquals(2L, stats.get("spam"));
+
+        @SuppressWarnings("unchecked")
+        var perDay = (List<Map<String, Object>>) stats.get("perDay");
+        assertEquals(7, perDay.size());
+        assertEquals(today.minusDays(6).toString(), perDay.get(0).get("date"));
+        assertEquals(today.toString(), perDay.get(6).get("date"));
+        assertEquals(0L, perDay.get(0).get("count"));
+        assertEquals(2L, perDay.get(6).get("count"));
     }
 }

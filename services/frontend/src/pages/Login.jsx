@@ -40,6 +40,10 @@ export default function Login() {
       const { authUrl } = await api.auth.getOAuthUrl(provider);
       // Persist provider so Callback can complete the OAuth flow for the right provider
       sessionStorage.setItem('oauthProvider', provider);
+      // Persist the CSRF state returned in the authUrl; the callback endpoint rejects mismatches
+      const state = new URL(authUrl).searchParams.get('state');
+      if (state) sessionStorage.setItem('oauthState', state);
+      else sessionStorage.removeItem('oauthState');
       window.location.href = authUrl;
     } catch (err) {
       console.error('Failed to get auth URL', err);

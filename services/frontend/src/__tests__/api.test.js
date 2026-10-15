@@ -20,7 +20,7 @@ describe('api lib', () => {
     expect(result.authUrl).toBe('https://accounts.google.com/...');
   });
 
-  it('auth.callback calls correct endpoint', async () => {
+  it('auth.callback sends authorizationCode, provider and state', async () => {
     const mockResponse = {
       userId: '123',
       email: 'test@example.com',
@@ -34,7 +34,14 @@ describe('api lib', () => {
       text: () => Promise.resolve(JSON.stringify(mockResponse)),
     });
 
-    const result = await api.auth.callback('google', 'code123');
+    const result = await api.auth.callback('google', 'code123', 'csrf-state-9');
+    const [callUrl, callOptions] = global.fetch.mock.calls[0];
+    expect(callUrl).toContain('/api/auth/callback/google');
+    expect(JSON.parse(callOptions.body)).toEqual({
+      authorizationCode: 'code123',
+      provider: 'google',
+      state: 'csrf-state-9',
+    });
     expect(result.accessToken).toBe('token');
   });
 
@@ -74,6 +81,30 @@ describe('api lib', () => {
 
     const result = await api.chat.send('Show important emails');
     expect(result.response).toBe('OK');
+  });
+
+  it('emails.stats calls the single stats endpoint and returns parsed body', async () => {
+    const mockResponse = {
+      total: 120,
+      unread: 30,
+      starred: 12,
+      spam: 8,
+      perDay: [
+        { date: '2026-10-09', count: 4 },
+        { date: '2026-10-10', count: 6 },
+      ],
+    };
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      text: () => Promise.resolve(JSON.stringify(mockResponse)),
+    });
+
+    const result = await api.emails.stats();
+    const callUrl = global.fetch.mock.calls[0][0];
+    expect(callUrl).toContain('/api/emails/stats');
+    expect(result).toEqual(mockResponse);
   });
 
   it('emails.summary calls correct endpoint and returns parsed body', async () => {

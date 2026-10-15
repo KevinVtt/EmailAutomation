@@ -17,20 +17,6 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
-  security:
-    oauth2:
-      client:
-        # NOTE: there are intentionally no `registration` entries here. The app
-        # implements the OAuth2 authorization-code flow manually (see AuthController):
-        # it builds the provider URL and exchanges the code itself, so Spring's OAuth2
-        # client registration is unused. Leaving it present with empty client ids would
-        # also make OAuth2ClientAutoConfiguration fail with "Client id must not be empty".
-        provider:
-          outlook:
-            authorization-uri: https://login.microsoftonline.com/${OUTLOOK_TENANT:common}/oauth2/v2.0/authorize
-            token-uri: https://login.microsoftonline.com/${OUTLOOK_TENANT:common}/oauth2/v2.0/token
-            user-info-uri: https://graph.microsoft.com/v1.0/me
-            user-name-attribute: mail
 
 jwt:
   secret: ${JWT_SECRET}
@@ -53,6 +39,9 @@ outlook:
   client-secret: ${OUTLOOK_CLIENT_SECRET:}
   redirect-uri: ${OUTLOOK_REDIRECT_URI:http://localhost:3001/auth/callback}
   tenant: ${OUTLOOK_TENANT:common}
+  # Antes vivía bajo spring.security.oauth2.client.provider.outlook.token-uri, que
+  # requería spring-boot-starter-oauth2-client (sin uso: el flow OAuth es manual).
+  token-uri: https://login.microsoftonline.com/${OUTLOOK_TENANT:common}/oauth2/v2.0/token
 
 cors:
   allowed-origins: ${FRONTEND_URL:http://localhost:3001}

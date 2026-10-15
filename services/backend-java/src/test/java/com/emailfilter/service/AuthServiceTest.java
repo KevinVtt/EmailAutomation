@@ -96,6 +96,7 @@ class AuthServiceTest {
                 .build();
 
         when(jwtTokenProvider.validateToken("valid-refresh-token")).thenReturn(true);
+        when(jwtTokenProvider.isRefreshToken("valid-refresh-token")).thenReturn(true);
         when(jwtTokenProvider.getUserIdFromToken("valid-refresh-token")).thenReturn(userId);
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
         when(jwtTokenProvider.generateAccessToken(userId, "test@example.com")).thenReturn("new-access");
@@ -113,5 +114,17 @@ class AuthServiceTest {
         when(jwtTokenProvider.validateToken("invalid-token")).thenReturn(false);
 
         assertThrows(RuntimeException.class, () -> authService.refreshAccessToken("invalid-token"));
+    }
+
+    /**
+     * Un access token (firmado y válido) NO debe poder canjearse por un refresh
+     * nuevo: si no, una sesión corta se extiende indefinidamente.
+     */
+    @Test
+    void refreshAccessToken_accessToken_throwsException() {
+        when(jwtTokenProvider.validateToken("access-token")).thenReturn(true);
+        when(jwtTokenProvider.isRefreshToken("access-token")).thenReturn(false);
+
+        assertThrows(RuntimeException.class, () -> authService.refreshAccessToken("access-token"));
     }
 }

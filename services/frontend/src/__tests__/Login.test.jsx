@@ -26,7 +26,7 @@ describe('Login page', () => {
       status: 200,
       headers: new Headers({ 'content-type': 'application/json' }),
       text: () => Promise.resolve(JSON.stringify({
-        authUrl: 'https://accounts.google.com/o/oauth2/v2/auth?...',
+        authUrl: 'https://accounts.google.com/o/oauth2/v2/auth?client_id=abc&state=csrf-state-1',
       })),
     });
     window.open = vi.fn();
@@ -42,14 +42,18 @@ describe('Login page', () => {
     expect(screen.getByText(/Continuar con Outlook/i)).toBeTruthy();
   });
 
-  it('redirects to Google OAuth URL on click', async () => {
+  it('redirects to Google OAuth URL on click and stores the CSRF state', async () => {
     renderWithProviders(<Login />);
 
     const googleBtn = screen.getByText(/Continuar con Google/i).closest('button');
     fireEvent.click(googleBtn);
 
     await waitFor(() => {
-      expect(window.location.href).toBe('https://accounts.google.com/o/oauth2/v2/auth?...');
+      expect(window.location.href).toBe(
+        'https://accounts.google.com/o/oauth2/v2/auth?client_id=abc&state=csrf-state-1'
+      );
     });
+    expect(sessionStorage.getItem('oauthState')).toBe('csrf-state-1');
+    sessionStorage.clear();
   });
 });

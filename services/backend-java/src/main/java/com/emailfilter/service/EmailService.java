@@ -13,6 +13,7 @@ import com.emailfilter.repository.EmailRepository;
 import com.emailfilter.repository.OAuthTokenRepository;
 import com.emailfilter.repository.UserRepository;
 import com.emailfilter.repository.VistoRepository;
+import com.emailfilter.security.TokenCryptoService;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
@@ -33,8 +34,11 @@ import org.springframework.web.client.RestTemplate;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -60,6 +64,7 @@ public class EmailService {
     private final HtmlSanitizerService htmlSanitizerService;
     private final SyncJobService syncJobService;
     private final UserRepository userRepository;
+    private final TokenCryptoService tokenCryptoService;
 
     @Value("${email.sync.max-emails:1000}")
     int maxEmailsPerSync;
@@ -182,9 +187,22 @@ public class EmailService {
         return emailRepository.findByUserIdOrderByReceivedAtDesc(userId, PageRequest.of(0, 1)).getTotalElements();
     }
 
+    /**
+     * Zona usada para calcular "hoy"/"ayer" en resúmenes y stats: Buenos Aires,
+     * no la del servidor (dentro de Docker la hora del sistema es UTC). Si no hay
+     * base IANA de zonas (p. ej. Windows), cae a UTC-3 fijo, la de BA desde 2009.
+     */
+    static ZoneId getSummaryZone() {
+        try {
+            return ZoneId.of("America/Argentina/Buenos_Aires");
+        } catch (Exception e) {
+            return ZoneOffset.ofHours(-3);
+        }
+    }
+
     @Transactional(readOnly = true)
     public Map<String, Object> getDailySummary(UUID userId, String date) {
-        var zone = ZoneId.systemDefault();
+        var zone = getSummaryZone();
         LocalDate targetDate;
 
         if ("today".equalsIgnoreCase(date)) {
@@ -217,6 +235,42 @@ public class EmailService {
                 "emailCount", totalElements,
                 "date", targetDate.toString()
         );
+    }
+
+    /**
+     * Stats del buzón (`GET /api/emails/stats`): totales + últimos 7 días agrupados
+     * por fecha en la zona de resumen. {@code perDay} tiene siempre 7 entradas
+     * (la más vieja primero) y los días sin correos cuentan 0.
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Object> getStats(UUID userId) {
+        var zone = getSummaryZone();
+        var today = LocalDate.now(zone);
+        var firstDay = today.minusDays(6);
+        var since = firstDay.atStartOfDay(zone).toInstant();
+
+        var perDay = new LinkedHashMap<LocalDate, Long>();
+        for (int i = 0; i < 7; i++) {
+            perDay.put(firstDay.plusDays(i), 0L);
+        }
+        for (var receivedAt : emailRepository.findReceivedAtByUserIdSince(userId, since)) {
+            if (receivedAt == null) continue;
+            var day = receivedAt.atZone(zone).toLocalDate();
+            if (perDay.containsKey(day)) {
+                perDay.merge(day, 1L, Long::sum);
+            }
+        }
+        var perDayList = perDay.entrySet().stream()
+                .map(e -> Map.<String, Object>of("date", e.getKey().toString(), "count", e.getValue()))
+                .toList();
+
+        var result = new LinkedHashMap<String, Object>();
+        result.put("total", getEmailCountByUser(userId));
+        result.put("unread", emailRepository.countUnreadByUserId(userId));
+        result.put("starred", emailRepository.countStarredByUserId(userId));
+        result.put("spam", emailRepository.countSpamByUserId(userId));
+        result.put("perDay", perDayList);
+        return result;
     }
 
     @Transactional(readOnly = true)
@@ -356,6 +410,15 @@ public class EmailService {
     public CompletableFuture<Void> syncAllEmailsAsync(User user, String provider) {
         var userId = user.getId();
         log.info("Starting FULL email sync for user={}, provider={}", userId, provider);
+
+        // Delegar ANTES de tomar el lock: syncEmailsAsync toma ese mismo lock y, si ya
+        // estuviera tomado, volvería "already in progress" sin sincronizar nada.
+        if (!"google".equals(provider)) {
+            // Providers sin full sync paginado: caen al sync incremental.
+            syncEmailsAsync(user, provider);
+            return CompletableFuture.completedFuture(null);
+        }
+
         if (syncingStatus.putIfAbsent(userId, true) != null) {
             log.info("Sync already in progress for user={}", userId);
             return CompletableFuture.completedFuture(null);
@@ -364,12 +427,6 @@ public class EmailService {
         SyncJob job = null;
         try {
             var accessToken = getToken(user, provider);
-
-            if (!"google".equals(provider)) {
-                // For non-Google, fall back to regular sync
-                syncEmailsAsync(user, provider);
-                return CompletableFuture.completedFuture(null);
-            }
 
             job = syncJobService.start(userId, provider, "full");
 
@@ -426,6 +483,12 @@ public class EmailService {
                 if (!batchEmails.isEmpty()) {
                     saveEmails(batchEmails, user, provider);
                     allSavedEmails.addAll(batchEmails);
+                    // Acotar memoria: solo conservamos los últimos 20 (los que se pasan
+                    // a notifyUrgentEmails al final); en syncs largas el resto era basura.
+                    if (allSavedEmails.size() > 20) {
+                        allSavedEmails = new ArrayList<>(
+                                allSavedEmails.subList(allSavedEmails.size() - 20, allSavedEmails.size()));
+                    }
                 }
 
                 fetched += batch.size();
@@ -543,13 +606,25 @@ public class EmailService {
 
     @Transactional
     public int saveEmails(List<EmailMessage> emails, User user, String provider) {
+        if (emails.isEmpty()) {
+            return 0;
+        }
         int syncedCount = 0;
+
+        // Una sola query en lugar de una por mensaje: en syncs completas de miles de
+        // correos, la consulta individual era el cuello de botella dominante.
+        var incomingIds = emails.stream()
+                .map(EmailMessage::getProviderEmailId)
+                .collect(Collectors.toSet());
+        var existingById = new HashMap<String, EmailMessage>();
+        emailRepository.findByUserIdAndProviderEmailIdIn(user.getId(), incomingIds)
+                .forEach(e -> existingById.put(e.getProviderEmailId(), e));
+
         var newEmails = new ArrayList<EmailMessage>();
         for (var email : emails) {
-            var existingOpt = emailRepository.findByProviderEmailIdAndUserId(email.getProviderEmailId(), user.getId());
-            if (existingOpt.isPresent()) {
+            var existing = existingById.get(email.getProviderEmailId());
+            if (existing != null) {
                 // Refresh existing email with the latest state from the provider
-                var existing = existingOpt.get();
                 existing.setStarred(email.isStarred());
                 existing.setRead(email.isRead());
                 existing.setLabels(email.getLabels());
@@ -595,7 +670,9 @@ public class EmailService {
                 emailRepository.starByProviderEmailIds(userId, starredIds);
             }
 
-            // Append SPAM label to messages currently in Gmail spam
+            // Quitar SPAM de lo que YA NO está en spam (si no, el filtro "Mostrar SPAM"
+            // muestra correo limpio) y luego marcar los que hoy están en spam.
+            emailRepository.removeSpamLabelByUserId(userId);
             if (!spamIds.isEmpty()) {
                 emailRepository.addSpamLabelByProviderEmailIds(userId, spamIds);
             }
@@ -627,7 +704,6 @@ public class EmailService {
         return ids;
     }
 
-    @Transactional
     public void markAsRead(User user, String provider, String emailId) {
         // Write to visto table — this is the source of truth for "opened"
         var existing = vistoRepository.findByProviderEmailIdAndUserId(emailId, user.getId());
@@ -654,7 +730,6 @@ public class EmailService {
         }
     }
 
-    @Transactional
     public void markAsUnread(User user, String provider, String emailId) {
         // Delete or set visto=false
         var existing = vistoRepository.findByProviderEmailIdAndUserId(emailId, user.getId());
@@ -674,7 +749,6 @@ public class EmailService {
         }
     }
 
-    @Transactional
     public void toggleStar(User user, String provider, String emailId, boolean starred) {
         // Update local DB — stars stay on email_messages
         emailRepository.findByProviderEmailIdAndUserId(emailId, user.getId())
@@ -693,7 +767,6 @@ public class EmailService {
         }
     }
 
-    @Transactional
     public void moveToTrash(User user, String provider, String emailId) {
         var token = getToken(user, provider);
         try {
@@ -714,7 +787,6 @@ public class EmailService {
         log.info("Email {} removed locally for user={}", emailId, user.getId());
     }
 
-    @Transactional
     public Map<String, Object> sendReply(User user, String provider, String providerEmailId, String body) {
         var original = emailRepository.findByProviderEmailIdAndUserId(providerEmailId, user.getId())
                 .orElseThrow(() -> new IllegalArgumentException("Email not found"));
@@ -747,24 +819,40 @@ public class EmailService {
 
         if (oauthToken.getExpiresAt() != null && Instant.now().isAfter(oauthToken.getExpiresAt())) {
             log.info("OAuth token expired for user={}, provider={}. Attempting refresh.", user.getId(), provider);
-            String newToken = refreshToken(oauthToken);
-            oauthToken.setAccessToken(newToken);
-            oauthToken.setExpiresAt(Instant.now().plusSeconds(3600));
+            var refreshed = refreshToken(oauthToken);
+            var newAccessToken = (String) refreshed.get("access_token");
+
+            // Azure AD (Outlook) rota el refresh_token en cada refresh e invalida el
+            // anterior; Google también puede. Si viene uno nuevo hay que persistirlo,
+            // si no el siguiente refresh falla con 401 para siempre.
+            var newRefreshToken = refreshed.get("refresh_token");
+            if (newRefreshToken instanceof String s && !s.isBlank()) {
+                oauthToken.setRefreshToken(tokenCryptoService.encrypt(s));
+            }
+
+            oauthToken.setAccessToken(tokenCryptoService.encrypt(newAccessToken));
+            var expiresIn = refreshed.get("expires_in");
+            if (expiresIn instanceof Number n) {
+                oauthToken.setExpiresAt(Instant.now().plusSeconds(n.longValue()));
+            } else {
+                oauthToken.setExpiresAt(Instant.now().plusSeconds(3600));
+            }
             oauthTokenRepository.save(oauthToken);
-            return newToken;
+            return newAccessToken;
         }
 
         log.debug("Using stored OAuth token for user={}, provider={}", user.getId(), provider);
-        return oauthToken.getAccessToken();
+        return tokenCryptoService.decrypt(oauthToken.getAccessToken());
     }
 
-    private String refreshToken(OAuthToken oauthToken) {
+    private Map<String, Object> refreshToken(OAuthToken oauthToken) {
+        var refreshToken = tokenCryptoService.decrypt(oauthToken.getRefreshToken());
         try {
             if ("google".equals(oauthToken.getProvider())) {
-                return refreshGoogleToken(oauthToken.getRefreshToken());
+                return refreshGoogleToken(refreshToken);
             } else if ("outlook".equals(oauthToken.getProvider())) {
                 return outlookService.refreshAccessToken(
-                        oauthToken.getRefreshToken(),
+                        refreshToken,
                         System.getenv("OUTLOOK_CLIENT_ID"),
                         System.getenv("OUTLOOK_CLIENT_SECRET"),
                         System.getenv().getOrDefault("OUTLOOK_TENANT", "common")
@@ -778,7 +866,7 @@ public class EmailService {
         }
     }
 
-    private String refreshGoogleToken(String refreshToken) {
+    private Map<String, Object> refreshGoogleToken(String refreshToken) {
         if (refreshToken == null || refreshToken.isBlank()) {
             throw new RuntimeException("Cannot refresh Google token: no refresh token available");
         }
@@ -801,7 +889,7 @@ public class EmailService {
         if (response == null || !response.containsKey("access_token")) {
             throw new RuntimeException("Failed to refresh Google token");
         }
-        return response.get("access_token").toString();
+        return response;
     }
 
     private EmailDTO toDTO(EmailMessage email, Set<String> vistoEmailIds) {

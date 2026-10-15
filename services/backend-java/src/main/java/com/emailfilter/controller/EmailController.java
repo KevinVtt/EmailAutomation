@@ -148,6 +148,12 @@ public class EmailController {
         return ResponseEntity.ok(Map.of("count", count));
     }
 
+    @GetMapping("/stats")
+    public ResponseEntity<Map<String, Object>> getStats(Authentication auth) {
+        var userId = getUserId(auth);
+        return ResponseEntity.ok(emailService.getStats(userId));
+    }
+
     @PostMapping("/rewrite")
     public ResponseEntity<Map<String, Object>> rewriteEmail(
             Authentication auth,

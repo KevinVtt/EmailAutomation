@@ -20,7 +20,8 @@ vi.mock('sockjs-client', () => ({
 }));
 
 import { Client } from '@stomp/stompjs';
-import { connectWebSocket, disconnectWebSocket } from '../lib/websocket';
+import * as wsModule from '../lib/websocket';
+import { connectWebSocket, disconnectWebSocket, subscribeToTopic, unsubscribe } from '../lib/websocket';
 
 describe('websocket.js', () => {
   beforeEach(() => {
@@ -54,5 +55,22 @@ describe('websocket.js', () => {
 
     expect(Client).toHaveBeenCalledTimes(2);
     expect(Client.mock.calls[1][0].connectHeaders.Authorization).toBe('Bearer token-b');
+  });
+
+  it('no longer exposes subscribeToUser (user destinations carry no userId)', () => {
+    expect(wsModule.subscribeToUser).toBeUndefined();
+  });
+
+  it('queues subscriptions made before connect, applies them on connect, and drops unsubscribed pending ones', () => {
+    subscribeToTopic('/user/queue/emails', vi.fn());
+    subscribeToTopic('/user/queue/chat', vi.fn());
+    unsubscribe('/user/queue/chat');
+    expect(mockClientInstance.subscribe).not.toHaveBeenCalled();
+
+    connectWebSocket('test-access-token');
+    Client.mock.calls[0][0].onConnect();
+
+    expect(mockClientInstance.subscribe).toHaveBeenCalledTimes(1);
+    expect(mockClientInstance.subscribe).toHaveBeenCalledWith('/user/queue/emails', expect.any(Function));
   });
 });

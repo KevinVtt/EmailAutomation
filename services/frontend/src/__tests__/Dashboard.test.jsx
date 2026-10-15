@@ -11,6 +11,7 @@ vi.mock('../lib/api', () => ({
     emails: {
       count: vi.fn(),
       filter: vi.fn(),
+      stats: vi.fn(),
       list: vi.fn(),
       sync: vi.fn(),
       syncFull: vi.fn(),
@@ -48,6 +49,20 @@ function renderDashboard() {
   );
 }
 
+// Shape of GET /api/emails/stats (7 days, oldest first).
+function statsFixture({ total = 120, unread = 30, starred = 12, spam = 8, dayCount = 0 } = {}) {
+  return {
+    total,
+    unread,
+    starred,
+    spam,
+    perDay: Array.from({ length: 7 }, (_, i) => ({
+      date: `2026-10-0${i + 1}`,
+      count: dayCount,
+    })),
+  };
+}
+
 describe('Dashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -56,8 +71,7 @@ describe('Dashboard', () => {
   });
 
   it('shows a loading skeleton while stats are being fetched', () => {
-    api.emails.count.mockReturnValue(new Promise(() => {}));
-    api.emails.filter.mockReturnValue(new Promise(() => {}));
+    api.emails.stats.mockReturnValue(new Promise(() => {}));
 
     renderDashboard();
 
@@ -70,7 +84,7 @@ describe('Dashboard', () => {
       // Deja correr el auto-sync de este test (beforeEach lo desactiva).
       sessionStorage.removeItem('autoSynced');
       api.emails.count.mockResolvedValue({ count: 0 });
-      api.emails.filter.mockResolvedValue({ totalElements: 0 });
+      api.emails.stats.mockResolvedValue(statsFixture());
       api.emails.syncFull.mockResolvedValue({ status: 'syncing', mode: 'full' });
       api.emails.syncStatus.mockResolvedValue({ syncing: true });
       api.emails.summary.mockResolvedValue({ summary: 'Sin novedades.', emailCount: 0, date: '2026-09-09' });
@@ -90,37 +104,36 @@ describe('Dashboard', () => {
     }
   });
 
-  it('renders the stat cards and the 7-day chart from existing endpoints', async () => {
-    api.emails.count.mockResolvedValue({ count: 120 });
-    api.emails.filter.mockImplementation(async (filters) => {
-      if (filters.isRead === 'false') return { totalElements: 30 };
-      if (filters.destacados === 'true') return { totalElements: 12 };
-      if (filters.label === 'SPAM') return { totalElements: 8 };
-      // Per-day chart queries
-      return { totalElements: 5 };
-    });
+  it('renders the stat cards and the 7-day chart from the single stats endpoint', async () => {
+    api.emails.stats.mockResolvedValue(statsFixture({ dayCount: 5 }));
 
     renderDashboard();
 
     // Stat card values
     expect(await screen.findByText('120')).toBeTruthy();
-    expect(await screen.findByText('30')).toBeTruthy();
-    expect(await screen.findByText('12')).toBeTruthy();
-    expect(await screen.findByText('8')).toBeTruthy();
+    expect(screen.getByText('30')).toBeTruthy();
+    expect(screen.getByText('12')).toBeTruthy();
+    expect(screen.getByText('8')).toBeTruthy();
 
-    // Chart title + exactly 7 bars (one per day)
+    // Chart title + exactly 7 bars (one per day), dd/MM labels kept from the old chart
     expect(await screen.findByText('Emails por día')).toBeTruthy();
     expect(screen.getAllByTestId('chart-bar')).toHaveLength(7);
+    expect(screen.getAllByTestId('chart-bar')[0].getAttribute('title')).toBe('01/10: 5 emails');
 
     // The four stat labels are present
     expect(screen.getByText('Total de emails')).toBeTruthy();
     expect(screen.getByText('No leídos')).toBeTruthy();
     expect(screen.getByText('Destacados')).toBeTruthy();
     expect(screen.getByText('Spam')).toBeTruthy();
+
+    // One request instead of the old 4 + 7 filter/count calls
+    expect(api.emails.stats).toHaveBeenCalledTimes(1);
+    expect(api.emails.filter).not.toHaveBeenCalled();
+    expect(api.emails.count).not.toHaveBeenCalled();
   });
 
   it('shows an error state with retry when the stats fetch fails', async () => {
-    api.emails.count.mockRejectedValue(new Error('Network error'));
+    api.emails.stats.mockRejectedValue(new Error('Network error'));
 
     renderDashboard();
 
@@ -128,8 +141,7 @@ describe('Dashboard', () => {
 
     // Retry re-fetches the stats
     const retry = screen.getByText('Reintentar');
-    api.emails.count.mockResolvedValue({ count: 3 });
-    api.emails.filter.mockResolvedValue({ totalElements: 0 });
+    api.emails.stats.mockResolvedValue(statsFixture({ total: 3 }));
     fireEvent.click(retry);
 
     await waitFor(() => {
@@ -138,8 +150,7 @@ describe('Dashboard', () => {
   });
 
   it('renders the Resumen de hoy card with the daily summary', async () => {
-    api.emails.count.mockResolvedValue({ count: 120 });
-    api.emails.filter.mockResolvedValue({ totalElements: 0 });
+    api.emails.stats.mockResolvedValue(statsFixture());
     api.emails.summary.mockResolvedValue({
       summary: 'Hoy recibiste 3 correos importantes.',
       emailCount: 3,
@@ -155,8 +166,7 @@ describe('Dashboard', () => {
   });
 
   it('shows the urgent banner when an urgent_emails notification arrives', async () => {
-    api.emails.count.mockResolvedValue({ count: 120 });
-    api.emails.filter.mockResolvedValue({ totalElements: 0 });
+    api.emails.stats.mockResolvedValue(statsFixture());
     api.emails.summary.mockResolvedValue({ summary: 'Sin novedades.', emailCount: 0, date: '2026-09-09' });
 
     renderDashboard();
@@ -172,8 +182,7 @@ describe('Dashboard', () => {
   });
 
   it('dismisses the urgent banner when the close button is clicked', async () => {
-    api.emails.count.mockResolvedValue({ count: 120 });
-    api.emails.filter.mockResolvedValue({ totalElements: 0 });
+    api.emails.stats.mockResolvedValue(statsFixture());
     api.emails.summary.mockResolvedValue({ summary: 'Sin novedades.', emailCount: 0, date: '2026-09-09' });
 
     renderDashboard();
@@ -195,8 +204,7 @@ describe('Dashboard', () => {
   });
 
   it('renders the daily summary as formatted markdown', async () => {
-    api.emails.count.mockResolvedValue({ count: 120 });
-    api.emails.filter.mockResolvedValue({ totalElements: 0 });
+    api.emails.stats.mockResolvedValue(statsFixture());
     api.emails.summary.mockResolvedValue({
       summary: '## Resumen general\n\n**Importante:** pago vencido hoy.\n\n- Item uno\n- Item dos',
       emailCount: 2,
@@ -213,8 +221,8 @@ describe('Dashboard', () => {
   });
 
   it('renders the Resumen priorizado card with the three priority numbers', async () => {
-    api.emails.count.mockResolvedValue({ count: 120 });
-    api.emails.filter.mockResolvedValue({ totalElements: 0 });
+    // starred=7 so the "12" assertion below is unambiguous against the stat cards
+    api.emails.stats.mockResolvedValue(statsFixture({ starred: 7 }));
     api.emails.summary.mockResolvedValue({ summary: 'Sin novedades.', emailCount: 0, date: '2026-09-09' });
     api.emails.prioritySummary.mockResolvedValue({
       urgentes: 3,
@@ -234,8 +242,7 @@ describe('Dashboard', () => {
   });
 
   it('shows an error with retry when the priority summary fetch fails', async () => {
-    api.emails.count.mockResolvedValue({ count: 120 });
-    api.emails.filter.mockResolvedValue({ totalElements: 0 });
+    api.emails.stats.mockResolvedValue(statsFixture());
     api.emails.summary.mockResolvedValue({ summary: 'Sin novedades.', emailCount: 0, date: '2026-09-09' });
     api.emails.prioritySummary.mockRejectedValue(new Error('Network error'));
 

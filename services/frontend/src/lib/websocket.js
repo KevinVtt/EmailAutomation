@@ -69,10 +69,6 @@ export function subscribeToTopic(topic, callback) {
   return subscription;
 }
 
-export function subscribeToUser(userId, queue, callback) {
-  return subscribeToTopic(`/user/${userId}/${queue}`, callback);
-}
-
 export function unsubscribe(topic) {
   const sub = subscriptions.get(topic);
   if (sub) {

@@ -9,4 +9,6 @@ public class AuthRequest {
     private String authorizationCode;
 
     private String provider;
+
+    private String state;
 }

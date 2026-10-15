@@ -111,10 +111,6 @@ public class GmailService {
         return result;
     }
 
-    public List<com.emailfilter.model.EmailMessage> fetchAllEmails(String accessToken, int maxResultsPerPage) {
-        return fetchAllEmails(accessToken, maxResultsPerPage, 200);
-    }
-
     public List<com.emailfilter.model.EmailMessage> fetchAllEmails(String accessToken, int maxResultsPerPage, int maxTotal) {
         // Spam gets its own budget (previously it only got the inbox leftover, so it was never fetched)
         var inbox = fetchEmailsByQuery(accessToken, maxResultsPerPage, "in:inbox", maxTotal);
@@ -567,10 +563,6 @@ public class GmailService {
                 .map(MessagePartHeader::getValue)
                 .findFirst()
                 .orElse("");
-    }
-
-    public String getBodyFromPartsPublic(List<MessagePart> parts) {
-        return getBodyFromParts(parts);
     }
 
     private String getBodyFromParts(List<MessagePart> parts) {

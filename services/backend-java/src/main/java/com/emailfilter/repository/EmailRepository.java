@@ -19,14 +19,14 @@ import java.util.UUID;
 public interface EmailRepository extends JpaRepository<EmailMessage, UUID>,
                                          JpaSpecificationExecutor<EmailMessage> {
     Page<EmailMessage> findByUserIdOrderByReceivedAtDesc(UUID userId, Pageable pageable);
-    boolean existsByUserIdAndProviderEmailId(UUID userId, String providerEmailId);
     Optional<EmailMessage> findTopByUserIdOrderByReceivedAtDesc(UUID userId);
-    long countByUserIdAndReceivedAtAfter(UUID userId, Instant since);
 
     @Query("SELECT e.providerEmailId FROM EmailMessage e WHERE e.user.id = :userId")
     Page<String> findProviderEmailIdsByUserId(UUID userId, Pageable pageable);
 
     Optional<EmailMessage> findByProviderEmailIdAndUserId(String providerEmailId, UUID userId);
+
+    List<EmailMessage> findByUserIdAndProviderEmailIdIn(UUID userId, Collection<String> providerEmailIds);
 
     @Modifying
     @Transactional
@@ -48,6 +48,28 @@ public interface EmailRepository extends JpaRepository<EmailMessage, UUID>,
     @Transactional
     @Query("UPDATE EmailMessage e SET e.labels = CASE WHEN e.labels IS NULL OR e.labels = '' THEN 'SPAM' ELSE CONCAT(e.labels, ',SPAM') END WHERE e.user.id = :userId AND e.providerEmailId IN :spamIds AND (e.labels IS NULL OR e.labels NOT LIKE '%SPAM%')")
     int addSpamLabelByProviderEmailIds(@Param("userId") UUID userId, @Param("spamIds") Collection<String> spamIds);
+
+    // Quita el token exacto SPAM de labels (posiciones inicial/media/final). Los
+    // demás labels válidos no contienen "SPAM" como substring, así que REPLACE es seguro.
+    @Modifying
+    @Transactional
+    @Query("UPDATE EmailMessage e SET e.labels = " +
+            "REPLACE(REPLACE(REPLACE(e.labels, ',SPAM', ''), 'SPAM,', ''), 'SPAM', '') " +
+            "WHERE e.user.id = :userId AND e.labels LIKE '%SPAM%'")
+    int removeSpamLabelByUserId(@Param("userId") UUID userId);
+
+    // --- Stats endpoint (`GET /api/emails/stats`) ---
+    @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId AND e.isRead = false")
+    long countUnreadByUserId(@Param("userId") UUID userId);
+
+    @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId AND e.isStarred = true")
+    long countStarredByUserId(@Param("userId") UUID userId);
+
+    @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId AND e.labels LIKE '%SPAM%'")
+    long countSpamByUserId(@Param("userId") UUID userId);
+
+    @Query("SELECT e.receivedAt FROM EmailMessage e WHERE e.user.id = :userId AND e.receivedAt >= :since")
+    List<Instant> findReceivedAtByUserIdSince(@Param("userId") UUID userId, @Param("since") Instant since);
 
     // --- Priority summary counts (CLAUDE_HELP.md §3.2) ---
     // PROXY: no `urgency` column exists — Gmail auto-marks IMPORTANT, so "urgentes"

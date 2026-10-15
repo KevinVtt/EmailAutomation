@@ -1,13 +1,12 @@
 package com.emailfilter.controller;
 
 import com.emailfilter.dto.ChatRequest;
-import com.emailfilter.dto.EmailDTO;
-import com.emailfilter.security.UserDetailsServiceImpl;
-import com.emailfilter.service.*;
+import com.emailfilter.service.AIServiceClient;
+import com.emailfilter.service.FilterService;
+import com.emailfilter.service.WebSocketService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
@@ -27,8 +26,6 @@ public class ChatController {
     private final AIServiceClient aiServiceClient;
     private final FilterService filterService;
     private final WebSocketService webSocketService;
-    private final EmailService emailService;
-    private final UserDetailsServiceImpl userDetailsService;
 
     @PostMapping
     public ResponseEntity<Map<String, Object>> chat(
@@ -42,34 +39,10 @@ public class ChatController {
         long t1 = System.currentTimeMillis();
         log.info("AI service respondió en {} ms. response={}", (t1-t0), aiResponse.get("response"));
 
-        var criteria = extractCriteria(aiResponse);
-        log.info("Criteria extraídos: {}", criteria);
-        if (!criteria.isEmpty()) {
-            long t2 = System.currentTimeMillis();
-            var size = extractSize(criteria);
-            var emails = filterService.applyAiFilters(userId, criteria, 0, size);
-            long t3 = System.currentTimeMillis();
-            log.info("Filtros aplicados en {} ms. emails encontrados: {}", (t3-t2), emails.getTotalElements());
-            aiResponse.put("emails", emails);
-
-            // If no emails found, enhance response with explanation
-            if (emails.getTotalElements() == 0) {
-                var explanation = buildNoResultsExplanation(criteria);
-                aiResponse.put("response", aiResponse.get("response") + "\n\n" + explanation);
-            }
-
-            log.info("Enviando filtered_emails por WebSocket a usuario {}", userId);
-            webSocketService.sendEmailsToUser(userId.toString(), Map.of(
-                    "type", "filtered_emails",
-                    "emails", emails.getContent()
-            ));
-        }
-
-        log.info("Enviando chat_response por WebSocket a usuario {}", userId);
-        webSocketService.sendChatResponse(userId.toString(), Map.of(
-                "type", "chat_response",
-                "data", aiResponse
-        ));
+        long t2 = System.currentTimeMillis();
+        var found = processChat(userId, aiResponse);
+        long t3 = System.currentTimeMillis();
+        log.info("Filtros aplicados en {} ms. emails encontrados: {}", (t3-t2), found);
 
         log.info("=== CHAT REST FIN === userId={}", userId);
         return ResponseEntity.ok(aiResponse);
@@ -85,31 +58,51 @@ public class ChatController {
         var aiResponse = aiServiceClient.chat(request.getMessage(), request.getConversationId());
         log.info("AI service respondió (WebSocket): {}", aiResponse.get("response"));
 
+        var found = processChat(userId, aiResponse);
+        log.info("emails encontrados: {}", found);
+
+        log.info("=== CHAT WEBSOCKET FIN === userId={}", userId);
+    }
+
+    /**
+     * Trabajo compartido por REST y WebSocket: extrae criteria, filtra, explica
+     * resultados vacíos y empuja filtered_emails + chat_response. Devuelve el total
+     * de emails encontrados (los handlers lo registran con su propio logging).
+     */
+    private long processChat(UUID userId, Map<String, Object> aiResponse) {
         var criteria = extractCriteria(aiResponse);
-        log.info("Criteria extraídos (WebSocket): {}", criteria);
-        if (!criteria.isEmpty()) {
-            var size = extractSize(criteria);
-            var emails = filterService.applyAiFilters(userId, criteria, 0, size);
-            log.info("emails encontrados: {}", emails.getTotalElements());
-            aiResponse.put("emails", emails.getContent());
-
-            // If no emails found, enhance response with explanation
-            if (emails.getTotalElements() == 0) {
-                var explanation = buildNoResultsExplanation(criteria);
-                aiResponse.put("response", aiResponse.get("response") + "\n\n" + explanation);
-            }
-
-            webSocketService.sendEmailsToUser(userId.toString(), Map.of(
-                    "type", "filtered_emails",
-                    "emails", emails.getContent()
+        log.info("Criteria extraídos: {}", criteria);
+        if (criteria.isEmpty()) {
+            log.info("Enviando chat_response por WebSocket a usuario {}", userId);
+            webSocketService.sendChatResponse(userId.toString(), Map.of(
+                    "type", "chat_response",
+                    "data", aiResponse
             ));
+            return 0;
         }
 
+        var size = extractSize(criteria);
+        var emails = filterService.applyAiFilters(userId, criteria, 0, size);
+        aiResponse.put("emails", emails.getContent());
+
+        // If no emails found, enhance response with explanation
+        if (emails.getTotalElements() == 0) {
+            var explanation = buildNoResultsExplanation(criteria);
+            aiResponse.put("response", aiResponse.get("response") + "\n\n" + explanation);
+        }
+
+        log.info("Enviando filtered_emails por WebSocket a usuario {}", userId);
+        webSocketService.sendEmailsToUser(userId.toString(), Map.of(
+                "type", "filtered_emails",
+                "emails", emails.getContent()
+        ));
+
+        log.info("Enviando chat_response por WebSocket a usuario {}", userId);
         webSocketService.sendChatResponse(userId.toString(), Map.of(
                 "type", "chat_response",
                 "data", aiResponse
         ));
-        log.info("=== CHAT WEBSOCKET FIN === userId={}", userId);
+        return emails.getTotalElements();
     }
 
     private Map<String, String> extractCriteria(Map<String, Object> aiResponse) {

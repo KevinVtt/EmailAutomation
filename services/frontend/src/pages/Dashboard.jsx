@@ -83,40 +83,21 @@ export default function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      const [countRes, unreadRes, starredRes, spamRes] = await Promise.all([
-        api.emails.count(),
-        api.emails.filter({ isRead: 'false' }, 0, 1),
-        api.emails.filter({ destacados: 'true' }, 0, 1),
-        api.emails.filter({ label: 'SPAM' }, 0, 1),
-      ]);
-
-      // Emails per day for the last 7 days (local midnight → next midnight, minus 1ms).
-      const dayQueries = [];
-      for (let i = 6; i >= 0; i--) {
-        const dayStart = new Date();
-        dayStart.setHours(0, 0, 0, 0);
-        dayStart.setDate(dayStart.getDate() - i);
-        const dayEnd = new Date(dayStart);
-        dayEnd.setDate(dayEnd.getDate() + 1);
-        dayEnd.setMilliseconds(dayEnd.getMilliseconds() - 1);
-        dayQueries.push({
-          label: format(dayStart, 'dd/MM'),
-          promise: api.emails.filter({
-            dateFrom: dayStart.toISOString(),
-            dateTo: dayEnd.toISOString(),
-          }, 0, 1),
-        });
-      }
-      const dayResults = await Promise.all(dayQueries.map((q) => q.promise));
+      const res = await api.emails.stats();
 
       setStats({
-        total: countRes.count || 0,
-        unread: unreadRes.totalElements || 0,
-        starred: starredRes.totalElements || 0,
-        spam: spamRes.totalElements || 0,
-        perDay: dayQueries.map((q, i) => ({
-          label: q.label,
-          count: dayResults[i].totalElements || 0,
+        total: res.total || 0,
+        unread: res.unread || 0,
+        starred: res.starred || 0,
+        spam: res.spam || 0,
+        // Backend days are Buenos Aires dates; en-GB is the only toLocaleDateString
+        // locale that guarantees padded dd/MM regardless of the user's ICU locale.
+        perDay: (res.perDay || []).map((d) => ({
+          label: new Date(`${d.date}T00:00:00`).toLocaleDateString('en-GB', {
+            day: '2-digit',
+            month: '2-digit',
+          }),
+          count: d.count,
         })),
       });
     } catch (err) {

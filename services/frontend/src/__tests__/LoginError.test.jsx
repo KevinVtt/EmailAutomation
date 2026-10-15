@@ -48,18 +48,19 @@ describe('Login OAuth error handling', () => {
     fireEvent.click(googleBtn);
     expect(await screen.findByRole('alert')).toBeTruthy();
 
-    // Second attempt succeeds → error cleared, redirect happens
+    // Second attempt succeeds → error cleared, redirect happens, state stored
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
       headers: new Headers({ 'content-type': 'application/json' }),
-      text: () => Promise.resolve(JSON.stringify({ authUrl: 'https://accounts.google.com/...' })),
+      text: () => Promise.resolve(JSON.stringify({ authUrl: 'https://accounts.google.com/?state=csrf-retry' })),
     });
     fireEvent.click(googleBtn);
 
     await waitFor(() => {
-      expect(window.location.href).toBe('https://accounts.google.com/...');
+      expect(window.location.href).toBe('https://accounts.google.com/?state=csrf-retry');
     });
+    expect(sessionStorage.getItem('oauthState')).toBe('csrf-retry');
     expect(screen.queryByRole('alert')).toBeNull();
   });
 });

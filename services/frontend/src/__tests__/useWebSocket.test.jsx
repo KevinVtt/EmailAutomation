@@ -2,17 +2,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useWebSocket } from '../hooks/useWebSocket';
 
-const { connectWebSocket, disconnectWebSocket, subscribeToUser, unsubscribe } = vi.hoisted(() => ({
+const { connectWebSocket, disconnectWebSocket, subscribeToTopic, unsubscribe } = vi.hoisted(() => ({
   connectWebSocket: vi.fn(),
   disconnectWebSocket: vi.fn(),
-  subscribeToUser: vi.fn(),
+  subscribeToTopic: vi.fn(),
   unsubscribe: vi.fn(),
 }));
 
 vi.mock('../lib/websocket', () => ({
   connectWebSocket,
   disconnectWebSocket,
-  subscribeToUser,
+  subscribeToTopic,
   unsubscribe,
 }));
 
@@ -23,18 +23,35 @@ describe('useWebSocket', () => {
     vi.clearAllMocks();
   });
 
-  it('connects with the access token and subscribes to user queues on connect', () => {
+  it('connects with the access token and subscribes to the user queues on connect', () => {
     const handlers = { onEmails: vi.fn(), onChat: vi.fn(), onNotifications: vi.fn() };
-    renderHook(() => useWebSocket(makeToken('user-123'), handlers));
+    const { unmount } = renderHook(() => useWebSocket(makeToken('user-123'), handlers));
 
     expect(connectWebSocket).toHaveBeenCalledWith(makeToken('user-123'), expect.any(Object));
 
     const { onConnect } = connectWebSocket.mock.calls[0][1];
     act(() => onConnect());
 
-    expect(subscribeToUser).toHaveBeenCalledWith('user-123', 'queue/emails', expect.any(Function));
-    expect(subscribeToUser).toHaveBeenCalledWith('user-123', 'queue/chat', expect.any(Function));
-    expect(subscribeToUser).toHaveBeenCalledWith('user-123', 'queue/notifications', expect.any(Function));
+    // Destinations must not carry a userId — the server resolves it from the session.
+    expect(subscribeToTopic).toHaveBeenCalledWith('/user/queue/emails', expect.any(Function));
+    expect(subscribeToTopic).toHaveBeenCalledWith('/user/queue/chat', expect.any(Function));
+    expect(subscribeToTopic).toHaveBeenCalledWith('/user/queue/notifications', expect.any(Function));
+    for (const [topic] of subscribeToTopic.mock.calls) {
+      expect(topic).not.toContain('user-123');
+    }
+
+    unmount();
+    expect(unsubscribe).toHaveBeenCalledWith('/user/queue/emails');
+    expect(unsubscribe).toHaveBeenCalledWith('/user/queue/chat');
+    expect(unsubscribe).toHaveBeenCalledWith('/user/queue/notifications');
+    expect(disconnectWebSocket).toHaveBeenCalled();
+  });
+
+  it('connects even when the JWT payload has no sub claim (no userId extraction)', () => {
+    const token = `header.${btoa(JSON.stringify({ role: 'user' }))}.sig`;
+    renderHook(() => useWebSocket(token, {}));
+
+    expect(connectWebSocket).toHaveBeenCalledWith(token, expect.any(Object));
   });
 
   it('reconnects with the new token when the token changes', () => {

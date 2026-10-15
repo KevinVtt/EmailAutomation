@@ -45,7 +45,7 @@ class OutlookServiceTest {
     }
 
     @Test
-    void refreshAccessToken_sendsFormUrlEncodedBodyAndReturnsAccessToken() {
+    void refreshAccessToken_returnsParsedTokenResponseIncludingRotatedRefreshToken() {
         server.expect(once(), requestTo(TOKEN_URL))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header(HttpHeaders.CONTENT_TYPE, startsWith(MediaType.APPLICATION_FORM_URLENCODED_VALUE)))
@@ -55,13 +55,16 @@ class OutlookServiceTest {
                 .andExpect(content().string(containsString("grant_type=refresh_token")))
                 .andExpect(content().string(containsString("scope=Mail.Read+Mail.ReadWrite+offline_access")))
                 .andRespond(withSuccess("""
-                        {"access_token": "new-access-token", "expires_in": 3600}
+                        {"access_token": "new-access-token", "refresh_token": "rotated-refresh-token", "expires_in": 3600}
                         """, MediaType.APPLICATION_JSON));
 
-        var accessToken = outlookService.refreshAccessToken(
+        var tokenResponse = outlookService.refreshAccessToken(
                 "refresh-token-abc", "client-123", "secret-456", "tenant-id");
 
-        assertEquals("new-access-token", accessToken);
+        assertEquals("new-access-token", tokenResponse.get("access_token"));
+        // Azure AD rota el refresh_token: la respuesta completa debe llegar al caller.
+        assertEquals("rotated-refresh-token", tokenResponse.get("refresh_token"));
+        assertEquals(3600, tokenResponse.get("expires_in"));
         server.verify();
     }
 

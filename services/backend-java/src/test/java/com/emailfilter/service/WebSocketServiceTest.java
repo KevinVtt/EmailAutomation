@@ -43,14 +43,6 @@ class WebSocketServiceTest {
     }
 
     @Test
-    void broadcastToTopic_sendsToCorrectTopic() {
-        var payload = Map.of("type", "broadcast");
-        webSocketService.broadcastToTopic("alerts", payload);
-
-        verify(messagingTemplate).convertAndSend("/topic/alerts", payload);
-    }
-
-    @Test
     void sendNotification_sendsNotificationFormat() {
         webSocketService.sendNotification("user-1", "Test notification");
 

@@ -31,7 +31,7 @@ Browser (React)
 |----------|-----------|--------|
 | Frontend | React 18 + Vite + TailwindCSS | 3001 |
 | Backend | Spring Boot 3.2.4 (Java 17) | 8080 |
-| IA | FastAPI + Groq (openai/gpt-oss-120b) | 8000 |
+| IA | FastAPI + Groq (openai/gpt-oss-120b) | 8000 (solo red interna en Docker) |
 | Base de datos | PostgreSQL 16 (Docker) / 18 (local) | 5433 (Docker) / 5432 (local) |
 
 ---
@@ -129,7 +129,7 @@ Esto levanta los 4 servicios:
 |------------|----------|--------|
 | `emailfilter-db` | PostgreSQL | 5433 |
 | `emailfilter-backend` | Spring Boot | 8080 |
-| `emailfilter-ai` | FastAPI | 8000 |
+| `emailfilter-ai` | FastAPI | interno (no publicado) |
 | `emailfilter-frontend` | React (nginx) | 3001 |
 
 Para ver los logs en tiempo real:
@@ -393,6 +393,7 @@ setup-db.bat
 | `JWT_SECRET` | Secreto para firmar JWTs | *(requerido)* |
 | `JWT_EXPIRATION_MS` | Duración del access token | `86400000` (24h) |
 | `JWT_REFRESH_EXPIRATION_MS` | Duración del refresh token | `604800000` (7 días) |
+| `TOKEN_ENCRYPTION_KEY` | Clave para cifrar en reposo los tokens OAuth (AES-GCM). Sin ella se guardan en texto plano (solo dev) | *(recomendada)* |
 | `GOOGLE_CLIENT_ID` | Client ID de Google OAuth2 | *(requerido para Gmail)* |
 | `GOOGLE_CLIENT_SECRET` | Client Secret de Google OAuth2 | *(requerido para Gmail)* |
 | `OUTLOOK_CLIENT_ID` | Client ID de Outlook OAuth2 | *(requerido para Outlook)* |
@@ -432,7 +433,7 @@ Verificá que la API de Gmail/People esté habilitada en Google Cloud Console y 
 
 ### El chat con IA devuelve error
 
-Verificá que `AI_API_KEY` sea válida. Podés testear directamente:
+Verificá que `AI_API_KEY` sea válida. Podés testear directamente (el puerto 8000 solo está publicado en desarrollo local; en Docker el servicio vive en la red interna):
 
 ```bash
 curl http://localhost:8000/health

@@ -90,10 +90,10 @@ export const api = {
   auth: {
     getOAuthUrl: (provider) =>
       request(`/api/auth/oauth2/${provider}`),
-    callback: (provider, code) =>
+    callback: (provider, code, state) =>
       request(`/api/auth/callback/${provider}`, {
         method: 'POST',
-        body: JSON.stringify({ authorizationCode: code, provider }),
+        body: JSON.stringify({ authorizationCode: code, provider, state }),
       }),
     refresh: async (refreshToken) => {
       const res = await fetch(`${API_URL}/api/auth/refresh`, {
@@ -133,6 +133,8 @@ export const api = {
       request('/api/emails/sync/status').catch(() => ({ syncing: false })),
     count: () =>
       request('/api/emails/count').catch(() => ({ count: 0 })),
+    stats: () =>
+      request('/api/emails/stats'),
     summary: (date = 'today') =>
       request(`/api/emails/summary?date=${date}`),
     prioritySummary: () =>

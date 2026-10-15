@@ -33,6 +33,9 @@ function renderCallback(loginMock, initialEntry = '/auth/callback?code=test-code
 }
 
 describe('OAuth flow provider persistence', () => {
+  const AUTH_URL =
+    'https://login.microsoftonline.com/oauth2/v2/authorize?client_id=abc&state=csrf-state-123';
+
   beforeEach(() => {
     sessionStorage.clear();
     localStorage.clear();
@@ -40,7 +43,7 @@ describe('OAuth flow provider persistence', () => {
       ok: true,
       status: 200,
       headers: new Headers({ 'content-type': 'application/json' }),
-      text: () => Promise.resolve(JSON.stringify({ authUrl: 'https://login.microsoftonline.com/...' })),
+      text: () => Promise.resolve(JSON.stringify({ authUrl: AUTH_URL })),
     });
     Object.defineProperty(window, 'location', {
       value: { href: '' },
@@ -49,51 +52,56 @@ describe('OAuth flow provider persistence', () => {
   });
 
   describe('Login', () => {
-    it('saves outlook to sessionStorage before redirecting to OAuth', async () => {
+    it('saves outlook and the OAuth state to sessionStorage before redirecting', async () => {
       renderLogin();
 
       const outlookBtn = screen.getByText(/Continuar con Outlook/i).closest('button');
       fireEvent.click(outlookBtn);
 
       await waitFor(() => {
-        expect(window.location.href).toBe('https://login.microsoftonline.com/...');
+        expect(window.location.href).toBe(AUTH_URL);
       });
       expect(sessionStorage.getItem('oauthProvider')).toBe('outlook');
+      expect(sessionStorage.getItem('oauthState')).toBe('csrf-state-123');
     });
 
-    it('saves google to sessionStorage before redirecting to OAuth', async () => {
+    it('saves google and the OAuth state to sessionStorage before redirecting', async () => {
       renderLogin();
 
       const googleBtn = screen.getByText(/Continuar con Google/i).closest('button');
       fireEvent.click(googleBtn);
 
       await waitFor(() => {
-        expect(window.location.href).toBe('https://login.microsoftonline.com/...');
+        expect(window.location.href).toBe(AUTH_URL);
       });
       expect(sessionStorage.getItem('oauthProvider')).toBe('google');
+      expect(sessionStorage.getItem('oauthState')).toBe('csrf-state-123');
     });
   });
 
   describe('Callback', () => {
-    it('uses provider from sessionStorage and clears it after login', async () => {
+    it('uses provider and state from sessionStorage and clears them after login', async () => {
       sessionStorage.setItem('oauthProvider', 'outlook');
+      sessionStorage.setItem('oauthState', 'csrf-state-123');
       const loginMock = vi.fn().mockResolvedValue({ userId: '1' });
 
       renderCallback(loginMock);
 
       await waitFor(() => {
-        expect(loginMock).toHaveBeenCalledWith('outlook', 'test-code');
+        expect(loginMock).toHaveBeenCalledWith('outlook', 'test-code', 'csrf-state-123');
       });
       expect(sessionStorage.getItem('oauthProvider')).toBeNull();
+      expect(sessionStorage.getItem('oauthState')).toBeNull();
     });
 
     it('falls back to provider from URL param when sessionStorage is empty', async () => {
+      sessionStorage.setItem('oauthState', 'csrf-state-123');
       const loginMock = vi.fn().mockResolvedValue({ userId: '1' });
 
       renderCallback(loginMock, '/auth/callback?code=test-code&provider=outlook');
 
       await waitFor(() => {
-        expect(loginMock).toHaveBeenCalledWith('outlook', 'test-code');
+        expect(loginMock).toHaveBeenCalledWith('outlook', 'test-code', 'csrf-state-123');
       });
     });
 
@@ -104,7 +112,7 @@ describe('OAuth flow provider persistence', () => {
       renderCallback(loginMock);
 
       await waitFor(() => {
-        expect(loginMock).toHaveBeenCalledWith('google', 'test-code');
+        expect(loginMock).toHaveBeenCalledWith('google', 'test-code', null);
       });
       expect(warnSpy).toHaveBeenCalled();
       warnSpy.mockRestore();

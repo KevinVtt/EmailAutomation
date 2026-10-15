@@ -44,7 +44,7 @@ public class AuthService {
     }
 
     public AuthResponse refreshAccessToken(String refreshToken) {
-        if (!jwtTokenProvider.validateToken(refreshToken)) {
+        if (!jwtTokenProvider.validateToken(refreshToken) || !jwtTokenProvider.isRefreshToken(refreshToken)) {
             throw new ResourceNotFoundException("Invalid refresh token");
         }
         var userId = jwtTokenProvider.getUserIdFromToken(refreshToken);

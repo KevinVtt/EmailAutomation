@@ -5,6 +5,7 @@ import com.emailfilter.dto.AuthResponse;
 import com.emailfilter.model.OAuthToken;
 import com.emailfilter.model.User;
 import com.emailfilter.repository.OAuthTokenRepository;
+import com.emailfilter.security.TokenCryptoService;
 import com.emailfilter.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -16,8 +17,11 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @RestController
@@ -27,7 +31,13 @@ public class AuthController {
 
     private final AuthService authService;
     private final OAuthTokenRepository oauthTokenRepository;
+    private final TokenCryptoService tokenCryptoService;
     private RestTemplate restTemplate = new RestTemplate();
+
+    // Store de un solo uso y proceso-local: en despliegue multi-instancia haría falta
+    // un store compartido o un state firmado.
+    private final Map<String, Instant> pendingStates = new ConcurrentHashMap<>();
+    private static final Duration STATE_TTL = Duration.ofMinutes(10);
 
     @Value("${google.client-id}")
     private String googleClientId;
@@ -52,6 +62,9 @@ public class AuthController {
 
     @GetMapping("/oauth2/{provider}")
     public ResponseEntity<Map<String, String>> initiateOAuth2(@PathVariable String provider) {
+        pendingStates.entrySet().removeIf(e -> e.getValue().isBefore(Instant.now()));
+        var state = UUID.randomUUID().toString();
+        pendingStates.put(state, Instant.now().plus(STATE_TTL));
         var authUrl = switch (provider) {
             case "google" -> "https://accounts.google.com/o/oauth2/v2/auth?" +
                     "client_id=" + googleClientId +
@@ -59,13 +72,15 @@ public class AuthController {
                     "&response_type=code" +
                     "&scope=email+profile+https://www.googleapis.com/auth/gmail.readonly+https://www.googleapis.com/auth/gmail.modify" +
                     "&access_type=offline" +
-                    "&prompt=consent";
+                    "&prompt=consent" +
+                    "&state=" + state;
             case "outlook" -> "https://login.microsoftonline.com/" + outlookTenant +
                     "/oauth2/v2.0/authorize?" +
                     "client_id=" + outlookClientId +
                     "&redirect_uri=" + outlookRedirectUri +
                     "&response_type=code" +
-                    "&scope=openid+email+profile+Mail.Read+Mail.ReadWrite+offline_access";
+                    "&scope=openid+email+profile+Mail.Read+Mail.ReadWrite+offline_access" +
+                    "&state=" + state;
             default -> throw new IllegalArgumentException("Unsupported provider: " + provider);
         };
         return ResponseEntity.ok(Map.of("authUrl", authUrl));
@@ -75,6 +90,12 @@ public class AuthController {
     public ResponseEntity<?> handleCallback(
             @PathVariable String provider,
             @Valid @RequestBody AuthRequest request) {
+        var state = request.getState();
+        var expiry = (state == null || state.isBlank()) ? null : pendingStates.remove(state);
+        if (expiry == null || expiry.isBefore(Instant.now())) {
+            log.warn("OAuth callback rejected for provider={}: invalid or expired state", provider);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Invalid OAuth state"));
+        }
         log.info("OAuth callback received for provider={}, code length={}", provider,
                 request.getAuthorizationCode() != null ? request.getAuthorizationCode().length() : 0);
         try {
@@ -109,11 +130,13 @@ public class AuthController {
     }
 
     private void saveOAuthToken(User user, String provider, Map<String, Object> tokenData) {
+        var rawRefresh = tokenData.getOrDefault("refresh_token", "").toString();
         var token = OAuthToken.builder()
                 .user(user)
                 .provider(provider)
-                .accessToken(tokenData.get("access_token").toString())
-                .refreshToken(tokenData.getOrDefault("refresh_token", "").toString())
+                .accessToken(tokenCryptoService.encrypt(tokenData.get("access_token").toString()))
+                // El refresh vacío debe seguir vacío: solo se cifra si hay contenido.
+                .refreshToken(rawRefresh.isBlank() ? rawRefresh : tokenCryptoService.encrypt(rawRefresh))
                 .tokenType(tokenData.getOrDefault("token_type", "Bearer").toString())
                 .scope(tokenData.getOrDefault("scope", "").toString())
                 .build();

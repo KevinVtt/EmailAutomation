@@ -78,6 +78,14 @@ public class JwtTokenProvider {
         }
     }
 
+    public boolean isRefreshToken(String token) {
+        try {
+            return "refresh".equals(parseToken(token).get("type", String.class));
+        } catch (JwtException | IllegalArgumentException e) {
+            return false;
+        }
+    }
+
     private Claims parseToken(String token) {
         return Jwts.parser()
                 .verifyWith(key)

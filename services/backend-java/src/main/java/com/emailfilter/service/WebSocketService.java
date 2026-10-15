@@ -20,10 +20,6 @@ public class WebSocketService {
         messagingTemplate.convertAndSendToUser(userId, "/queue/chat", payload);
     }
 
-    public void broadcastToTopic(String topic, Object payload) {
-        messagingTemplate.convertAndSend("/topic/" + topic, payload);
-    }
-
     public void sendNotification(String userId, String message) {
         messagingTemplate.convertAndSendToUser(userId, "/queue/notifications",
                 Map.of("type", "notification", "message", message));
