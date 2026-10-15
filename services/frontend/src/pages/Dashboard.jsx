@@ -337,12 +337,12 @@ export default function Dashboard() {
                   disabled={isSyncing}
                   className={`flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg transition-colors ${
                     isSyncing
-                      ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/40 animate-pulse'
+                      ? 'text-primary-700 dark:text-primary-300 bg-primary-50 dark:bg-primary-900/40 animate-pulse'
                       : syncStatus === 'success'
                       ? 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30'
                       : syncStatus === 'error'
                       ? 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30'
-                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-600'
+                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-primary-200 dark:border-gray-600'
                   }`}
                 >
                   {isSyncing ? (
@@ -379,7 +379,7 @@ export default function Dashboard() {
                         onClick={() => { handleSync(provider, 'full'); setSyncMenuOpen(false); }}
                         className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                       >
-                        <Database className="w-5 h-5 text-purple-600 dark:text-purple-400 flex-shrink-0" />
+                        <Database className="w-5 h-5 text-primary-600 dark:text-primary-400 flex-shrink-0" />
                         <div>
                           <div className="text-sm font-medium text-gray-900 dark:text-gray-100">Descargar todo el historial</div>
                           <div className="text-xs text-gray-500 dark:text-gray-400">¿Primera vez? Haz clic aquí</div>
@@ -412,7 +412,7 @@ export default function Dashboard() {
               </div>
               <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
                 <div
-                  className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full transition-all duration-300"
+                  className="h-full bg-primary-600 rounded-full transition-all duration-300"
                   style={{ width: `${Math.min((syncProgress.current / syncProgress.total) * 100, 100)}%` }}
                 />
               </div>

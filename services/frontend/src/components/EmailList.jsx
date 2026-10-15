@@ -24,18 +24,18 @@ export default function EmailList({
     <div className="card flex flex-col h-full dark:bg-gray-800 dark:border-gray-700">
       {/* Sync banner */}
       {showSync && emailCount > 0 && !bannerDismissed && (
-        <div className="mb-3 flex items-center justify-between rounded-lg bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 px-3 py-2 text-sm text-blue-700 dark:text-blue-300">
+        <div className="mb-3 flex items-center justify-between rounded-lg bg-primary-50 dark:bg-primary-900/30 border border-primary-200 dark:border-primary-800 px-3 py-2 text-sm text-primary-700 dark:text-primary-300">
           <span>¿Quieres ver todos tus emails? Sincroniza el historial completo.</span>
           <div className="flex items-center gap-1 flex-shrink-0">
             <button
               onClick={() => { onSync?.('google', 'full'); setSyncMenuOpen(false); }}
-              className="text-xs font-medium px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+              className="text-xs font-medium px-2 py-1 rounded bg-primary-700 text-white hover:bg-primary-800 transition-colors"
             >
               Sincronizar todo
             </button>
             <button
               onClick={() => setBannerDismissed(true)}
-              className="p-1 text-blue-400 hover:text-blue-600 rounded transition-colors"
+              className="p-1 text-primary-500 hover:text-primary-700 rounded transition-colors"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -54,12 +54,12 @@ export default function EmailList({
               disabled={loading || isSyncing}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
                 isSyncing
-                  ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/40 animate-pulse'
+                  ? 'text-primary-700 dark:text-primary-300 bg-primary-50 dark:bg-primary-900/40 animate-pulse'
                   : syncStatus === 'success'
                   ? 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30'
                   : syncStatus === 'error'
                   ? 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30'
-                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-600'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-primary-200 dark:border-gray-600'
               }`}
             >
               {isSyncing ? (
@@ -80,7 +80,7 @@ export default function EmailList({
             {syncMenuOpen && !isSyncing && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setSyncMenuOpen(false)} />
-                <div className="absolute right-0 mt-1 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg z-50 overflow-hidden">
+                <div className="absolute right-0 mt-1 w-64 bg-white dark:bg-gray-800 border border-primary-200 dark:border-gray-600 rounded-lg shadow-lg z-50 overflow-hidden">
                   <button
                     onClick={() => { onSync?.(provider, 'incremental'); setSyncMenuOpen(false); }}
                     className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
@@ -96,7 +96,7 @@ export default function EmailList({
                     onClick={() => { onSync?.(provider, 'full'); setSyncMenuOpen(false); }}
                     className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                   >
-                    <Database className="w-5 h-5 text-purple-600 dark:text-purple-400 flex-shrink-0" />
+                    <Database className="w-5 h-5 text-primary-600 dark:text-primary-400 flex-shrink-0" />
                     <div>
                       <div className="text-sm font-medium text-gray-900 dark:text-gray-100">Descargar todo el historial</div>
                       <div className="text-xs text-gray-500 dark:text-gray-400">¿Primera vez? Haz clic aquí</div>
@@ -126,7 +126,7 @@ export default function EmailList({
             type="date"
             value={dateFrom || ''}
             onChange={(e) => onDateFromChange(e.target.value || null)}
-            className="text-xs border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded px-2 py-1 w-32 focus:outline-none focus:border-primary-400"
+            className="text-xs border border-primary-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded px-2 py-1 w-32 focus:outline-none focus:border-primary-400"
           />
         </div>
         <div className="flex items-center gap-1">
@@ -135,7 +135,7 @@ export default function EmailList({
             type="date"
             value={dateTo || ''}
             onChange={(e) => onDateToChange(e.target.value || null)}
-            className="text-xs border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded px-2 py-1 w-32 focus:outline-none focus:border-primary-400"
+            className="text-xs border border-primary-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded px-2 py-1 w-32 focus:outline-none focus:border-primary-400"
           />
         </div>
         {(dateFrom || dateTo) && (
@@ -160,7 +160,7 @@ export default function EmailList({
           </div>
           <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
             <div
-              className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full transition-all duration-300"
+              className="h-full bg-primary-600 rounded-full transition-all duration-300"
               style={{ width: `${Math.min((syncProgress.current / syncProgress.total) * 100, 100)}%` }}
             />
           </div>

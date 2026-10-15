@@ -278,11 +278,11 @@ export default function ReplyPanel({ email, onClose }) {
 
       {/* Undo-send toast */}
       {isPending && (
-        <div className="mb-3 flex items-center justify-between gap-2 text-xs text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2">
+        <div className="mb-3 flex items-center justify-between gap-2 text-xs text-primary-700 dark:text-primary-300 bg-primary-50 dark:bg-primary-900/30 border border-primary-200 dark:border-primary-800 rounded-lg px-3 py-2">
           <span>Enviando en unos segundos…</span>
           <button
             onClick={handleCancelSend}
-            className="shrink-0 text-xs font-medium px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+            className="shrink-0 text-xs font-medium px-2 py-1 rounded bg-primary-700 text-white hover:bg-primary-800 transition-colors"
           >
             Deshacer
           </button>

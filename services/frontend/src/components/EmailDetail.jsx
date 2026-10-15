@@ -100,12 +100,12 @@ export default function EmailDetail({ email, onClose, onAction, onRead }) {
         </div>
         <div className="flex gap-1 flex-wrap">
           {email.labels?.split(',').filter(l => !['INBOX', 'UNREAD', 'CATEGORY_PRIMARY'].includes(l)).map((label, i) => (
-            <span key={i} className="text-xs px-2 py-1 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-medium">
+            <span key={i} className="text-xs px-2 py-1 rounded-full bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-300 font-medium">
               {formatLabel(label)}
             </span>
           ))}
           {(!email.labels || email.labels.split(',').filter(l => !['INBOX', 'UNREAD', 'CATEGORY_PRIMARY'].includes(l)).length === 0) && (
-            <span className="text-xs px-2 py-1 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-medium">
+            <span className="text-xs px-2 py-1 rounded-full bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-300 font-medium">
               Bandeja
             </span>
           )}
@@ -147,7 +147,7 @@ export default function EmailDetail({ email, onClose, onAction, onRead }) {
             <button
               onClick={() => handleAction(detail?.visto ? 'unread' : 'read')}
               disabled={actionLoading === 'read' || actionLoading === 'unread'}
-              className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-blue-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors disabled:opacity-50"
+              className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-primary-700 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors disabled:opacity-50"
               title={detail?.visto ? 'Marcar como no leído' : 'Marcar como leído'}
             >
               {detail?.visto ? <Mail className="w-4 h-4" /> : <MailOpen className="w-4 h-4" />}
