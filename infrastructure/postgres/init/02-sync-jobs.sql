@@ -1,4 +1,4 @@
--- Sync jobs tracking table (CLAUDE_HELP.md §2.1)
+-- Sync jobs tracking table
 CREATE TABLE IF NOT EXISTS sync_jobs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

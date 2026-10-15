@@ -71,7 +71,7 @@ public interface EmailRepository extends JpaRepository<EmailMessage, UUID>,
     @Query("SELECT e.receivedAt FROM EmailMessage e WHERE e.user.id = :userId AND e.receivedAt >= :since")
     List<Instant> findReceivedAtByUserIdSince(@Param("userId") UUID userId, @Param("since") Instant since);
 
-    // --- Priority summary counts (CLAUDE_HELP.md §3.2) ---
+    // --- Priority summary counts ---
     // PROXY: no `urgency` column exists — Gmail auto-marks IMPORTANT, so "urgentes"
     // = unread + IMPORTANT label (best available urgency proxy).
     @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId AND e.isRead = false AND e.labels LIKE '%IMPORTANT%'")
