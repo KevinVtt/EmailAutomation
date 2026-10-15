@@ -20,8 +20,8 @@ export default function Layout() {
   const { theme, toggleTheme } = useTheme();
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900 transition-colors">
-      <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-50 transition-colors">
+    <div className="min-h-screen flex flex-col bg-primary-50 dark:bg-gray-900 transition-colors">
+      <header className="bg-white dark:bg-gray-800 border-b border-primary-200 dark:border-gray-700 sticky top-0 z-50 transition-colors">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-2">
@@ -69,7 +69,7 @@ export default function Layout() {
       </header>
 
       <div className="flex flex-1">
-        <aside className="w-52 sm:w-56 flex-shrink-0 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 transition-colors">
+        <aside className="w-52 sm:w-56 flex-shrink-0 bg-white dark:bg-gray-800 border-r border-primary-200 dark:border-gray-700 transition-colors">
           <nav className="p-3 space-y-1 sticky top-16">
             {NAV_ITEMS.map(({ to, label, icon: Icon, end }) => (
               <NavLink
