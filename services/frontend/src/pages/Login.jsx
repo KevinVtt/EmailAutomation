@@ -51,11 +51,11 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-blue-100 dark:from-gray-900 dark:to-gray-800 p-4 transition-colors">
+    <div className="min-h-screen flex items-center justify-center bg-primary-50 dark:bg-gray-900 p-4 transition-colors">
       <div className="w-full max-w-md">
         {/* Branding */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-primary-600 rounded-2xl mb-4 shadow-lg shadow-primary-600/20">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-primary-700 rounded-2xl mb-4">
             <Sparkles className="w-8 h-8 text-white" />
           </div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Email Filter AI</h1>
@@ -84,7 +84,7 @@ export default function Login() {
               key={id}
               onClick={() => handleLogin(id)}
               disabled={authing === id}
-              className={`w-full flex items-center gap-3 text-left px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 transition-all duration-200 hover:shadow-md disabled:opacity-60 disabled:cursor-not-allowed ${hoverBorder}`}
+              className={`w-full flex items-center gap-3 text-left px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 transition-colors duration-200 hover:border-primary-300 dark:hover:border-gray-600 disabled:opacity-60 disabled:cursor-not-allowed ${hoverBorder}`}
             >
               <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${iconBg}`}>
                 {authing === id ? (
