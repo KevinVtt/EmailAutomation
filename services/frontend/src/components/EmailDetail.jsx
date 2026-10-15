@@ -114,7 +114,7 @@ export default function EmailDetail({ email, onClose, onAction, onRead }) {
 
       {loading ? (
         <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="w-6 h-6 text-primary-500 animate-spin" />
+          <Loader2 className="w-6 h-6 text-primary-600 animate-spin" />
         </div>
       ) : showReply ? (
         <div className="flex-1 overflow-y-auto -mx-4 px-4">
@@ -164,7 +164,7 @@ export default function EmailDetail({ email, onClose, onAction, onRead }) {
 
           {/* Sender card — Gmail style */}
           <div className="flex items-start gap-3 mb-6">
-            <div className="w-10 h-10 rounded-full bg-primary-600 flex items-center justify-center text-sm font-medium text-white flex-shrink-0 mt-0.5">
+            <div className="w-10 h-10 rounded-full bg-primary-700 flex items-center justify-center text-sm font-medium text-white flex-shrink-0 mt-0.5">
               {(email.fromName || email.fromAddress || '?').charAt(0).toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">

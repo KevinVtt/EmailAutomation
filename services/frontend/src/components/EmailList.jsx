@@ -35,7 +35,7 @@ export default function EmailList({
             </button>
             <button
               onClick={() => setBannerDismissed(true)}
-              className="p-1 text-primary-500 hover:text-primary-700 rounded transition-colors"
+              className="p-1 text-primary-600 hover:text-primary-700 rounded transition-colors"
             >
               <X className="w-3.5 h-3.5" />
             </button>

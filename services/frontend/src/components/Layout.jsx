@@ -32,8 +32,8 @@ export default function Layout() {
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 relative">
-                  <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center">
-                    <Mail className="w-4 h-4 text-primary-600" />
+                  <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center">
+                    <Mail className="w-4 h-4 text-primary-600 dark:text-primary-400" />
                   </div>
                   {user?.avatarUrl && (
                     <img

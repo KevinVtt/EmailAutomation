@@ -138,7 +138,7 @@ export default function ReplyPanel({ email, onClose }) {
             onClick={() => setShowSettings(!showSettings)}
             className={`p-1.5 rounded-lg transition-colors ${
               showSettings
-                ? 'text-primary-600 bg-primary-50 dark:bg-primary-900/30'
+                ? 'text-primary-700 bg-primary-50 dark:bg-primary-900/30'
                 : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
             }`}
             title="Configuración de redacción"
@@ -166,7 +166,7 @@ export default function ReplyPanel({ email, onClose }) {
                   onClick={() => setSettings(s => ({ ...s, tone: t.id }))}
                   className={`text-xs px-2.5 py-1 rounded-full transition-colors ${
                     settings.tone === t.id
-                      ? 'bg-primary-600 text-white'
+                      ? 'bg-primary-700 text-white'
                       : 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-500'
                   }`}
                   title={t.desc}
@@ -185,7 +185,7 @@ export default function ReplyPanel({ email, onClose }) {
                   onClick={() => setSettings(s => ({ ...s, language: l.id }))}
                   className={`text-xs px-2.5 py-1 rounded-full transition-colors ${
                     settings.language === l.id
-                      ? 'bg-primary-600 text-white'
+                      ? 'bg-primary-700 text-white'
                       : 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-500'
                   }`}
                 >
@@ -202,7 +202,7 @@ export default function ReplyPanel({ email, onClose }) {
               value={settings.customRules}
               onChange={(e) => setSettings(s => ({ ...s, customRules: e.target.value }))}
               placeholder="Ej: Siempre incluir saludo formal. No usar abreviaciones. Mencionar número de ticket si existe."
-              className="w-full text-xs border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg px-2 py-1.5 resize-none focus:outline-none focus:border-primary-400 placeholder-gray-400 dark:placeholder-gray-500"
+              className="w-full text-xs border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg px-2 py-1.5 resize-none focus:outline-none focus:border-primary-400 placeholder-slate-500 dark:placeholder-gray-500"
               rows={3}
             />
           </div>
@@ -218,7 +218,7 @@ export default function ReplyPanel({ email, onClose }) {
           value={draft}
           onChange={(e) => { setDraft(e.target.value); setSent(false); }}
           placeholder="Escribí tu respuesta acá... la IA la va a mejorar."
-          className="w-full text-sm border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-primary-400 placeholder-gray-400 dark:placeholder-gray-500"
+          className="w-full text-sm border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-primary-400 placeholder-slate-500 dark:placeholder-gray-500"
           rows={5}
         />
       </div>

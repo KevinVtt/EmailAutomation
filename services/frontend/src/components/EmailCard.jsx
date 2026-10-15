@@ -44,7 +44,7 @@ export default function EmailCard({ email, selected, onSelect }) {
           <div className="flex items-center gap-1 flex-shrink-0">
             {email.isStarred && <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />}
             {!email.visto ? (
-              <Mail className="w-3.5 h-3.5 text-primary-500" />
+              <Mail className="w-3.5 h-3.5 text-primary-600" />
             ) : (
               <MailOpen className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
             )}
