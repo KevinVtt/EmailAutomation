@@ -50,7 +50,7 @@ function BarChart({ data }) {
               title={`${d.label}: ${d.count} emails`}
             />
           </div>
-          <span className="text-xs text-gray-400 dark:text-gray-500">{d.label}</span>
+          <span className="text-xs text-slate-500 dark:text-gray-500">{d.label}</span>
         </div>
       ))}
     </div>

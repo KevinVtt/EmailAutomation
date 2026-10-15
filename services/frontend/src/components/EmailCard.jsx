@@ -22,7 +22,7 @@ export default function EmailCard({ email, selected, onSelect }) {
         <div
           className={clsx(
             'w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium text-white',
-            email.visto ? 'bg-gray-400 dark:bg-gray-600' : 'bg-primary-500'
+            email.visto ? 'bg-gray-500 dark:bg-gray-600' : 'bg-primary-700'
           )}
         >
           {initials}
@@ -62,11 +62,11 @@ export default function EmailCard({ email, selected, onSelect }) {
           {email.subject || '(Sin asunto)'}
         </p>
 
-        <p className="text-xs text-gray-400 dark:text-gray-500 truncate mt-0.5">
+        <p className="text-xs text-slate-500 dark:text-gray-500 truncate mt-0.5">
           {email.bodyPreview || ''}
         </p>
 
-        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+        <p className="text-xs text-slate-500 dark:text-gray-500 mt-1">
           {email.receivedAt
             ? formatDistanceToNow(new Date(email.receivedAt), {
                 addSuffix: true,

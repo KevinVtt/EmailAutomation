@@ -164,7 +164,7 @@ export default function EmailList({
               style={{ width: `${Math.min((syncProgress.current / syncProgress.total) * 100, 100)}%` }}
             />
           </div>
-          <div className="text-xs text-gray-400 dark:text-gray-500 mt-1 text-center">
+          <div className="text-xs text-slate-500 dark:text-gray-500 mt-1 text-center">
             Esto puede tardar unos minutos para buzones grandes...
           </div>
         </div>
@@ -197,7 +197,7 @@ export default function EmailList({
       </div>
 
       <div className="flex items-center justify-between pt-3 mt-3 border-t border-gray-100 dark:border-gray-700">
-        <div className="text-xs text-gray-400 dark:text-gray-500">
+        <div className="text-xs text-slate-500 dark:text-gray-500">
           {emails.length} emails {totalPages > 1 && `- Pág ${page + 1} de ${totalPages}`}
         </div>
         {totalPages > 1 && (
