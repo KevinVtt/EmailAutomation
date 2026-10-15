@@ -2,6 +2,7 @@ package com.emailfilter.repository;
 
 import com.emailfilter.model.EmailMessage;
 import com.emailfilter.model.User;
+import com.emailfilter.model.Visto;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -59,12 +60,49 @@ class EmailRepositoryTest {
         assertNull(labelsOf(user, "null-labels"));
     }
 
+    /**
+     * "No leído" del dashboard = el proveedor sigue diciendo UNREAD y el usuario
+     * nunca lo abrió acá (fila en {@code visto} con visto=true).
+     */
+    @Test
+    void countUnreadByUserId_excludesSeenAndAlreadyReadEmails() {
+        var user = entityManager.persist(User.builder()
+                .email("unread-stats@example.com")
+                .provider("google")
+                .build());
+        var other = entityManager.persist(User.builder()
+                .email("unread-stats-other@example.com")
+                .provider("google")
+                .build());
+
+        persistEmail(user, "unread-unseen", null);
+        persistEmail(user, "unread-seen", null);
+        persistEmail(user, "unread-flagged", null, true);
+        // Mismo providerEmailId pero de otro usuario: el visto ajeno no debe influir.
+        persistEmail(other, "unread-unseen", null);
+
+        entityManager.persist(Visto.builder()
+                .user(user).providerEmailId("unread-seen").visto(true).build());
+        entityManager.persist(Visto.builder()
+                .user(other).providerEmailId("unread-unseen").visto(true).build());
+        entityManager.flush();
+        entityManager.clear();
+
+        assertEquals(1L, emailRepository.countUnreadByUserId(user.getId()));
+        assertEquals(0L, emailRepository.countUnreadByUserId(other.getId()));
+    }
+
     private void persistEmail(User user, String providerEmailId, String labels) {
+        persistEmail(user, providerEmailId, labels, false);
+    }
+
+    private void persistEmail(User user, String providerEmailId, String labels, boolean isRead) {
         entityManager.persist(EmailMessage.builder()
                 .user(user)
                 .provider("google")
                 .providerEmailId(providerEmailId)
                 .labels(labels)
+                .isRead(isRead)
                 .build());
     }
 

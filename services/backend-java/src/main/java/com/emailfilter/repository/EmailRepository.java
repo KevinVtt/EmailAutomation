@@ -59,7 +59,13 @@ public interface EmailRepository extends JpaRepository<EmailMessage, UUID>,
     int removeSpamLabelByUserId(@Param("userId") UUID userId);
 
     // --- Stats endpoint (`GET /api/emails/stats`) ---
-    @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId AND e.isRead = false")
+    // "No leído" = el proveedor sigue diciendo UNREAD *y* el usuario nunca lo abrió acá.
+    // `is_read` solo no alcanza: el sync lo pisa con lo que diga el proveedor, así que los
+    // mails ya abiertos (visto) volverían a contar.
+    String NOT_SEEN = " AND NOT EXISTS (SELECT 1 FROM Visto v WHERE v.user.id = :userId" +
+            " AND v.providerEmailId = e.providerEmailId AND v.visto = true)";
+
+    @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId AND e.isRead = false" + NOT_SEEN)
     long countUnreadByUserId(@Param("userId") UUID userId);
 
     @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId AND e.isStarred = true")
@@ -74,16 +80,19 @@ public interface EmailRepository extends JpaRepository<EmailMessage, UUID>,
     // --- Priority summary counts ---
     // PROXY: no `urgency` column exists — Gmail auto-marks IMPORTANT, so "urgentes"
     // = unread + IMPORTANT label (best available urgency proxy).
-    @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId AND e.isRead = false AND e.labels LIKE '%IMPORTANT%'")
+    @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId AND e.isRead = false" + NOT_SEEN +
+            " AND e.labels LIKE '%IMPORTANT%'")
     long countUrgentesByUserId(@Param("userId") UUID userId);
 
     // PROXY: matches the existing "destacados" filter semantics (isStarred OR IMPORTANT) + unread.
-    @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId AND e.isRead = false AND (e.isStarred = true OR e.labels LIKE '%IMPORTANT%')")
+    @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId AND e.isRead = false" + NOT_SEEN +
+            " AND (e.isStarred = true OR e.labels LIKE '%IMPORTANT%')")
     long countDestacadosSinLeerByUserId(@Param("userId") UUID userId);
 
     // PROXY: sent emails are NOT synced (inbox+spam only), so a thread-based "no reply"
     // query would count everything. Unread received emails are the honest proxy for
     // "waiting for your response".
-    @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId AND e.isRead = false AND e.fromAddress IS NOT NULL AND e.fromAddress <> :userEmail")
+    @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId AND e.isRead = false" + NOT_SEEN +
+            " AND e.fromAddress IS NOT NULL AND e.fromAddress <> :userEmail")
     long countPendientesRespuestaByUserId(@Param("userId") UUID userId, @Param("userEmail") String userEmail);
 }

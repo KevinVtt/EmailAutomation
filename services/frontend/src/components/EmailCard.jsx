@@ -8,6 +8,10 @@ export default function EmailCard({ email, selected, onSelect }) {
     .charAt(0)
     .toUpperCase();
 
+  // Leído = abierto acá (visto) o ya leído en el proveedor (isRead). Así la lista
+  // coincide con el contador "No leídos" del dashboard.
+  const leido = Boolean(email.visto || email.isRead);
+
   return (
     <button
       onClick={onSelect}
@@ -22,7 +26,7 @@ export default function EmailCard({ email, selected, onSelect }) {
         <div
           className={clsx(
             'w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium text-white',
-            email.visto ? 'bg-gray-500 dark:bg-gray-600' : 'bg-primary-700'
+            leido ? 'bg-gray-500 dark:bg-gray-600' : 'bg-primary-700'
           )}
         >
           {initials}
@@ -34,7 +38,7 @@ export default function EmailCard({ email, selected, onSelect }) {
           <span
             className={clsx(
               'text-sm truncate',
-              email.visto
+              leido
                 ? 'text-gray-600 dark:text-gray-400'
                 : 'text-gray-900 dark:text-gray-100 font-semibold'
             )}
@@ -43,7 +47,7 @@ export default function EmailCard({ email, selected, onSelect }) {
           </span>
           <div className="flex items-center gap-1 flex-shrink-0">
             {email.isStarred && <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />}
-            {!email.visto ? (
+            {!leido ? (
               <Mail className="w-3.5 h-3.5 text-primary-600" />
             ) : (
               <MailOpen className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
@@ -54,7 +58,7 @@ export default function EmailCard({ email, selected, onSelect }) {
         <p
           className={clsx(
             'text-sm truncate mt-0.5',
-            email.visto
+            leido
               ? 'text-gray-500 dark:text-gray-400'
               : 'text-gray-700 dark:text-gray-200 font-medium'
           )}
