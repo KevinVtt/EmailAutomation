@@ -77,7 +77,7 @@ export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsum
 
   return (
     <div className="card flex flex-col h-full dark:bg-gray-800 dark:border-gray-700">
-      <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-200 dark:border-gray-700">
+      <div className="flex items-center gap-2 mb-4 pb-3 border-b border-primary-200 dark:border-gray-700">
         <Bot className="w-5 h-5 text-primary-600" />
         <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Asistente IA</h2>
       </div>
@@ -96,7 +96,7 @@ export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsum
             <div
               className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${
                 msg.role === 'user'
-                  ? 'bg-primary-600 text-white rounded-br-sm'
+                  ? 'bg-primary-700 text-white rounded-br-sm'
                   : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-bl-sm'
               }`}
             >

@@ -14,7 +14,7 @@ export default function EmptyState({
   return (
     <div
       data-testid={testId}
-      className={`flex flex-col items-center justify-center py-12 text-gray-400 dark:text-gray-500 ${className}`}
+      className={`flex flex-col items-center justify-center py-12 text-slate-500 dark:text-gray-500 ${className}`}
     >
       <Icon className="w-12 h-12 mb-3" />
       <p className="text-sm font-medium">{message}</p>

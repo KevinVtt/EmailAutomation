@@ -15,7 +15,7 @@ export default function ErrorState({
   return (
     <div
       data-testid={testId}
-      className={`flex flex-col items-center justify-center py-12 text-red-400 ${className}`}
+      className={`flex flex-col items-center justify-center py-12 text-red-600 dark:text-red-400 ${className}`}
     >
       <AlertCircle className="w-12 h-12 mb-3" />
       <p className="text-sm font-medium">{message}</p>
