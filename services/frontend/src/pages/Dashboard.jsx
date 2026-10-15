@@ -15,9 +15,9 @@ import {
 } from 'lucide-react';
 
 const STAT_CARDS = [
-  { key: 'total', label: 'Total de emails', icon: Mail, iconClass: 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' },
+  { key: 'total', label: 'Total de emails', icon: Mail, iconClass: 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' },
   { key: 'unread', label: 'No leídos', icon: MailOpen, iconClass: 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400' },
-  { key: 'starred', label: 'Destacados', icon: Star, iconClass: 'bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400' },
+  { key: 'starred', label: 'Destacados', icon: Star, iconClass: 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' },
   { key: 'spam', label: 'Spam', icon: ShieldAlert, iconClass: 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400' },
 ];
 
@@ -601,7 +601,7 @@ export default function Dashboard() {
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300">
                         <Star className="w-5 h-5" />
                       </div>
                       <div className="min-w-0">
@@ -612,7 +612,7 @@ export default function Dashboard() {
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300">
                         <Clock className="w-5 h-5" />
                       </div>
                       <div className="min-w-0">
