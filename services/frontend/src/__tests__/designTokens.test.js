@@ -42,4 +42,13 @@ describe('design tokens', () => {
   it('keeps the focus ring above the 3:1 non-text floor', () => {
     expect(ratio(primary[600], '#ffffff')).toBeGreaterThanOrEqual(3);
   });
+
+  it('keeps the AI accent comfortable on its own tint', () => {
+    // 4.52:1 — clears AA text, so the avatar icons have real headroom.
+    expect(ratio(accent[700], accent[100])).toBeGreaterThanOrEqual(4.5);
+    // 3.11:1 — accent-600 clears the 3:1 graphic floor, but only just; hence the 700 rule.
+    expect(ratio(accent[600], accent[100])).toBeGreaterThanOrEqual(3);
+    // Same measurement for the structural colour, for comparison.
+    expect(ratio(primary[600], primary[50])).toBeGreaterThanOrEqual(3);
+  });
 });

@@ -473,7 +473,7 @@ export default function Dashboard() {
 
               <div className="card dark:bg-gray-800 dark:border-gray-700">
                 <div className="flex items-center gap-2 mb-4">
-                  <Sparkles className="w-5 h-5 text-primary-600" />
+                  <Sparkles className="w-5 h-5 text-accent-600" />
                   <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Resumen de hoy</h2>
                   <button
                     onClick={fetchSummary}

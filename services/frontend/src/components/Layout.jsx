@@ -25,7 +25,7 @@ export default function Layout() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-2">
-              <Sparkles className="w-6 h-6 text-primary-600" />
+              <Sparkles className="w-6 h-6 text-accent-600" />
               <span className="font-bold text-lg text-gray-900 dark:text-gray-100">EmailFilter AI</span>
             </div>
 

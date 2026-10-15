@@ -78,7 +78,7 @@ export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsum
   return (
     <div className="card flex flex-col h-full dark:bg-gray-800 dark:border-gray-700">
       <div className="flex items-center gap-2 mb-4 pb-3 border-b border-primary-200 dark:border-gray-700">
-        <Bot className="w-5 h-5 text-primary-600" />
+        <Bot className="w-5 h-5 text-accent-600" />
         <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Asistente IA</h2>
       </div>
 
@@ -89,8 +89,8 @@ export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsum
             className={`flex gap-2 ${msg.role === 'user' ? 'justify-end' : ''}`}
           >
             {msg.role === 'assistant' && (
-              <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center flex-shrink-0">
-                <Sparkles className="w-4 h-4 text-primary-600 dark:text-primary-400" />
+              <div className="w-8 h-8 rounded-full bg-accent-100 dark:bg-accent-900/40 flex items-center justify-center flex-shrink-0">
+                <Sparkles className="w-4 h-4 text-accent-700 dark:text-accent-400" />
               </div>
             )}
             <div
@@ -112,8 +112,8 @@ export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsum
 
         {loading && (
           <div className="flex gap-2">
-            <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-primary-600 dark:text-primary-400" />
+            <div className="w-8 h-8 rounded-full bg-accent-100 dark:bg-accent-900/40 flex items-center justify-center">
+              <Sparkles className="w-4 h-4 text-accent-700 dark:text-accent-400" />
             </div>
             <div className="bg-gray-100 dark:bg-gray-700 rounded-xl rounded-bl-sm px-3 py-2">
               <LoadingState compact label="Pensando..." />

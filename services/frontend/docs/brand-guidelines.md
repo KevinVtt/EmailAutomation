@@ -32,8 +32,21 @@
 
 | Name | Hex | Token | Usage |
 |------|-----|-------|-------|
-| Accent | `#EA580C` | `accent-600` | Highlights, decorative emphasis |
-| Accent Strong | `#C2410C` | `accent-700` | **Any surface carrying white text** |
+| Accent | `#EA580C` | `accent-600` | The AI: brand glyph, assistant icons, generated-content markers |
+| Accent Strong | `#C2410C` | `accent-700` | The AI inside an `accent-100` fill, and any surface carrying white text |
+
+**The accent rule:** orange means exactly one thing — *this came from the AI*. It is used on the
+brand glyph (the "AI" in EmailFilter AI), the assistant's avatar and header icon in the chat, and
+the markers on AI-generated content (the "Resumen de hoy" summary). It is never used as a generic
+"highlight": if a new element is not the AI, it takes teal or a neutral.
+
+Two consequences worth keeping:
+
+- The user's own chat bubble stays `primary-700` teal. The two speakers end up colour-coded:
+  teal = you, orange = the assistant.
+- Inside an `accent-100` fill the icon is `accent-700` (4.52:1). `accent-600` also clears the 3:1
+  graphic floor on that tint, but only just (3.11:1), so the avatar icons take the 700 shade for
+  headroom.
 
 ### Neutral
 
@@ -91,9 +104,9 @@ passes, for their visible boundary.
 
 ## 3. Logo Usage
 
-There is no graphical logo. The wordmark is the `Mail` glyph from lucide-react at
-`text-primary-600`, immediately left of the product name, optionally inside a rounded tile filled
-with `primary-700` when it carries white text.
+There is no graphical logo. The wordmark is the `Sparkles` glyph from lucide-react at
+`text-accent-600`, immediately left of the product name — the orange glyph is the "AI" of
+EmailFilter AI. Where the mark sits on a teal field it reverses to white on `primary-700`.
 
 - Minimum clear space: one glyph width on all sides.
 - The service provider marks (Google, Microsoft) are third-party and keep their own brand colours.
