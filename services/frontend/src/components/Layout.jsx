@@ -1,11 +1,16 @@
+import { useEffect } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../context/ThemeContext';
+import { api } from '../lib/api';
 import {
   Sparkles, LogOut, Mail, Sun, Moon,
   LayoutDashboard, Inbox, Star, ShieldAlert, Settings,
 } from 'lucide-react';
 import clsx from 'clsx';
+
+// Cada cuánto se busca correo nuevo en segundo plano mientras la app está abierta.
+const SYNC_INTERVAL_MS = 120000;
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -18,6 +23,31 @@ const NAV_ITEMS = [
 export default function Layout() {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
+
+  // El Dashboard sincroniza una vez por sesión; acá corre un sync de fondo en
+  // todas las páginas para que el correo nuevo no dependa de apretar nada.
+  useEffect(() => {
+    if (!user?.provider) return;
+
+    const syncNow = async () => {
+      try {
+        const { syncing } = await api.emails.syncStatus();
+        if (!syncing) await api.emails.sync(user.provider);
+      } catch {
+        // Poll de fondo: si falla, el próximo intento lo resuelve.
+      }
+    };
+
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') syncNow();
+    }, SYNC_INTERVAL_MS);
+    window.addEventListener('focus', syncNow);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', syncNow);
+    };
+  }, [user?.provider]);
 
   return (
     <div className="min-h-screen flex flex-col bg-primary-50 dark:bg-gray-900 transition-colors">

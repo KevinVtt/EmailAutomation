@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { AuthContext } from '../context/AuthContext';
 import { api } from '../lib/api';
+import { useWebSocket } from '../hooks/useWebSocket';
 import EmailListView from '../components/EmailListView';
 
 vi.mock('../lib/api', () => ({
@@ -14,6 +15,8 @@ vi.mock('../lib/api', () => ({
     },
   },
 }));
+
+vi.mock('../hooks/useWebSocket', () => ({ useWebSocket: vi.fn() }));
 
 const mockAuth = {
   user: { id: 'user-1', email: 'a@b.com', name: 'Ana', provider: 'google' },
@@ -87,5 +90,19 @@ describe('EmailListView', () => {
 
     await waitFor(() => expect(api.emails.action).toHaveBeenCalledWith('google', 'p1', 'trash'));
     await waitFor(() => expect(screen.queryByText('Email destacado')).toBeNull());
+  });
+
+  it('refreshes the list when a background sync completes', async () => {
+    api.emails.filter.mockResolvedValue({ content: [mockEmail], totalPages: 1 });
+    renderList();
+    await screen.findByText('Email destacado');
+    expect(api.emails.filter).toHaveBeenCalledTimes(1);
+
+    const { onNotifications } = useWebSocket.mock.calls[0][1];
+    await act(async () => {
+      onNotifications({ type: 'notification', message: 'sync_complete' });
+    });
+
+    await waitFor(() => expect(api.emails.filter).toHaveBeenCalledTimes(2));
   });
 });

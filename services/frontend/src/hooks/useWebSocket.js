@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react';
 import {
   connectWebSocket,
-  disconnectWebSocket,
+  onWebSocketConnect,
+  onWebSocketError,
   subscribeToTopic,
-  unsubscribe,
 } from '../lib/websocket';
 
 // The backend resolves the authenticated user from the STOMP session, so user
@@ -14,6 +14,12 @@ const USER_TOPICS = {
   notifications: '/user/queue/notifications',
 };
 
+const HANDLER_TOPICS = [
+  ['onEmails', USER_TOPICS.emails],
+  ['onChat', USER_TOPICS.chat],
+  ['onNotifications', USER_TOPICS.notifications],
+];
+
 export function useWebSocket(token, handlers = {}) {
   const handlersRef = useRef(handlers);
   handlersRef.current = handlers;
@@ -21,34 +27,25 @@ export function useWebSocket(token, handlers = {}) {
   useEffect(() => {
     if (!token) return;
 
-    const client = connectWebSocket(token, {
-      onConnect: () => {
-        if (handlersRef.current.onEmails) {
-          subscribeToTopic(USER_TOPICS.emails, (data) => {
-            handlersRef.current.onEmails(data);
-          });
-        }
-        if (handlersRef.current.onChat) {
-          subscribeToTopic(USER_TOPICS.chat, (data) => {
-            handlersRef.current.onChat(data);
-          });
-        }
-        if (handlersRef.current.onNotifications) {
-          subscribeToTopic(USER_TOPICS.notifications, (data) => {
-            handlersRef.current.onNotifications(data);
-          });
-        }
-      },
-      onError: (frame) => {
-        if (handlersRef.current.onError) handlersRef.current.onError(frame);
-      },
-    });
+    connectWebSocket(token);
 
+    const offSubscriptions = HANDLER_TOPICS
+      .filter(([key]) => handlersRef.current[key])
+      .map(([key, topic]) => subscribeToTopic(topic, (data) => handlersRef.current[key]?.(data)));
+
+    const offConnect = handlersRef.current.onConnect
+      ? onWebSocketConnect(() => handlersRef.current.onConnect?.())
+      : null;
+    const offError = handlersRef.current.onError
+      ? onWebSocketError((frame) => handlersRef.current.onError?.(frame))
+      : null;
+
+    // La conexión queda viva al desmontar (es compartida entre páginas); sólo se
+    // dan de baja las suscripciones propias. El cierre va en el logout.
     return () => {
-      unsubscribe(USER_TOPICS.emails);
-      unsubscribe(USER_TOPICS.chat);
-      unsubscribe(USER_TOPICS.notifications);
-      disconnectWebSocket();
+      offSubscriptions.forEach((off) => off());
+      offConnect?.();
+      offError?.();
     };
   }, [token]);
 }

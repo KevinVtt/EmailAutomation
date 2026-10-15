@@ -48,6 +48,9 @@ Browser (React) ── REST /api/** + WebSocket /ws ──► Java Backend (8080
 - JWT is HMAC-SHA. Do not change the secret structure without updating `JWT_SECRET`.
   `refreshAccessToken` accepts only `type=refresh` tokens. The principal in `SecurityContext` is `userId` (UUID string), not email.
 - `UNIQUE(userId, providerEmailId)` on `email_messages` is the sync dedup guard. Never remove it.
+- `EmailRepository`'s counters use the `NOT_SEEN` fragment: "no leído"/"urgente"/"pendiente" exclude emails
+  with a `visto=true` row for that user (the app's own read state), because `saveEmails` overwrites `is_read`
+  with the provider's flag on every sync.
 - Use the `application-dev.yml` profile locally (DDL auto-update + SQL logging).
 - Gmail: keep `GmailService.fetchAllEmails()` paginated (queries `in:inbox` + `in:spam`, 100 per page);
   do not replace it with one bulk call. `OutlookService` is less tested: test both providers when touching auth or sync.
@@ -59,12 +62,19 @@ Browser (React) ── REST /api/** + WebSocket /ws ──► Java Backend (8080
 ## Frontend (`services/frontend/`)
 - Access tokens only via `getStoredAuth()` / `storeAuth()`.
 - `useWebSocket.js`: keep the 5s reconnect + heartbeat; subscribe to `/user/queue/*` (no userId in the path).
+  There is ONE shared connection for the whole app (`lib/websocket.js`): each component registers its own
+  subscriptions and drops only those on unmount — never tear the client down from a page. Logout calls
+  `disconnectWebSocket()`. A reconnect re-attaches every live subscription and re-reads the access token.
 - OAuth `state`: `Login.jsx` stores it in `sessionStorage['oauthState']`; `Callback.jsx` sends it to the backend. Keep both.
 - Dashboard auto-syncs once per session through a `sessionStorage` flag. Preserve it.
+- `Layout` also runs a background incremental sync every 2 min (plus on window focus) so new mail arrives
+  without a manual refresh. The Dashboard's sync banner only covers syncs the Dashboard itself started.
+- Lists (`EmailListView`) refetch silently on `sync_complete` / `emails_changed`.
 - Dashboard stats come from the single `GET /api/emails/stats` call (`api.emails.stats()`); do not fan out per-filter/per-day requests again.
-- Read state lives in two places: `visto` (opened by the user, drives the list UI) and
-  `email_messages.is_read` (Gmail's UNREAD flag, drives the counters). Opening an email sets both;
-  after any `POST /api/emails/action` the backend sends the `emails_changed` notification and the
+- Read state lives in two places: `visto` (opened by the user) and `email_messages.is_read` (the provider's
+  UNREAD flag). "No leído" means `is_read = false` **and** no `visto=true` row — opening an email sets both;
+  counting `is_read` alone is wrong because the sync overwrites it with whatever the provider says.
+  After any `POST /api/emails/action` the backend sends the `emails_changed` notification and the
   Dashboard refetches stats on it.
 - Email bodies are decoded from Gmail's raw MIME: base64 **and** quoted-printable (`util/QuotedPrintable`),
   preferring the `text/html` part. Without the quoted-printable step the reader shows `=3D`, `=C3=A9`, etc.

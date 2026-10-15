@@ -21,12 +21,14 @@ vi.mock('sockjs-client', () => ({
 
 import { Client } from '@stomp/stompjs';
 import * as wsModule from '../lib/websocket';
-import { connectWebSocket, disconnectWebSocket, subscribeToTopic, unsubscribe } from '../lib/websocket';
+import { connectWebSocket, disconnectWebSocket, subscribeToTopic, onWebSocketConnect } from '../lib/websocket';
 
 describe('websocket.js', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockClientInstance.active = false;
+    mockClientInstance.connected = false;
+    mockClientInstance.subscribe.mockImplementation(() => ({ unsubscribe: vi.fn() }));
     disconnectWebSocket();
   });
 
@@ -61,10 +63,10 @@ describe('websocket.js', () => {
     expect(wsModule.subscribeToUser).toBeUndefined();
   });
 
-  it('queues subscriptions made before connect, applies them on connect, and drops unsubscribed pending ones', () => {
+  it('queues subscriptions made before connect and applies them on connect', () => {
+    const off = subscribeToTopic('/user/queue/chat', vi.fn());
     subscribeToTopic('/user/queue/emails', vi.fn());
-    subscribeToTopic('/user/queue/chat', vi.fn());
-    unsubscribe('/user/queue/chat');
+    off();
     expect(mockClientInstance.subscribe).not.toHaveBeenCalled();
 
     connectWebSocket('test-access-token');
@@ -72,5 +74,47 @@ describe('websocket.js', () => {
 
     expect(mockClientInstance.subscribe).toHaveBeenCalledTimes(1);
     expect(mockClientInstance.subscribe).toHaveBeenCalledWith('/user/queue/emails', expect.any(Function));
+  });
+
+  it('keeps a subscription per component on the same topic (shared connection)', () => {
+    connectWebSocket('test-access-token');
+    mockClientInstance.connected = true;
+
+    const offFirst = subscribeToTopic('/user/queue/notifications', vi.fn());
+    subscribeToTopic('/user/queue/notifications', vi.fn());
+
+    expect(mockClientInstance.subscribe).toHaveBeenCalledTimes(2);
+
+    const [firstSub, secondSub] = mockClientInstance.subscribe.mock.results.map((r) => r.value);
+    offFirst();
+    expect(firstSub.unsubscribe).toHaveBeenCalled();
+    expect(secondSub.unsubscribe).not.toHaveBeenCalled();
+  });
+
+  it('re-attaches the live subscriptions after a reconnect', () => {
+    connectWebSocket('test-access-token');
+    mockClientInstance.connected = true;
+    subscribeToTopic('/user/queue/emails', vi.fn());
+
+    const config = Client.mock.calls[0][0];
+    const staleSub = mockClientInstance.subscribe.mock.results[0].value;
+    config.onConnect();
+
+    expect(staleSub.unsubscribe).toHaveBeenCalled();
+    expect(mockClientInstance.subscribe).toHaveBeenCalledTimes(2);
+  });
+
+  it('notifies connect listeners on connect, and immediately when already connected', () => {
+    const listener = vi.fn();
+    onWebSocketConnect(listener);
+    expect(listener).not.toHaveBeenCalled();
+
+    connectWebSocket('test-access-token');
+    Client.mock.calls[0][0].onConnect();
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    mockClientInstance.connected = true;
+    onWebSocketConnect(listener);
+    expect(listener).toHaveBeenCalledTimes(2);
   });
 });

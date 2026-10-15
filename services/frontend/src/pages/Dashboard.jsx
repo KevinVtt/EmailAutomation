@@ -78,6 +78,9 @@ export default function Dashboard() {
   const [urgentEmails, setUrgentEmails] = useState(null);
   const pollIntervalRef = useRef(null);
   const syncSafetyRef = useRef(null);
+  // Marca los sync que arrancó este panel: los de fondo (Layout) no deben mover
+  // la barra de sincronización, solo refrescar los contadores.
+  const dashboardSyncRef = useRef(false);
 
   const fetchStats = useCallback(async () => {
     setLoading(true);
@@ -158,6 +161,7 @@ export default function Dashboard() {
   // timer de seguridad cortaba el poll pero dejaba el botón pegado para siempre).
   const finishSync = useCallback((status) => {
     stopSyncPoll();
+    dashboardSyncRef.current = false;
     setSyncStatus(status);
     setSyncMode(null);
     if (status === 'success') fetchStats();
@@ -172,6 +176,7 @@ export default function Dashboard() {
 
   const handleSync = useCallback(async (provider, mode = 'incremental') => {
     try {
+      dashboardSyncRef.current = true;
       setSyncStatus('syncing');
       setSyncMode(mode);
       setSyncProgress({ current: 0, total: 0 });
@@ -217,8 +222,12 @@ export default function Dashboard() {
 
     const msg = data.message;
     if (msg === 'sync_complete') {
-      finishSync('success');
+      // Un sync de fondo (Layout) también mueve los contadores, pero no debe
+      // mostrar el banner de éxito que queda pegado 3s sin que el usuario toque nada.
+      if (dashboardSyncRef.current) finishSync('success');
+      else fetchStats();
     } else if (typeof msg === 'string' && msg.startsWith('sync_progress:')) {
+      if (!dashboardSyncRef.current) return;
       // sync_progress:current:total
       const parts = msg.split(':');
       const current = parseInt(parts[1], 10) || 0;
@@ -227,7 +236,7 @@ export default function Dashboard() {
       setSyncStatus('syncing');
     } else if (typeof msg === 'string' && msg.startsWith('sync_error')) {
       console.error('Sync error:', msg);
-      finishSync('error');
+      if (dashboardSyncRef.current) finishSync('error');
     } else if (msg === 'emails_changed') {
       // Acción sobre un email (leído, borrado, estrella...): refrescar contadores.
       fetchStats();

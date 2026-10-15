@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth';
+import { useWebSocket } from '../hooks/useWebSocket';
 import { api } from '../lib/api';
 import EmailList from './EmailList';
 import EmailDetail from './EmailDetail';
@@ -25,6 +26,10 @@ export default function EmailListView({
   const [dateFrom, setDateFrom] = useState(null);
   const [dateTo, setDateTo] = useState(null);
 
+  // La página actual también en ref: el refresh silencioso por WebSocket no debe
+  // depender de la identidad de fetchEmails (si no, se re-suscribe en cada render).
+  const pageRef = useRef(0);
+
   // Keep filters in a ref so the fetch effect only re-runs on date changes.
   const filtersRef = useRef(filters);
   useEffect(() => {
@@ -38,10 +43,11 @@ export default function EmailListView({
     return { ...merged, ...overrides };
   }, [dateFrom, dateTo]);
 
-  const fetchEmails = useCallback(async (pageNum = 0) => {
-    setLoading(true);
+  const fetchEmails = useCallback(async (pageNum = 0, { silent = false } = {}) => {
+    if (!silent) setLoading(true);
     setError(null);
     setPage(pageNum);
+    pageRef.current = pageNum;
     try {
       const merged = buildFilters();
       const data = Object.keys(merged).length > 0
@@ -60,6 +66,17 @@ export default function EmailListView({
   useEffect(() => {
     fetchEmails(0);
   }, [fetchEmails]);
+
+  // Un sync de fondo (o una acción sobre un email) llega por WebSocket: refrescar
+  // sin pasar por el estado de loading, que si no la lista parpadea sola.
+  useWebSocket(localStorage.getItem('accessToken'), {
+    onNotifications: (data) => {
+      if (data?.type !== 'notification') return;
+      if (data.message === 'sync_complete' || data.message === 'emails_changed') {
+        fetchEmails(pageRef.current, { silent: true });
+      }
+    },
+  });
 
   const handleSelectEmail = useCallback((email) => {
     setSelectedEmail(email);
