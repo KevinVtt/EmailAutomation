@@ -3,14 +3,13 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import settings
 from app.routers import health, analyze, chat, rewrite
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
 app = FastAPI(
     title="Email Filter AI Service",
-    description="AI-powered email analysis and chat using Ollama",
+    description="AI-powered email analysis and chat (OpenAI-compatible provider, Groq)",
     version="0.1.0",
 )
 

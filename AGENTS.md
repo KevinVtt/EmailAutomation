@@ -83,8 +83,9 @@ Browser (React) ── REST /api/** + WebSocket /ws ──► Java Backend (8080
 - Changes to `email_messages` (especially `labels`, `bodyPreview`, `providerEmailId`) must account for the backend.
   `labels` is a comma-separated VARCHAR.
 - New env vars go in `.env.example` with a comment explaining their purpose.
-- `filter_criteria` and `chat_history` tables still exist in the init SQL but nothing uses them
-  (the "saved filters" feature and a `ChatMessage` entity were removed). Drop them with a migration if you ever want to.
+- `filter_criteria` and `chat_history` are unused (the "saved filters" feature and a `ChatMessage` entity
+  were removed); their DDL is gone from the init SQL. Databases created before that change may still have
+  them — drop them manually if you want.
 
 ## Contracts (do not break)
 ```

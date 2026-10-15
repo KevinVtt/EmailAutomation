@@ -45,22 +45,6 @@ CREATE TABLE IF NOT EXISTS email_messages (
     UNIQUE(user_id, provider_email_id)
 );
 
-CREATE TABLE IF NOT EXISTS filter_criteria (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name        VARCHAR(255),
-    criteria    JSONB NOT NULL,
-    created_at  TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS chat_history (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    role        VARCHAR(50) NOT NULL,
-    content     TEXT NOT NULL,
-    created_at  TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
 CREATE INDEX IF NOT EXISTS idx_oauth_tokens_user_id ON oauth_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_email_messages_user_id ON email_messages(user_id);
 CREATE INDEX IF NOT EXISTS idx_email_messages_received_at ON email_messages(received_at DESC);
@@ -70,7 +54,6 @@ CREATE INDEX IF NOT EXISTS idx_email_messages_user_is_starred ON email_messages(
 CREATE INDEX IF NOT EXISTS idx_email_messages_user_from_address ON email_messages(user_id, from_address);
 CREATE INDEX IF NOT EXISTS idx_email_messages_user_labels ON email_messages(user_id, labels);
 CREATE INDEX IF NOT EXISTS idx_email_messages_user_received_at ON email_messages(user_id, received_at);
-CREATE INDEX IF NOT EXISTS idx_chat_history_user_id ON chat_history(user_id);
 
 CREATE TABLE IF NOT EXISTS visto (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
