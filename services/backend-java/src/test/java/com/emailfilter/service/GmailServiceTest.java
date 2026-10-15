@@ -23,6 +23,7 @@ import org.springframework.retry.policy.SimpleRetryPolicy;
 import org.springframework.retry.support.RetryTemplate;
 
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
@@ -172,6 +173,58 @@ class GmailServiceTest {
                         ))
                         .setBody(new MessagePartBody()
                                 .setData(Base64.getUrlEncoder().encodeToString(("body-" + id).getBytes()))));
+    }
+
+    @Test
+    void fetchMessagesByIds_decodesQuotedPrintableBody() throws Exception {
+        var quotedPrintable = "Hola Caf=C3=A9 y m=C3=A1s=\r\ntexto sin cortar";
+        var part = new MessagePart()
+                .setMimeType("text/plain")
+                .setHeaders(List.of(new MessagePartHeader()
+                        .setName("Content-Transfer-Encoding").setValue("quoted-printable")))
+                .setBody(new MessagePartBody().setData(encode(quotedPrintable)));
+        stubSingleMessage("qp-1", baseMessage("qp-1").setPayload(part));
+
+        var result = gmailService.fetchMessagesByIds(gmail, List.of("qp-1"));
+
+        assertEquals("Hola Café y mástexto sin cortar", result.get(0).getBodyHtml());
+    }
+
+    @Test
+    void fetchMessagesByIds_prefersHtmlOverPlainText() throws Exception {
+        var payload = new MessagePart()
+                .setMimeType("multipart/alternative")
+                .setHeaders(List.of(new MessagePartHeader().setName("Subject").setValue("S")))
+                .setParts(List.of(
+                        new MessagePart().setMimeType("text/plain")
+                                .setBody(new MessagePartBody().setData(encode("texto plano"))),
+                        new MessagePart().setMimeType("text/html")
+                                .setBody(new MessagePartBody().setData(encode("<p>hola</p>")))));
+        stubSingleMessage("multi-1", baseMessage("multi-1").setPayload(payload));
+
+        var result = gmailService.fetchMessagesByIds(gmail, List.of("multi-1"));
+
+        assertEquals("<p>hola</p>", result.get(0).getBodyHtml());
+    }
+
+    private static String encode(String text) {
+        return Base64.getUrlEncoder().encodeToString(text.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private Message baseMessage(String id) {
+        return new Message()
+                .setId(id)
+                .setThreadId("thread-" + id)
+                .setInternalDate(1700000000000L)
+                .setSnippet("snippet-" + id)
+                .setLabelIds(List.of("INBOX"));
+    }
+
+    private void stubSingleMessage(String id, Message message) throws Exception {
+        var getRequest = mock(Gmail.Users.Messages.Get.class);
+        when(getRequest.setFormat("full")).thenReturn(getRequest);
+        when(getRequest.execute()).thenReturn(message);
+        when(gmail.users().messages().get(eq("me"), eq(id))).thenReturn(getRequest);
     }
 
     @Test

@@ -85,7 +85,8 @@ public class EmailController {
             default -> throw new IllegalArgumentException("Unknown action: " + actionType);
         }
 
-        webSocketService.sendNotification(userId.toString(), "Email " + actionType + " completed");
+        // Aviso para que el dashboard refresque contadores (no leídos, total).
+        webSocketService.sendNotification(userId.toString(), "emails_changed");
         return ResponseEntity.ok().build();
     }
 

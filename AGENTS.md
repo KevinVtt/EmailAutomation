@@ -62,6 +62,12 @@ Browser (React) ── REST /api/** + WebSocket /ws ──► Java Backend (8080
 - OAuth `state`: `Login.jsx` stores it in `sessionStorage['oauthState']`; `Callback.jsx` sends it to the backend. Keep both.
 - Dashboard auto-syncs once per session through a `sessionStorage` flag. Preserve it.
 - Dashboard stats come from the single `GET /api/emails/stats` call (`api.emails.stats()`); do not fan out per-filter/per-day requests again.
+- Read state lives in two places: `visto` (opened by the user, drives the list UI) and
+  `email_messages.is_read` (Gmail's UNREAD flag, drives the counters). Opening an email sets both;
+  after any `POST /api/emails/action` the backend sends the `emails_changed` notification and the
+  Dashboard refetches stats on it.
+- Email bodies are decoded from Gmail's raw MIME: base64 **and** quoted-printable (`util/QuotedPrintable`),
+  preferring the `text/html` part. Without the quoted-printable step the reader shows `=3D`, `=C3=A9`, etc.
 - `ChatPanel` dedups AI responses by `conversation_id`. Do not remove that logic.
 - Vite proxies `/api` and `/ws` in dev: check `vite.config.js` before touching proxy rules.
 - Use Tailwind utilities and existing classes (`btn-primary`, `card`, `input`) before adding CSS.
@@ -99,6 +105,8 @@ JWT:       Authorization: Bearer <token>; access + refresh, HMAC-SHA; principal 
 WebSocket: connect /ws (SockJS)
            subscribe /user/queue/emails | chat | notifications
            publish   /app/chat.send
+           notifications: sync_complete | sync_progress:<n>:<total> | sync_error | urgent_emails:<n>:<subjects>
+                          | emails_changed (email action done → Dashboard refreshes counters)
 ```
 
 ## Run locally

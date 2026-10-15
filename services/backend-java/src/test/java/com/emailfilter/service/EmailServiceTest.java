@@ -757,6 +757,36 @@ class EmailServiceTest {
         assertTrue(expired.getExpiresAt().isAfter(Instant.now().plusSeconds(3000)));
     }
 
+    // --- Abrir un email apaga is_read local, que es lo que cuentan los stats del dashboard ---
+
+    @Test
+    void markAsRead_setsLocalReadFlag_soDashboardUnreadDrops() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var stored = EmailMessage.builder().providerEmailId("msg-1").isRead(false).build();
+
+        when(emailRepository.findByProviderEmailIdAndUserId("msg-1", userId)).thenReturn(Optional.of(stored));
+
+        emailService.markAsRead(user, "google", "msg-1");
+
+        assertTrue(stored.isRead());
+        verify(emailRepository).save(stored);
+    }
+
+    @Test
+    void markAsUnread_clearsLocalReadFlag() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var stored = EmailMessage.builder().providerEmailId("msg-1").isRead(true).build();
+
+        when(emailRepository.findByProviderEmailIdAndUserId("msg-1", userId)).thenReturn(Optional.of(stored));
+
+        emailService.markAsUnread(user, "google", "msg-1");
+
+        assertFalse(stored.isRead());
+        verify(emailRepository).save(stored);
+    }
+
     // --- moveToTrash: el borrado debe reflejarse en la base local ---
 
     @Test

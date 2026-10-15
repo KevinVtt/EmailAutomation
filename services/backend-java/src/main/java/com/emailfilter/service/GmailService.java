@@ -12,6 +12,7 @@ import com.google.api.services.gmail.model.Message;
 import com.google.api.services.gmail.model.MessagePart;
 import com.google.api.services.gmail.model.MessagePartHeader;
 import com.google.api.services.gmail.model.ModifyMessageRequest;
+import com.emailfilter.util.QuotedPrintable;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -282,7 +283,7 @@ public class GmailService {
         if (payload.getParts() != null) {
             body = getBodyFromParts(payload.getParts());
         } else if (payload.getBody() != null && payload.getBody().getData() != null) {
-            body = new String(Base64.getUrlDecoder().decode(payload.getBody().getData()));
+            body = decodePart(payload);
         }
 
         var labelIds = full.getLabelIds() != null ? full.getLabelIds() : List.<String>of();
@@ -565,24 +566,33 @@ public class GmailService {
                 .orElse("");
     }
 
+    /** Preferimos el HTML (se sanitiza y se pinta en un iframe); si no hay, el texto plano. */
     private String getBodyFromParts(List<MessagePart> parts) {
         var plainText = new StringBuilder();
         var htmlText = new StringBuilder();
+        collectBodyParts(parts, plainText, htmlText);
+        return !htmlText.isEmpty() ? htmlText.toString() : plainText.toString();
+    }
+
+    private void collectBodyParts(List<MessagePart> parts, StringBuilder plainText, StringBuilder htmlText) {
         for (var part : parts) {
-            if (part.getMimeType().equals("text/plain") && part.getBody().getData() != null) {
-                plainText.append(new String(Base64.getUrlDecoder().decode(part.getBody().getData())));
+            if (part.getParts() != null && !part.getParts().isEmpty()) {
+                collectBodyParts(part.getParts(), plainText, htmlText);
+                continue;
             }
-            if (part.getMimeType().equals("text/html") && part.getBody().getData() != null) {
-                htmlText.append(new String(Base64.getUrlDecoder().decode(part.getBody().getData())));
-            }
-            if (part.getParts() != null) {
-                var nested = getBodyFromParts(part.getParts());
-                if (!nested.isEmpty()) {
-                    if (plainText.isEmpty()) plainText.append(nested);
-                    else htmlText.append(nested);
-                }
-            }
+            if (part.getBody() == null || part.getBody().getData() == null) continue;
+            if ("text/plain".equals(part.getMimeType())) plainText.append(decodePart(part));
+            else if ("text/html".equals(part.getMimeType())) htmlText.append(decodePart(part));
         }
-        return !plainText.isEmpty() ? plainText.toString() : htmlText.toString();
+    }
+
+    private String decodePart(MessagePart part) {
+        var bytes = Base64.getUrlDecoder().decode(part.getBody().getData());
+        var headers = part.getHeaders() != null ? part.getHeaders() : List.<MessagePartHeader>of();
+        var transferEncoding = getHeader(headers, "Content-Transfer-Encoding");
+        if ("quoted-printable".equalsIgnoreCase(transferEncoding.trim())) {
+            return QuotedPrintable.decode(bytes);
+        }
+        return new String(bytes, StandardCharsets.UTF_8);
     }
 }

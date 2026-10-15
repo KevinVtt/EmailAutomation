@@ -14,6 +14,7 @@ import com.emailfilter.repository.OAuthTokenRepository;
 import com.emailfilter.repository.UserRepository;
 import com.emailfilter.repository.VistoRepository;
 import com.emailfilter.security.TokenCryptoService;
+import com.emailfilter.util.QuotedPrintable;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
@@ -718,6 +719,13 @@ public class EmailService {
                     .build();
             vistoRepository.save(v);
         }
+        // is_read es lo que cuentan los contadores del dashboard: abrir un email
+        // tiene que apagarlo también en la fila local, no sólo en la tabla visto.
+        emailRepository.findByProviderEmailIdAndUserId(emailId, user.getId())
+                .ifPresent(email -> {
+                    email.setRead(true);
+                    emailRepository.save(email);
+                });
         log.info("Visto marked: email={} user={}", emailId, user.getId());
 
         // Sync with Gmail/Outlook — best effort
@@ -737,6 +745,11 @@ public class EmailService {
             existing.get().setVisto(false);
             vistoRepository.save(existing.get());
         }
+        emailRepository.findByProviderEmailIdAndUserId(emailId, user.getId())
+                .ifPresent(email -> {
+                    email.setRead(false);
+                    emailRepository.save(email);
+                });
         log.info("Visto unset: email={} user={}", emailId, user.getId());
 
         // Sync with provider — best effort
@@ -904,7 +917,7 @@ public class EmailService {
                 .toAddresses(email.getToAddresses())
                 .subject(email.getSubject())
                 .bodyPreview(email.getBodyPreview())
-                .bodyHtml(email.getBodyHtml())
+                .bodyHtml(QuotedPrintable.decodeIfEncoded(email.getBodyHtml()))
                 .isRead(email.isRead())
                 .isStarred(email.isStarred())
                 .visto(visto)

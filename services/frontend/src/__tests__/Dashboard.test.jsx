@@ -181,6 +181,23 @@ describe('Dashboard', () => {
     expect(await screen.findByText(/2 correo\(s\) urgente\(s\): Factura vencida \| Urgente/)).toBeTruthy();
   });
 
+  it('refreshes the counters when an emails_changed notification arrives', async () => {
+    api.emails.stats.mockResolvedValue(statsFixture({ unread: 30 }));
+    api.emails.summary.mockResolvedValue({ summary: 'Sin novedades.', emailCount: 0, date: '2026-09-09' });
+
+    renderDashboard();
+
+    expect(await screen.findByText('30')).toBeTruthy();
+
+    api.emails.stats.mockResolvedValue(statsFixture({ unread: 29 }));
+    const handlers = useWebSocket.mock.calls[0][1];
+    await act(async () => {
+      handlers.onNotifications({ type: 'notification', message: 'emails_changed' });
+    });
+
+    expect(await screen.findByText('29')).toBeTruthy();
+  });
+
   it('dismisses the urgent banner when the close button is clicked', async () => {
     api.emails.stats.mockResolvedValue(statsFixture());
     api.emails.summary.mockResolvedValue({ summary: 'Sin novedades.', emailCount: 0, date: '2026-09-09' });

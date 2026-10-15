@@ -228,6 +228,11 @@ export default function Dashboard() {
     } else if (typeof msg === 'string' && msg.startsWith('sync_error')) {
       console.error('Sync error:', msg);
       finishSync('error');
+    } else if (msg === 'emails_changed') {
+      // Acción sobre un email (leído, borrado, estrella...): refrescar contadores.
+      fetchStats();
+      fetchSummary();
+      fetchPrioritySummary();
     } else if (typeof msg === 'string' && msg.startsWith('urgent_emails:')) {
       const rest = msg.slice('urgent_emails:'.length);
       const sepIdx = rest.indexOf(':');
@@ -235,7 +240,7 @@ export default function Dashboard() {
       const subjects = sepIdx >= 0 ? rest.slice(sepIdx + 1) : '';
       setUrgentEmails({ count, subjects });
     }
-  }, [finishSync]);
+  }, [finishSync, fetchStats, fetchSummary, fetchPrioritySummary]);
 
   useWebSocket(localStorage.getItem('accessToken'), {
     onNotifications,
