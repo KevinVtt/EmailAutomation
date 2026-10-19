@@ -72,8 +72,18 @@ async function request(endpoint, options = {}) {
   }
 
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(error || `HTTP ${response.status}`);
+    const text = await response.text();
+    let message = text || `HTTP ${response.status}`;
+    // El backend responde {"error": "..."}: mostrar eso, no el JSON crudo.
+    try {
+      const payload = JSON.parse(text);
+      message = payload.error || payload.message || message;
+    } catch {
+      // Cuerpo de texto plano: se muestra tal cual.
+    }
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
   }
 
   const contentType = response.headers.get('content-type') || '';

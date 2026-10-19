@@ -41,6 +41,22 @@ describe('Login OAuth error handling', () => {
     expect(screen.getByText(/No se pudo iniciar sesión con Google/i)).toBeTruthy();
   });
 
+  it('muestra el motivo del backend cuando el proveedor no está configurado', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      text: () => Promise.resolve(JSON.stringify({
+        error: 'outlook no está configurado: falta un client id real en .env',
+      })),
+    });
+    renderLogin();
+
+    fireEvent.click(screen.getByText(/Continuar con Outlook/i).closest('button'));
+
+    expect(await screen.findByText(/outlook no está configurado/i)).toBeTruthy();
+  });
+
   it('clears the error and redirects when a retry succeeds', async () => {
     renderLogin();
 

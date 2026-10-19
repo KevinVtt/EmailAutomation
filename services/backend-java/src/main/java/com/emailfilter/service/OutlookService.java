@@ -31,15 +31,28 @@ public class OutlookService {
     private String tokenUri;
 
     public List<Map<String, Object>> fetchEmails(String accessToken, int maxResults) {
-        var allMessages = new ArrayList<Map<String, Object>>();
+        // Inbox + junk: lo que el usuario recibe. /me/messages también traía
+        // enviados, borradores y papelera, que no van en email_messages.
+        var allMessages = new ArrayList<>(fetchFolder(accessToken, "inbox", maxResults, false));
+        int remaining = maxResults - allMessages.size();
+        if (remaining > 0) {
+            allMessages.addAll(fetchFolder(accessToken, "junkemail", remaining, true));
+        }
+        return allMessages;
+    }
+
+    private List<Map<String, Object>> fetchFolder(String accessToken, String folderId,
+                                                  int maxResults, boolean junk) {
         var headers = new HttpHeaders();
         headers.setBearerAuth(accessToken);
         var entity = new HttpEntity<>(headers);
+        var messages = new ArrayList<Map<String, Object>>();
 
-        var url = "https://graph.microsoft.com/v1.0/me/messages?$top=" + maxResults +
-                "&$orderby=receivedDateTime DESC&$select=id,subject,from,toRecipients,bodyPreview,body,isRead,isDraft,receivedDateTime,categories";
+        var url = "https://graph.microsoft.com/v1.0/me/mailFolders/" + folderId + "/messages?$top=" + maxResults +
+                "&$orderby=receivedDateTime DESC" +
+                "&$select=id,conversationId,subject,from,toRecipients,bodyPreview,body,isRead,receivedDateTime,categories,flag";
 
-        while (url != null && allMessages.size() < maxResults) {
+        while (url != null && messages.size() < maxResults) {
             final String currentUrl = url;
             var response = retryTemplateExecute(() -> restTemplate.exchange(
                     currentUrl,
@@ -52,15 +65,19 @@ public class OutlookService {
             if (body == null || !body.containsKey("value")) break;
 
             @SuppressWarnings("unchecked")
-            var messages = (List<Map<String, Object>>) body.get("value");
-            allMessages.addAll(messages);
+            var page = (List<Map<String, Object>>) body.get("value");
+            messages.addAll(page);
 
             url = (String) body.get("@odata.nextLink");
         }
 
-        return allMessages.size() > maxResults
-                ? allMessages.subList(0, maxResults)
-                : allMessages;
+        if (messages.size() > maxResults) {
+            messages = new ArrayList<>(messages.subList(0, maxResults));
+        }
+        if (junk) {
+            messages.forEach(m -> m.put("isJunk", true));
+        }
+        return messages;
     }
 
     public void markAsRead(String accessToken, String messageId) {

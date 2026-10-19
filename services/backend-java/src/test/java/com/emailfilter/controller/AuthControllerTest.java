@@ -141,11 +141,27 @@ class AuthControllerTest {
         mockMvc.perform(get("/api/auth/oauth2/outlook"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.authUrl").isString())
+                // User.Read es lo que habilita Graph /me en el callback.
+                .andExpect(jsonPath("$.authUrl", containsString("scope=openid+email+profile+User.Read+Mail.Read+Mail.ReadWrite+offline_access")))
                 .andExpect(jsonPath("$.authUrl", containsString("state=")));
 
         var state = issueState("outlook");
         org.junit.jupiter.api.Assertions.assertNotNull(state);
         org.junit.jupiter.api.Assertions.assertFalse(state.isBlank());
+    }
+
+    @Test
+    void getOAuthUrl_placeholderClientId_returnsBadRequest() throws Exception {
+        // El .env de ejemplo trae your-outlook-client-id: no mandamos al usuario a Microsoft con eso.
+        var original = ReflectionTestUtils.getField(authController, "outlookClientId");
+        ReflectionTestUtils.setField(authController, "outlookClientId", "your-outlook-client-id");
+        try {
+            mockMvc.perform(get("/api/auth/oauth2/outlook"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error", containsString("no está configurado")));
+        } finally {
+            ReflectionTestUtils.setField(authController, "outlookClientId", original);
+        }
     }
 
     @Test

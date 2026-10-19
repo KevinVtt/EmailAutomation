@@ -47,8 +47,11 @@ export default function Login() {
       window.location.href = authUrl;
     } catch (err) {
       console.error('Failed to get auth URL', err);
+      const label = PROVIDER_LABELS[provider] || provider;
       setError(
-        `No se pudo iniciar sesión con ${PROVIDER_LABELS[provider] || provider}. Verifica tu conexión e inténtalo de nuevo.`
+        err.status
+          ? `No se pudo iniciar sesión con ${label}: ${err.message}`
+          : `No se pudo iniciar sesión con ${label}. Verifica tu conexión e inténtalo de nuevo.`
       );
       setAuthing(null);
     }

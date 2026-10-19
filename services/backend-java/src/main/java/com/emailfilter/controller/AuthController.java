@@ -62,6 +62,17 @@ public class AuthController {
 
     @GetMapping("/oauth2/{provider}")
     public ResponseEntity<Map<String, String>> initiateOAuth2(@PathVariable String provider) {
+        var clientId = switch (provider) {
+            case "google" -> googleClientId;
+            case "outlook" -> outlookClientId;
+            default -> throw new IllegalArgumentException("Unsupported provider: " + provider);
+        };
+        // Sin credenciales reales el proveedor muestra un error críptico; mejor decirlo acá.
+        if (clientId == null || clientId.isBlank() || clientId.startsWith("your-")) {
+            return ResponseEntity.badRequest().body(Map.of("error",
+                    provider + " no está configurado: falta un client id real en .env"));
+        }
+
         pendingStates.entrySet().removeIf(e -> e.getValue().isBefore(Instant.now()));
         var state = UUID.randomUUID().toString();
         pendingStates.put(state, Instant.now().plus(STATE_TTL));
@@ -74,12 +85,13 @@ public class AuthController {
                     "&access_type=offline" +
                     "&prompt=consent" +
                     "&state=" + state;
+            // User.Read es obligatorio para Graph /me: sin él el login moría en el callback.
             case "outlook" -> "https://login.microsoftonline.com/" + outlookTenant +
                     "/oauth2/v2.0/authorize?" +
                     "client_id=" + outlookClientId +
                     "&redirect_uri=" + outlookRedirectUri +
                     "&response_type=code" +
-                    "&scope=openid+email+profile+Mail.Read+Mail.ReadWrite+offline_access" +
+                    "&scope=openid+email+profile+User.Read+Mail.Read+Mail.ReadWrite+offline_access" +
                     "&state=" + state;
             default -> throw new IllegalArgumentException("Unsupported provider: " + provider);
         };

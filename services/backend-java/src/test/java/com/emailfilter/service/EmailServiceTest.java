@@ -34,6 +34,7 @@ import org.springframework.data.jpa.domain.Specification;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -917,6 +918,44 @@ class EmailServiceTest {
 
         verify(syncJobService).start(eq(userId), eq("outlook"), eq("incremental"));
         verify(outlookService).fetchEmails("test-access-token", 100);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void syncAllEmailsAsync_outlookProvider_mapsFlagJunkThreadAndRecipients() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var token = OAuthToken.builder()
+                .accessToken("test-access-token")
+                .expiresAt(Instant.now().plusSeconds(3600))
+                .build();
+
+        var raw = new HashMap<String, Object>();
+        raw.put("id", "graph-1");
+        raw.put("conversationId", "conv-1");
+        raw.put("subject", "Factura");
+        raw.put("isRead", true);
+        raw.put("isJunk", true);
+        raw.put("flag", Map.of("flagStatus", "flagged"));
+        raw.put("categories", List.of("Clientes"));
+        raw.put("receivedDateTime", "2026-10-19T10:00:00Z");
+        raw.put("from", Map.of("emailAddress", Map.of("address", "a@x.com", "name", "Ana")));
+        raw.put("toRecipients", List.of(Map.of("emailAddress", Map.of("address", "yo@x.com"))));
+
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "outlook"))
+                .thenReturn(Optional.of(token));
+        when(outlookService.fetchEmails("test-access-token", 100)).thenReturn(List.of(raw));
+
+        emailService.syncAllEmailsAsync(user, "outlook").join();
+
+        ArgumentCaptor<List<EmailMessage>> captor = ArgumentCaptor.forClass(List.class);
+        verify(emailRepository).saveAll(captor.capture());
+        var saved = captor.getValue().get(0);
+        assertTrue(saved.isStarred(), "flag=flagged debe llegar como destacado");
+        assertEquals("Clientes,SPAM", saved.getLabels());
+        assertEquals("conv-1", saved.getThreadId());
+        assertEquals("yo@x.com", saved.getToAddresses());
+        assertEquals("Ana", saved.getFromName());
     }
 
     // --- Finding 2: la zona de "hoy" es Buenos Aires, no la del servidor ---

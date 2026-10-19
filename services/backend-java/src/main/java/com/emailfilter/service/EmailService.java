@@ -45,6 +45,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -1041,11 +1042,34 @@ public class EmailService {
 
         email.setRead(Boolean.TRUE.equals(raw.get("isRead")));
 
+        Object flagObj = raw.get("flag");
+        if (flagObj instanceof Map<?, ?> flag) {
+            email.setStarred("flagged".equals(flag.get("flagStatus")));
+        }
+
         Object categoriesObj = raw.get("categories");
         if (categoriesObj instanceof List<?> categories) {
             email.setLabels(categories.stream()
                     .filter(String.class::isInstance)
                     .map(String.class::cast)
+                    .collect(Collectors.joining(",")));
+        }
+
+        // Graph no expone "spam" en las categorías: la carpeta sí lo dice.
+        if (Boolean.TRUE.equals(raw.get("isJunk"))) {
+            email.setLabels(email.getLabels() == null || email.getLabels().isBlank()
+                    ? "SPAM" : email.getLabels() + ",SPAM");
+        }
+
+        email.setThreadId((String) raw.get("conversationId"));
+
+        if (raw.get("toRecipients") instanceof List<?> recipients) {
+            email.setToAddresses(recipients.stream()
+                    .filter(Map.class::isInstance)
+                    .map(r -> ((Map<?, ?>) r).get("emailAddress"))
+                    .filter(Map.class::isInstance)
+                    .map(a -> (String) ((Map<?, ?>) a).get("address"))
+                    .filter(Objects::nonNull)
                     .collect(Collectors.joining(",")));
         }
 

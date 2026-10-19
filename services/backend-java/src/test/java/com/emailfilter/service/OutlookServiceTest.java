@@ -69,8 +69,7 @@ class OutlookServiceTest {
     }
 
     @Test
-    void refreshAccessToken_invalidToken_propagatesError() {
-        server.expect(once(), requestTo(TOKEN_URL))
+    void refreshAccessToken_invalidToken_propagatesError() {        server.expect(once(), requestTo(TOKEN_URL))
                 .andExpect(method(HttpMethod.POST))
                 .andRespond(withStatus(HttpStatus.BAD_REQUEST)
                         .body("""
@@ -82,6 +81,31 @@ class OutlookServiceTest {
                 outlookService.refreshAccessToken("bad-token", "client-123", "secret-456", "tenant-id"));
 
         assertTrue(exception.getMessage().contains("400"));
+        server.verify();
+    }
+
+    @Test
+    void fetchEmails_readsInboxAndJunkOnlyAndTagsJunk() {
+        server.expect(once(), requestTo(startsWith("https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages")))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer token-123"))
+                .andExpect(requestTo(containsString("$select=id,conversationId")))
+                .andExpect(requestTo(containsString("flag")))
+                .andRespond(withSuccess("""
+                        {"value": [{"id": "m1", "subject": "Uno"}]}
+                        """, MediaType.APPLICATION_JSON));
+        server.expect(once(), requestTo(startsWith("https://graph.microsoft.com/v1.0/me/mailFolders/junkemail/messages")))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("""
+                        {"value": [{"id": "m2", "subject": "Spam"}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        var messages = outlookService.fetchEmails("token-123", 100);
+
+        // Enviados y borradores ya no entran: solo inbox + junk.
+        assertEquals(2, messages.size());
+        assertEquals("m1", messages.get(0).get("id"));
+        assertEquals(true, messages.get(1).get("isJunk"));
         server.verify();
     }
 }
