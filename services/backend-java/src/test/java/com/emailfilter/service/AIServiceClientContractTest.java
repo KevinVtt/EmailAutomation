@@ -119,6 +119,46 @@ class AIServiceClientContractTest {
         assertEquals("ok", result.get("rewritten"));
     }
 
+    @Test
+    void composeEnviaElPedidoYElNombreDelUsuario() {
+        stubFor(post(urlEqualTo("/compose"))
+                .willReturn(okJson("""
+                        {"subject":"Factura","body":"Hola"}
+                        """)));
+
+        AIServiceClient client = newClient();
+
+        Map<String, Object> result = client.compose(
+                "mandale la factura", "Juan", "Acme", "facturas", "paga tarde",
+                List.of("Factura 1"), "", "formal", "auto", "Lucía Fernández");
+
+        verify(postRequestedFor(urlEqualTo("/compose"))
+                .withRequestBody(matchingJsonPath("$.instruction"))
+                .withRequestBody(matchingJsonPath("$.user_name"))
+                .withRequestBody(matchingJsonPath("$.contact_name"))
+                .withRequestBody(matchingJsonPath("$.recent_subjects")));
+
+        assertEquals("Factura", result.get("subject"));
+    }
+
+    @Test
+    void contactProfileEnviaLaDireccionYLosAsuntos() {
+        stubFor(post(urlEqualTo("/contact-profile"))
+                .willReturn(okJson("""
+                        {"company":"Acme","topic":"facturas"}
+                        """)));
+
+        AIServiceClient client = newClient();
+
+        Map<String, Object> result = client.contactProfile("juan@x.com", "Juan", List.of("Factura 1"));
+
+        verify(postRequestedFor(urlEqualTo("/contact-profile"))
+                .withRequestBody(matchingJsonPath("$.address"))
+                .withRequestBody(matchingJsonPath("$.subjects")));
+
+        assertEquals("Acme", result.get("company"));
+    }
+
     private AIServiceClient newClient() {
         AIServiceClient client = new AIServiceClient();
         ReflectionTestUtils.setField(client, "aiServiceUrl", "http://localhost:" + wireMockServer.port());

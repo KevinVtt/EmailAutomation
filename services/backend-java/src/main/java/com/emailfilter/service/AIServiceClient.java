@@ -124,4 +124,50 @@ public class AIServiceClient {
                 result != null && result.get("rewritten") != null ? ((String) result.get("rewritten")).length() : 0);
         return result;
     }
+
+    public Map<String, Object> compose(String instruction, String contactName, String contactCompany,
+                                       String contactTopic, String contactNotes, List<String> recentSubjects,
+                                       String subjectHint, String tone, String language, String userName) {
+        var headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        var body = new java.util.HashMap<String, Object>();
+        body.put("instruction", instruction);
+        body.put("contact_name", contactName != null ? contactName : "");
+        body.put("contact_company", contactCompany != null ? contactCompany : "");
+        body.put("contact_topic", contactTopic != null ? contactTopic : "");
+        body.put("contact_notes", contactNotes != null ? contactNotes : "");
+        body.put("recent_subjects", recentSubjects != null ? recentSubjects : List.of());
+        body.put("subject_hint", subjectHint != null ? subjectHint : "");
+        body.put("tone", tone != null ? tone : "formal");
+        body.put("language", language != null ? language : "auto");
+        body.put("user_name", userName != null ? userName : "");
+        var entity = new HttpEntity<>(body, headers);
+
+        log.info("AIServiceClient llamando a {}/compose con tone={}, instruction_len={}",
+                aiServiceUrl, tone, instruction != null ? instruction.length() : 0);
+        return restTemplate.exchange(
+                aiServiceUrl + "/compose",
+                HttpMethod.POST,
+                entity,
+                new ParameterizedTypeReference<Map<String, Object>>() {}
+        ).getBody();
+    }
+
+    public Map<String, Object> contactProfile(String address, String displayName, List<String> subjects) {
+        var headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        var body = new java.util.HashMap<String, Object>();
+        body.put("address", address);
+        body.put("display_name", displayName != null ? displayName : "");
+        body.put("subjects", subjects != null ? subjects : List.of());
+        var entity = new HttpEntity<>(body, headers);
+
+        log.info("AIServiceClient llamando a {}/contact-profile con address={}", aiServiceUrl, address);
+        return restTemplate.exchange(
+                aiServiceUrl + "/contact-profile",
+                HttpMethod.POST,
+                entity,
+                new ParameterizedTypeReference<Map<String, Object>>() {}
+        ).getBody();
+    }
 }

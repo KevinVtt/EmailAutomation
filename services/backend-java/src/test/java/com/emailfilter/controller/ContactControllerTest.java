@@ -6,7 +6,10 @@ import com.emailfilter.dto.ContactPatchDTO;
 import com.emailfilter.dto.EmailContactDTO;
 import com.emailfilter.security.JwtTokenProvider;
 import com.emailfilter.security.UserDetailsServiceImpl;
+import com.emailfilter.service.AIServiceClient;
 import com.emailfilter.service.ContactService;
+import com.emailfilter.model.EmailContact;
+import com.emailfilter.model.User;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -40,6 +43,8 @@ class ContactControllerTest {
 
     @MockBean
     private ContactService contactService;
+    @MockBean
+    private AIServiceClient aiServiceClient;
     @MockBean
     private UserDetailsServiceImpl userDetailsService;
     @MockBean
@@ -85,5 +90,35 @@ class ContactControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser(username = USER_ID)
+    void draft_usesTheContactDataAndTheAuthenticatedName() throws Exception {
+        var userId = UUID.fromString(USER_ID);
+        var id = UUID.randomUUID();
+        var contact = EmailContact.builder()
+                .id(id)
+                .address("juan@x.com")
+                .displayName("Juan")
+                .company("Acme")
+                .build();
+        when(contactService.findOwned(userId, id)).thenReturn(contact);
+        when(contactService.recentSubjects(userId, "juan@x.com")).thenReturn(List.of("Factura 1"));
+        when(userDetailsService.loadUserEntityById(userId))
+                .thenReturn(User.builder().id(userId).name("Lucía Fernández").build());
+        when(aiServiceClient.compose(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(java.util.Map.of("subject", "Factura", "body", "Hola"));
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/contacts/{id}/draft", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"instruction\":\"mandale la factura\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.subject").value("Factura"));
+
+        org.mockito.Mockito.verify(aiServiceClient).compose(
+                eq("mandale la factura"), eq("Juan"), eq("Acme"), any(), any(), any(),
+                any(), any(), any(), eq("Lucía Fernández"));
     }
 }

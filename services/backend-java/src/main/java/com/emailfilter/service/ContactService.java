@@ -36,15 +36,43 @@ public class ContactService {
 
     @Transactional
     public EmailContactDTO update(UUID userId, UUID contactId, ContactPatchDTO patch) {
-        var contact = contactRepository.findById(contactId)
-                .filter(c -> c.getUser().getId().equals(userId))
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Contact not found"));
+        var contact = findOwned(userId, contactId);
 
         // null means "not touched"; an empty string is the user clearing the field.
         if (patch.getCompany() != null) contact.setCompany(patch.getCompany());
         if (patch.getTopic() != null) contact.setTopic(patch.getTopic());
         if (patch.getNotes() != null) contact.setNotes(patch.getNotes());
         return toDTO(contactRepository.save(contact));
+    }
+
+    public EmailContact findOwned(UUID userId, UUID contactId) {
+        return contactRepository.findById(contactId)
+                .filter(c -> c.getUser().getId().equals(userId))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Contact not found"));
+    }
+
+    public List<String> recentSubjects(UUID userId, String address) {
+        return emailRepository.findRecentSubjects(userId, address, PageRequest.of(0, 5));
+    }
+
+    /** La IA sólo completa lo que está vacío: lo que escribió el usuario manda. */
+    @Transactional
+    public EmailContactDTO applyProfile(EmailContact contact, Map<String, Object> profile) {
+        var company = asText(profile.get("company"));
+        var topic = asText(profile.get("topic"));
+        if (company != null && (contact.getCompany() == null || contact.getCompany().isBlank())) {
+            contact.setCompany(company);
+        }
+        if (topic != null && (contact.getTopic() == null || contact.getTopic().isBlank())) {
+            contact.setTopic(topic);
+        }
+        return toDTO(contactRepository.save(contact));
+    }
+
+    private static String asText(Object value) {
+        if (!(value instanceof String text) || text.isBlank()) return null;
+        var trimmed = text.trim();
+        return trimmed.length() > 255 ? trimmed.substring(0, 255) : trimmed;
     }
 
     /** Recalcula los recibidos desde cero; no toca empresa, tema ni notas. */

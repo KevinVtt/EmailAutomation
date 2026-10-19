@@ -1,5 +1,6 @@
 package com.emailfilter.service;
 
+import com.emailfilter.dto.ComposeRequest;
 import com.emailfilter.dto.EmailDTO;
 import com.emailfilter.dto.GmailHistoryChanges;
 import com.emailfilter.dto.PrioritySummaryDTO;
@@ -531,6 +532,25 @@ public class EmailService {
             syncingTimestamps.remove(userId);
         }
         return CompletableFuture.completedFuture(null);
+    }
+
+    public Map<String, Object> composeAndSend(User user, ComposeRequest request) {
+        // El token y el envío están fuera de transacción: Gmail puede dormir en un retry
+        // y no debe sostener una conexión del pool.
+        var provider = user.getProvider();
+        var token = getToken(user, provider);
+        String messageId;
+        if ("google".equals(provider)) {
+            messageId = gmailService.sendEmail(token, request.getTo(), request.getSubject(), request.getBody());
+        } else if ("outlook".equals(provider)) {
+            messageId = outlookService.sendEmail(token, request.getTo(), request.getSubject(), request.getBody());
+        } else {
+            throw new IllegalArgumentException("Unsupported provider: " + provider);
+        }
+
+        contactService.upsertSent(user.getId(), request.getTo());
+        webSocketService.sendNotification(user.getId().toString(), "emails_changed");
+        return Map.of("status", "sent", "messageId", messageId != null ? messageId : "");
     }
 
     /** Un fallo acá no puede romper un sync ya terminado: se registra y sigue. */

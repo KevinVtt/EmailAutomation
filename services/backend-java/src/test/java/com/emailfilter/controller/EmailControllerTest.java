@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -224,5 +225,57 @@ class EmailControllerTest {
 
         verify(aiServiceClient).rewrite(anyString(), anyString(), anyString(), anyString(),
                 anyString(), anyString(), anyString(), eq("Juan Pérez"));
+    }
+
+    @Test
+    @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
+    void compose_rejectsAnAddressWithHeaderInjection() throws Exception {
+        mockMvc.perform(post("/api/emails/compose")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"to":"a@x.com\\r\\nBcc: evil@x.com","subject":"Hola","body":"Cuerpo"}"""))
+                .andExpect(status().isBadRequest());
+
+        verify(emailService, never()).composeAndSend(any(), any());
+    }
+
+    @Test
+    @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
+    void compose_rejectsSomethingThatIsNotAnAddress() throws Exception {
+        mockMvc.perform(post("/api/emails/compose")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"to":"no-es-un-mail","subject":"Hola","body":"Cuerpo"}"""))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
+    void compose_rejectsAnEmptySubjectOrBody() throws Exception {
+        mockMvc.perform(post("/api/emails/compose")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"to":"a@x.com","subject":"","body":"Cuerpo"}"""))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/api/emails/compose")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"to":"a@x.com","subject":"Hola","body":""}"""))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
+    void compose_sendsWhatTheUserApproved() throws Exception {
+        when(emailService.composeAndSend(any(), any()))
+                .thenReturn(Map.of("status", "sent", "messageId", "m1"));
+
+        mockMvc.perform(post("/api/emails/compose")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"to":"a@x.com","subject":"Asunto","body":"Cuerpo"}"""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("sent"));
     }
 }

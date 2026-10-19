@@ -1063,4 +1063,45 @@ class EmailServiceTest {
         verify(emailRepository, never()).save(any());
         assertFalse(email.isStarred(), "the local star must not change when Gmail rejects it");
     }
+
+    @Test
+    void composeAndSend_sendsThroughGmailAndCountsTheContact() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).provider("google").build();
+        var token = OAuthToken.builder()
+                .accessToken("test-access-token")
+                .expiresAt(Instant.now().plusSeconds(3600))
+                .build();
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
+                .thenReturn(Optional.of(token));
+        when(gmailService.sendEmail("test-access-token", "a@x.com", "Asunto", "Cuerpo")).thenReturn("m1");
+
+        var result = emailService.composeAndSend(user,
+                com.emailfilter.dto.ComposeRequest.builder()
+                        .to("a@x.com").subject("Asunto").body("Cuerpo").build());
+
+        assertEquals("sent", result.get("status"));
+        verify(contactService).upsertSent(userId, "a@x.com");
+        verify(webSocketService).sendNotification(userId.toString(), "emails_changed");
+    }
+
+    @Test
+    void composeAndSend_doesNotCountTheContactWhenGmailRejects() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).provider("google").build();
+        var token = OAuthToken.builder()
+                .accessToken("test-access-token")
+                .expiresAt(Instant.now().plusSeconds(3600))
+                .build();
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
+                .thenReturn(Optional.of(token));
+        doThrow(new RuntimeException("boom"))
+                .when(gmailService).sendEmail("test-access-token", "a@x.com", "Asunto", "Cuerpo");
+
+        assertThrows(RuntimeException.class, () -> emailService.composeAndSend(user,
+                com.emailfilter.dto.ComposeRequest.builder()
+                        .to("a@x.com").subject("Asunto").body("Cuerpo").build()));
+
+        verify(contactService, never()).upsertSent(any(), anyString());
+    }
 }

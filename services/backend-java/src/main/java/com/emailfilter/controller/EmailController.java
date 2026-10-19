@@ -1,5 +1,6 @@
 package com.emailfilter.controller;
 
+import com.emailfilter.dto.ComposeRequest;
 import com.emailfilter.dto.EmailDTO;
 import com.emailfilter.dto.PrioritySummaryDTO;
 import com.emailfilter.dto.RewriteRequest;
@@ -203,6 +204,17 @@ public class EmailController {
                 userId, provider, emailId, replyBody.length());
         var result = emailService.sendReply(user, provider, emailId, replyBody);
         return ResponseEntity.ok(result);
+    }
+
+    @PostMapping("/compose")
+    public ResponseEntity<Map<String, Object>> compose(
+            Authentication auth,
+            @jakarta.validation.Valid @RequestBody ComposeRequest request) {
+        var userId = getUserId(auth);
+        var user = userDetailsService.loadUserEntityById(userId);
+        log.info("Composing new mail: userId={}, to={}, subject_len={}",
+                userId, request.getTo(), request.getSubject().length());
+        return ResponseEntity.ok(emailService.composeAndSend(user, request));
     }
 
     private UUID getUserId(Authentication auth) {

@@ -39,6 +39,18 @@ public interface EmailRepository extends JpaRepository<EmailMessage, UUID>,
             """)
     List<Object[]> nameCandidates(@Param("userId") UUID userId);
 
+    /** Asuntos recientes de un remitente, para deducir empresa y tema. */
+    @Query("""
+            SELECT e.subject FROM EmailMessage e
+            WHERE e.user.id = :userId
+              AND lower(e.fromAddress) LIKE lower(concat('%', :address, '%'))
+              AND e.subject IS NOT NULL AND e.subject <> ''
+            ORDER BY e.receivedAt DESC
+            """)
+    List<String> findRecentSubjects(@Param("userId") UUID userId,
+                                    @Param("address") String address,
+                                    Pageable pageable);
+
     @Query("SELECT e.providerEmailId FROM EmailMessage e WHERE e.user.id = :userId")
     Page<String> findProviderEmailIdsByUserId(UUID userId, Pageable pageable);
 
