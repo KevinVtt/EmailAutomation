@@ -8,7 +8,7 @@ const GREETING = {
   content: '¡Hola! Puedes pedirme que filtre tus emails. Por ejemplo:\n\n• "Muéstrame los emails importantes de esta semana"\n• "Busca emails de facturación"\n• "¿Qué emails tengo sin leer de ayer?"',
 };
 
-export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsumed, scope, onResults, resetKey = 0 }) {
+export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsumed, scope, onResults, resetKey = 0, onExpand }) {
   const [messages, setMessages] = useState([GREETING]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -153,6 +153,7 @@ export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsum
           rows={2}
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          onFocus={onExpand}
           onKeyDown={(e) => {
             // Enter envía; Shift+Enter agrega una línea.
             if (e.key === 'Enter' && !e.shiftKey) {

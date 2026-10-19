@@ -146,6 +146,20 @@ describe('AssistantPanel', () => {
     await waitFor(() => expect(screen.getByText('Encontré 2 mails.')).toBeTruthy());
   });
 
+  it('expande el panel al hacer foco en el campo y lo contrae con el botón', () => {
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Asistente' }));
+
+    const panel = screen.getByTestId('assistant-panel');
+    expect(panel).toHaveAttribute('data-expanded', 'false');
+
+    fireEvent.focus(screen.getByPlaceholderText(/Escribe un filtro/i));
+    expect(panel).toHaveAttribute('data-expanded', 'true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Contraer asistente' }));
+    expect(panel).toHaveAttribute('data-expanded', 'false');
+  });
+
   it('limpia el filtro y la conversación para volver a empezar', async () => {
     renderPanel();
     fireEvent.click(screen.getByRole('button', { name: 'Asistente' }));

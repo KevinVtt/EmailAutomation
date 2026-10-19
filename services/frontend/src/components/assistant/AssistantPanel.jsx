@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Star, Trash2, X } from 'lucide-react';
+import { Maximize2, Minimize2, Star, Trash2, X } from 'lucide-react';
 import ChatPanel from '../ChatPanel';
 import AssistantButton from './AssistantButton';
 import ContactsTab from './ContactsTab';
@@ -17,6 +17,7 @@ export default function AssistantPanel() {
   // Solo tiene sentido cuando la lista actual restringe (Spam, Destacados).
   const restricted = Object.keys(scope.criteria || {}).length > 0;
   const [searchAll, setSearchAll] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [resetKey, setResetKey] = useState(0);
   // Se mostró al menos una búsqueda (aunque vuelva vacía): así el botón de
   // limpiar sigue disponible cuando el filtro no encontró nada.
@@ -64,7 +65,12 @@ export default function AssistantPanel() {
       <div
         data-testid="assistant-panel"
         data-open={open}
-        className={`${open ? 'flex' : 'hidden'} fixed bottom-24 right-6 z-40 w-[380px] max-w-[calc(100vw-2rem)] h-[560px] max-h-[calc(100vh-8rem)] flex-col card bg-white dark:bg-gray-800 dark:border-gray-700 shadow-2xl`}
+        data-expanded={expanded}
+        className={`${open ? 'flex' : 'hidden'} fixed bottom-24 right-6 z-40 card bg-white dark:bg-gray-800 dark:border-gray-700 shadow-2xl flex-col transition-[width,height] duration-200 ${
+          expanded
+            ? 'w-[min(1100px,calc(100vw-3rem))] h-[calc(100vh-9rem)]'
+            : 'w-[380px] h-[560px]'
+        } max-w-[calc(100vw-2rem)] max-h-[calc(100vh-8rem)]`}
       >
         <div className="flex items-center justify-between pb-2 border-b border-primary-200 dark:border-gray-700">
           <div className="flex gap-1" role="tablist">
@@ -97,6 +103,14 @@ export default function AssistantPanel() {
           </div>
           <button
             type="button"
+            aria-label={expanded ? 'Contraer asistente' : 'Expandir asistente'}
+            onClick={() => setExpanded((v) => !v)}
+            className="p-1 text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100"
+          >
+            {expanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          </button>
+          <button
+            type="button"
             aria-label="Cerrar asistente"
             onClick={() => setOpen(false)}
             className="p-1 text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100"
@@ -127,11 +141,16 @@ export default function AssistantPanel() {
         ) : (
           <div className="flex flex-col gap-2 pt-2 flex-1 min-h-0">
             <div className="flex-1 min-h-0">
-              <ChatPanel scope={searchAll ? null : scope} onResults={applyResults} resetKey={resetKey} />
+              <ChatPanel
+                scope={searchAll ? null : scope}
+                onResults={applyResults}
+                resetKey={resetKey}
+                onExpand={() => setExpanded(true)}
+              />
             </div>
 
             {searched && (
-              <div className="max-h-44 overflow-y-auto border-t border-primary-200 dark:border-gray-700 pt-2 space-y-1">
+              <div className={`${expanded ? 'max-h-[50vh]' : 'max-h-44'} overflow-y-auto border-t border-primary-200 dark:border-gray-700 pt-2 space-y-1`}>
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     {results.length === 0
@@ -163,6 +182,11 @@ export default function AssistantPanel() {
                       <p className="truncate text-xs text-gray-500 dark:text-gray-400">
                         {email.fromAddress}
                       </p>
+                      {expanded && email.bodyPreview && (
+                        <p className="truncate text-xs text-gray-400 dark:text-gray-500">
+                          {email.bodyPreview}
+                        </p>
+                      )}
                     </button>
                     <button
                       type="button"
