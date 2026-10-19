@@ -21,6 +21,15 @@ public interface EmailRepository extends JpaRepository<EmailMessage, UUID>,
     Page<EmailMessage> findByUserIdOrderByReceivedAtDesc(UUID userId, Pageable pageable);
     Optional<EmailMessage> findTopByUserIdOrderByReceivedAtDesc(UUID userId);
 
+    /** Recibidos agrupados por remitente, sin importar mayúsculas: [address, count, last]. */
+    @Query("""
+            SELECT lower(e.fromAddress), COUNT(e), MAX(e.receivedAt)
+            FROM EmailMessage e
+            WHERE e.user.id = :userId AND e.fromAddress IS NOT NULL AND e.receivedAt >= :since
+            GROUP BY lower(e.fromAddress)
+            """)
+    List<Object[]> countBySenderSince(@Param("userId") UUID userId, @Param("since") Instant since);
+
     @Query("SELECT e.providerEmailId FROM EmailMessage e WHERE e.user.id = :userId")
     Page<String> findProviderEmailIdsByUserId(UUID userId, Pageable pageable);
 
