@@ -161,6 +161,9 @@ _MONTH_ABBR = {
 _MONTH_LOOKUP = {**_MONTHS, **_MONTH_ABBR}
 # Longest first, so "septiembre" is not cut down to "sep".
 _MONTH_RE = "|".join(sorted(_MONTH_LOOKUP, key=len, reverse=True))
+# A month standing on its own (no "N de" in front) must be spelled out: "de Mar"
+# is a person and "del mar" is the sea, not March.
+_MONTH_FULL_RE = "|".join(sorted(_MONTHS, key=len, reverse=True))
 
 _WEEKDAYS = {
     "lunes": 0, "martes": 1, "miercoles": 2, "jueves": 3,
@@ -191,11 +194,25 @@ _PHRASE_TOKENS = [
 _PHRASE_RES = [(re.compile(r"\b" + re.escape(p) + r"\b"), t) for p, t in _PHRASE_TOKENS]
 
 _RE_ISO = re.compile(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b")
-_RE_DMY = re.compile(r"\b(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?\b")
-_RE_DAY_MONTH = re.compile(r"\b(\d{1,2}) de (" + _MONTH_RE + r")(?: de (\d{4}))?\b")
-_RE_MONTH = re.compile(r"\b(?:en |de |del )?(" + _MONTH_RE + r")(?: de (\d{4}))?\b")
-_RE_WEEKDAY = re.compile(r"\b(?:el |del |desde el )?(" + _WEEKDAY_RE + r")(?: (pasado|anterior))?\b")
+# A bare "n/m" is not a date ("24/7" support, "1/2" a half, "2-3" a version), so
+# the short form needs a 4-digit year or a cue word in front of it.
+_RE_DMY_FULL = re.compile(r"\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b")
+_RE_DMY_CUED = re.compile(r"\b(?:del|de|el|desde el|para el|hasta el)\s+(\d{1,2})[/-](\d{1,2})\b")
+_RE_DAY_MONTH = re.compile(r"\b(\d{1,2}) de (" + _MONTH_RE + r")\b")
+_RE_MONTH = re.compile(r"\b(?:en |de |del )(" + _MONTH_FULL_RE + r")\b")
+_RE_YEAR = re.compile(r"\b(?:de|del|en)\s+(\d{4})\b")
+# Weekdays need their article: "de Domingo" is a surname, "del domingo" is a day.
+_RE_WEEKDAY = re.compile(
+    r"\b(?:el |del |desde el )(" + _WEEKDAY_RE + r")\b"
+    r"(?: (pasado|anterior|que viene|proximo|proxima|entrante))?"
+)
 _RE_LAST_DAYS = re.compile(r"\bultimos (\d{1,2}) dias?\b")
+# Year written after the date instead of inside it: "12 de octubre del 2024".
+_RE_TAIL = re.compile(r"^\s*(?:de|del)\s+(?:(\d{4})\b|(ano\s+(?:pasado|anterior))\b)")
+
+_MIN_YEAR, _MAX_YEAR = 1900, 2100
+# shortcut: only a single day/period is parsed; "del 3/4 al 5/4" keeps the first
+# day only. Upgrade when a range query is reported.
 
 
 def _strip_accents(s: str) -> str:
@@ -212,12 +229,44 @@ def _month_range(year: int, month: int) -> dict:
     return {"dateFrom": _to_utc_z(_start_of_day(first)), "dateTo": _to_utc_z(_start_of_day(nxt))}
 
 
+def _year_range(year: int) -> dict:
+    return {
+        "dateFrom": _to_utc_z(_start_of_day(date(year, 1, 1))),
+        "dateTo": _to_utc_z(_start_of_day(date(year + 1, 1, 1))),
+    }
+
+
+def _valid_day(year: int, month: int, day: int) -> Optional[date]:
+    if not _MIN_YEAR <= year <= _MAX_YEAR:
+        return None
+    try:
+        return date(year, month, day)
+    except ValueError:
+        return None
+
+
+def _tail_year(text: str, end: int):
+    """Year written after the match: an int, "past" for "del año pasado", or None."""
+    m = _RE_TAIL.match(text[end:end + 24])
+    if not m:
+        return None
+    return int(m.group(1)) if m.group(1) else "past"
+
+
+def _year_of(raw_year: Optional[str], tail, month: int, today: date) -> int:
+    """Explicit year, then a trailing qualifier, then month-versus-today."""
+    if raw_year:
+        return 2000 + int(raw_year) if len(raw_year) == 2 else int(raw_year)
+    if isinstance(tail, int):
+        return tail
+    if tail == "past":
+        return today.year - 1
+    return today.year - 1 if month > today.month else today.year
+
+
 def _range_for_phrase(token: str, days_back: int, moment: datetime, today: date) -> dict:
     if token == "last_year":
-        return {
-            "dateFrom": _to_utc_z(_start_of_day(date(today.year - 1, 1, 1))),
-            "dateTo": _to_utc_z(_start_of_day(date(today.year, 1, 1))),
-        }
+        return _year_range(today.year - 1)
     return resolve_date_token(token, moment - timedelta(days=days_back))
 
 
@@ -236,41 +285,52 @@ def parse_date_from_text(message: str, now: Optional[datetime] = None) -> dict:
         moment = _ba_now(now)
         today = moment.date()
 
-        def year_for(month: int) -> int:
-            # A month later than the current one is read as the previous year:
-            # "en diciembre" said in October means last December.
-            return today.year - 1 if month > today.month else today.year
-
         m = _RE_ISO.search(text)
         if m:
-            return _day_range(date(int(m.group(1)), int(m.group(2)), int(m.group(3))))
+            d = _valid_day(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            if d:
+                return _day_range(d)
 
-        m = _RE_DMY.search(text)
+        m_full = _RE_DMY_FULL.search(text)
+        m = m_full or _RE_DMY_CUED.search(text)
         if m:
             day, month = int(m.group(1)), int(m.group(2))
-            raw_year = m.group(3)
-            if raw_year:
-                year = 2000 + int(raw_year) if len(raw_year) == 2 else int(raw_year)
-            else:
-                year = year_for(month)
-            return _day_range(date(year, month, day))
+            raw_year = m_full.group(3) if m_full else None
+            d = _valid_day(_year_of(raw_year, _tail_year(text, m.end()), month, today), month, day)
+            if d:
+                return _day_range(d)
 
         m = _RE_DAY_MONTH.search(text)
         if m:
             month = _MONTH_LOOKUP[m.group(2)]
-            year = int(m.group(3)) if m.group(3) else year_for(month)
-            return _day_range(date(year, month, int(m.group(1))))
+            d = _valid_day(
+                _year_of(None, _tail_year(text, m.end()), month, today), month, int(m.group(1))
+            )
+            if d:
+                return _day_range(d)
 
         m = _RE_MONTH.search(text)
         if m:
             month = _MONTH_LOOKUP[m.group(1)]
-            year = int(m.group(2)) if m.group(2) else year_for(month)
-            return _month_range(year, month)
+            year = _year_of(None, _tail_year(text, m.end()), month, today)
+            if _MIN_YEAR <= year <= _MAX_YEAR:
+                return _month_range(year, month)
+
+        m = _RE_YEAR.search(text)
+        if m:
+            year = int(m.group(1))
+            if _MIN_YEAR <= year <= _MAX_YEAR:
+                return _year_range(year)
 
         m = _RE_WEEKDAY.search(text)
         if m:
-            days_back = (today.weekday() - _WEEKDAYS[m.group(1)]) % 7
-            if m.group(2):
+            target = _WEEKDAYS[m.group(1)]
+            modifier = m.group(2)
+            if modifier in ("que viene", "proximo", "proxima", "entrante"):
+                forward = (target - today.weekday()) % 7 or 7
+                return _day_range(today + timedelta(days=forward))
+            days_back = (today.weekday() - target) % 7
+            if modifier:
                 days_back += 7
             return _day_range(today - timedelta(days=days_back))
 
@@ -483,11 +543,14 @@ async def process_chat_message(message: str, conversation_id: Optional[str] = No
     date_range = criteria.pop("dateRange", None)
     if text_dates:
         date_criteria = text_dates
+    elif date_range is None:
+        date_criteria = {}
     elif isinstance(date_range, str):
         date_criteria = resolve_date_token(date_range)
         if not date_criteria:
             logger.warning("Unknown dateRange token from AI, ignoring it: %r", date_range)
     else:
+        logger.warning("Non-string dateRange from AI, ignoring it: %r", date_range)
         date_criteria = {}
     criteria.update(date_criteria)
 

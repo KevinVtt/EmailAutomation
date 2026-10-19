@@ -75,6 +75,46 @@ def test_parse_rejects_absurd_last_days_count():
     assert parse_date_from_text("últimos 0 días", NOW) == {}
 
 
+@pytest.mark.parametrize("message", [
+    "mails de soporte 24/7",
+    "actualizacion de la version 2-3",
+    "pagina 3-4 del informe",
+    "revisar el archivo adjunto 1/2",
+    "los mails de Domingo",
+    "correos de Mar",
+    "mails del mar",
+    "emails de 1000",
+])
+def test_parse_does_not_invent_a_date(message):
+    assert parse_date_from_text(message, NOW) == {}
+
+
+@pytest.mark.parametrize("message,from_day,to_day", [
+    ("mails del 12 de octubre del 2024", "2024-10-12", "2024-10-13"),
+    ("mails de octubre del 2024", "2024-10-01", "2024-11-01"),
+    ("mails de marzo del año pasado", "2025-03-01", "2025-04-01"),
+    ("mails del 12/10 del 2024", "2024-10-12", "2024-10-13"),
+    ("mails 12/10/2026", "2026-10-12", "2026-10-13"),
+    ("mails de 2026", "2026-01-01", "2027-01-01"),
+    ("mails de 2024", "2024-01-01", "2025-01-01"),
+    ("el martes que viene", "2026-10-20", "2026-10-21"),
+    ("el jueves proximo", "2026-10-15", "2026-10-16"),
+])
+def test_parse_date_from_text_extended(message, from_day, to_day):
+    assert parse_date_from_text(message, NOW) == {"dateFrom": _d(from_day), "dateTo": _d(to_day)}
+
+
+def test_parse_invalid_day_falls_through_to_the_month():
+    # "45 de octubre" is not a day; the month the user named must survive.
+    assert parse_date_from_text("emails de 45 de octubre", NOW) == {
+        "dateFrom": _d("2026-10-01"), "dateTo": _d("2026-11-01")}
+
+
+def test_parse_invalid_numeric_date_falls_through_to_the_month():
+    assert parse_date_from_text("mails del 32/13 y de octubre", NOW) == {
+        "dateFrom": _d("2026-10-01"), "dateTo": _d("2026-11-01")}
+
+
 @pytest.mark.parametrize("token,days", [("last_7_days", 7), ("last_30_days", 30), ("last_90_days", 90)])
 def test_last_n_days_covers_exactly_n_days(token, days):
     from datetime import date, timedelta

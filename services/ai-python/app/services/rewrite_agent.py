@@ -52,10 +52,12 @@ def _strip_markdown_fences(s: str) -> str:
 # pattern when a new placeholder form shows up.
 _PLACEHOLDER = "__NOMBRE__"
 _SINGLE_NAME_RE = re.compile(
-    r"[\[{<]\s*(?:tu\s+)?(?:nombre(?:\s+(?:y\s+)?apellido)?|apellido|name)\s*[\]}>]",
+    r"[\[{<]{1,2}\s*(?:tu\s+)?(?:nombre(?:\s+(?:y\s+)?apellido)?|apellido|name)\s*[\]}>]{1,2}",
     re.IGNORECASE,
 )
-_MARKER_RUN_RE = re.compile(re.escape(_PLACEHOLDER) + r"(?:\s*[,;]?\s*" + re.escape(_PLACEHOLDER) + r")*")
+_MARKER_RUN_RE = re.compile(
+    re.escape(_PLACEHOLDER) + r"(?:\s*(?:[,;]|y)?\s*" + re.escape(_PLACEHOLDER) + r")*"
+)
 
 
 def _fill_name_placeholders(text: str, user_name: str) -> str:

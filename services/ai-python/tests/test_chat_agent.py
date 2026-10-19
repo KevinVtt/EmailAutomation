@@ -175,6 +175,22 @@ async def test_unknown_model_token_is_logged_and_adds_no_date(httpx_mock, caplog
 
 
 @pytest.mark.asyncio
+async def test_non_string_model_date_range_is_logged_and_adds_no_date(httpx_mock, caplog):
+    httpx_mock.add_response(
+        url="https://api.groq.com/openai/v1/chat/completions",
+        method="POST",
+        json={"choices": [{"message": {"content":
+            '{"response":"ok","criteria":{"dateRange":7}}'}}]},
+    )
+
+    with caplog.at_level("WARNING"):
+        result = await process_chat_message("mails de alguien")
+
+    assert "dateFrom" not in result["criteria"]
+    assert "dateRange" in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_known_model_token_still_works_without_text_date(httpx_mock):
     httpx_mock.add_response(
         url="https://api.groq.com/openai/v1/chat/completions",

@@ -40,6 +40,8 @@ async def test_leftover_placeholders_are_replaced_with_the_name(httpx_mock):
     "Saludos,\n[tu nombre]",
     "Saludos,\n{nombre}",
     "Saludos,\n[Nombre Apellido]",
+    "Saludos,\n{{nombre}}",
+    "Saludos,\n[Nombre] y [Apellido]",
 ])
 async def test_all_known_placeholder_forms_are_replaced(httpx_mock, content):
     _mock(httpx_mock, content)
