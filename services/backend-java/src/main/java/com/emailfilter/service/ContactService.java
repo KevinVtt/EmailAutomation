@@ -50,12 +50,52 @@ public class ContactService {
     /** Recalcula los recibidos desde cero; no toca empresa, tema ni notas. */
     @Transactional
     public void rebuildInbound(UUID userId) {
-        var names = latestNames(userId);
+        var counts = new HashMap<String, Long>();
+        var lastSeen = new HashMap<String, Instant>();
         for (var row : emailRepository.countBySenderSince(userId, Instant.EPOCH)) {
-            var address = (String) row[0];
-            upsertReceived(userId, address, names.get(address),
-                    (Instant) row[2], ((Number) row[1]).longValue());
+            var address = normalizeAddress((String) row[0]);
+            if (address == null) continue;
+            counts.merge(address, ((Number) row[1]).longValue(), Long::sum);
+            var at = (Instant) row[2];
+            if (at != null && (lastSeen.get(address) == null || at.isAfter(lastSeen.get(address)))) {
+                lastSeen.put(address, at);
+            }
         }
+
+        var names = latestNames(userId);
+        counts.forEach((address, count) ->
+                upsertReceived(userId, address, names.get(address), lastSeen.get(address), count));
+    }
+
+    /** La primera vez que se ve al usuario hay que leer sus enviados; después no. */
+    public boolean needsSentScan(UUID userId) {
+        // shortcut: tabla vacía = "nunca escaneado". Un usuario sin recibidos vuelve a
+        // escanear en cada sync; agregar una marca por usuario si eso aparece en los logs.
+        return contactRepository.countByUserId(userId) == 0;
+    }
+
+    /** Snapshot del barrido de enviados: pisa el conteo, no lo suma. */
+    @Transactional
+    public void applySentCounts(UUID userId, Map<String, Integer> counts) {
+        counts.forEach((rawAddress, count) -> {
+            var address = normalizeAddress(rawAddress);
+            if (address == null) return;
+            var contact = findOrCreate(userId, address);
+            contact.setSentCount(count);
+            touch(contact, Instant.now());
+            contactRepository.save(contact);
+        });
+    }
+
+    /** Un envío concreto: suma uno a los enviados de ese contacto. */
+    @Transactional
+    public void upsertSent(UUID userId, String address) {
+        var normalized = normalizeAddress(address);
+        if (normalized == null) return;
+        var contact = findOrCreate(userId, normalized);
+        contact.setSentCount(contact.getSentCount() + 1);
+        touch(contact, Instant.now());
+        contactRepository.save(contact);
     }
 
     /** Una fila por remitente con el último nombre que usó: una sola consulta, sin N+1. */
@@ -63,7 +103,8 @@ public class ContactService {
         var latest = new HashMap<String, String>();
         var latestSeen = new HashMap<String, Instant>();
         for (var row : emailRepository.nameCandidates(userId)) {
-            var address = (String) row[0];
+            var address = normalizeAddress((String) row[0]);
+            if (address == null) continue;
             var seen = (Instant) row[2];
             if (latestSeen.get(address) == null || seen.isAfter(latestSeen.get(address))) {
                 latestSeen.put(address, seen);
@@ -76,19 +117,39 @@ public class ContactService {
     @Transactional
     public void upsertReceived(UUID userId, String address, String displayName,
                                Instant lastActivityAt, long count) {
-        var contact = contactRepository.findByUserIdAndAddress(userId, address)
+        var normalized = normalizeAddress(address);
+        if (normalized == null) return;
+        var contact = findOrCreate(userId, normalized);
+
+        if (displayName != null && !displayName.isBlank()) contact.setDisplayName(displayName);
+        contact.setReceivedCount((int) count);
+        touch(contact, lastActivityAt);
+        contactRepository.save(contact);
+    }
+
+    private EmailContact findOrCreate(UUID userId, String address) {
+        return contactRepository.findByUserIdAndAddress(userId, address)
                 .orElseGet(() -> EmailContact.builder()
                         .user(userRepository.getReferenceById(userId))
                         .address(address)
                         .build());
+    }
 
-        if (displayName != null && !displayName.isBlank()) contact.setDisplayName(displayName);
-        contact.setReceivedCount((int) count);
-        if (lastActivityAt != null
-                && (contact.getLastActivityAt() == null || lastActivityAt.isAfter(contact.getLastActivityAt()))) {
-            contact.setLastActivityAt(lastActivityAt);
+    private static void touch(EmailContact contact, Instant at) {
+        if (at != null && (contact.getLastActivityAt() == null || at.isAfter(contact.getLastActivityAt()))) {
+            contact.setLastActivityAt(at);
         }
-        contactRepository.save(contact);
+    }
+
+    /** "Juan Pérez &lt;Juan@X.com&gt;" → "juan@x.com": el email manda, el nombre no. */
+    static String normalizeAddress(String raw) {
+        if (raw == null) return null;
+        var value = raw.trim();
+        int lt = value.lastIndexOf('<');
+        int gt = value.lastIndexOf('>');
+        if (lt >= 0 && gt > lt) value = value.substring(lt + 1, gt).trim();
+        value = value.replace("\"", "").trim().toLowerCase(java.util.Locale.ROOT);
+        return value.isEmpty() || !value.contains("@") ? null : value;
     }
 
     private EmailContactDTO toDTO(EmailContact c) {

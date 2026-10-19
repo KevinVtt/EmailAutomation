@@ -31,6 +31,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -306,6 +307,99 @@ public class GmailService {
         email.setStarred(isStarred);
         email.setReceivedAt(receivedAt);
         return email;
+    }
+
+    /**
+     * Direcciones que recibieron los envíos de la ventana, con cuántos mails les
+     * mandaste. Sólo lee metadatos: nada de esto entra en {@code email_messages}.
+     * Un fallo no se propaga, la lista de contactos simplemente queda sin enviados.
+     */
+    public Map<String, Integer> fetchSentRecipients(String accessToken, int windowDays, int maxTotal) {
+        var counts = new HashMap<String, Integer>();
+        try {
+            var gmail = buildGmailClient(accessToken);
+            var since = new java.text.SimpleDateFormat("yyyy/MM/dd")
+                    .format(java.util.Date.from(Instant.now().minus(windowDays, java.time.temporal.ChronoUnit.DAYS)));
+            var query = "in:sent after:" + since;
+            String pageToken = null;
+            int seen = 0;
+            do {
+                final String currentToken = pageToken;
+                var response = retryTemplateExecute(() -> {
+                    var request = gmail.users().messages().list("me")
+                            .setQ(query)
+                            .setMaxResults(100L);
+                    if (currentToken != null && !currentToken.isBlank()) {
+                        request.setPageToken(currentToken);
+                    }
+                    return request.execute();
+                });
+                var messages = response.getMessages();
+                if (messages == null || messages.isEmpty()) break;
+
+                for (var msg : messages) {
+                    if (seen >= maxTotal) break;
+                    seen++;
+                    for (var address : recipientsOf(gmail, msg.getId())) {
+                        counts.merge(address, 1, Integer::sum);
+                    }
+                }
+                pageToken = response.getNextPageToken();
+            } while (pageToken != null && !pageToken.isBlank() && seen < maxTotal);
+        } catch (Exception e) {
+            log.warn("Sent-recipient scan failed: {}", e.getMessage());
+            return Map.of();
+        }
+        return counts;
+    }
+
+    private Set<String> recipientsOf(Gmail gmail, String messageId) {
+        var full = retryTemplateExecute(() -> {
+            throttleRequests();
+            return gmail.users().messages().get("me", messageId)
+                    .setFormat("metadata")
+                    .setMetadataHeaders(List.of("To", "Cc"))
+                    .execute();
+        });
+        var headers = full.getPayload() != null ? full.getPayload().getHeaders() : null;
+        var recipients = new java.util.LinkedHashSet<String>();
+        if (headers == null) return recipients;
+        for (var header : headers) {
+            if (!"To".equalsIgnoreCase(header.getName()) && !"Cc".equalsIgnoreCase(header.getName())) continue;
+            recipients.addAll(splitAddresses(header.getValue()));
+        }
+        return recipients;
+    }
+
+    /** Separa por comas fuera de comillas y de {@code <...>}: "Doe, Juan" &lt;j@x.com&gt;. */
+    static Set<String> splitAddresses(String raw) {
+        var result = new java.util.LinkedHashSet<String>();
+        if (raw == null) return result;
+        var current = new StringBuilder();
+        boolean quoted = false;
+        boolean angled = false;
+        for (char c : raw.toCharArray()) {
+            if (c == '"') quoted = !quoted;
+            else if (c == '<') angled = true;
+            else if (c == '>') angled = false;
+            else if (c == ',' && !quoted && !angled) {
+                addAddress(result, current.toString());
+                current.setLength(0);
+                continue;
+            }
+            current.append(c);
+        }
+        addAddress(result, current.toString());
+        return result;
+    }
+
+    private static void addAddress(Set<String> target, String raw) {
+        var value = raw.trim();
+        int lt = value.lastIndexOf('<');
+        int gt = value.lastIndexOf('>');
+        if (lt >= 0 && gt > lt) value = value.substring(lt + 1, gt).trim();
+        value = value.replace("\"", "").trim().toLowerCase(java.util.Locale.ROOT);
+        if (value.contains("@")) target.add(value);
     }
 
     public void markAsRead(String accessToken, String messageId) {

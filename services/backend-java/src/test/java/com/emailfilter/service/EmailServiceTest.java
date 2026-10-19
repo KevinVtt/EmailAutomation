@@ -593,6 +593,7 @@ class EmailServiceTest {
         emailService.syncEmailsAsync(user, "google").join();
 
         verify(webSocketService).sendNotification(userId.toString(), "urgent_emails:1:URGENT: Server down");
+        verify(contactService).rebuildInbound(userId);
     }
 
     @Test

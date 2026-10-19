@@ -95,4 +95,63 @@ class ContactServiceTest {
         assertEquals("nuevo@x.com", saved.getValue().getAddress());
         assertEquals(1, saved.getValue().getReceivedCount());
     }
+
+    @Test
+    void rebuildInbound_normalizesTheRawFromHeaderAndSumsItsVariants() {
+        var userId = UUID.randomUUID();
+        when(emailRepository.countBySenderSince(eq(userId), any(Instant.class))).thenReturn(List.<Object[]>of(
+                new Object[]{"Juan Pérez <Juan@X.com>", 2L, Instant.parse("2026-10-01T10:00:00Z")},
+                new Object[]{"juan@x.com", 1L, Instant.parse("2026-10-02T10:00:00Z")}));
+        when(emailRepository.nameCandidates(userId)).thenReturn(List.<Object[]>of(
+                new Object[]{"juan pérez <juan@x.com>", "Juan Pérez", Instant.parse("2026-10-01T10:00:00Z")}));
+        when(contactRepository.findByUserIdAndAddress(userId, "juan@x.com")).thenReturn(Optional.empty());
+        when(contactRepository.save(any(EmailContact.class))).thenAnswer(i -> i.getArgument(0));
+
+        contactService.rebuildInbound(userId);
+
+        var saved = ArgumentCaptor.forClass(EmailContact.class);
+        verify(contactRepository).save(saved.capture());
+        assertEquals("juan@x.com", saved.getValue().getAddress());
+        assertEquals(3, saved.getValue().getReceivedCount());
+        assertEquals("Juan Pérez", saved.getValue().getDisplayName());
+    }
+
+    @Test
+    void applySentCounts_setsTheCountWithoutTouchingWhatIsReceived() {
+        var userId = UUID.randomUUID();
+        var existing = EmailContact.builder()
+                .id(UUID.randomUUID())
+                .user(User.builder().id(userId).build())
+                .address("a@x.com")
+                .receivedCount(7)
+                .company("Acme")
+                .build();
+        when(contactRepository.findByUserIdAndAddress(userId, "a@x.com")).thenReturn(Optional.of(existing));
+        when(contactRepository.save(any(EmailContact.class))).thenAnswer(i -> i.getArgument(0));
+
+        contactService.applySentCounts(userId, java.util.Map.of("a@x.com", 4));
+
+        assertEquals(4, existing.getSentCount());
+        assertEquals(7, existing.getReceivedCount());
+        assertEquals("Acme", existing.getCompany());
+    }
+
+    @Test
+    void upsertSent_incrementsTheSentCount() {
+        var userId = UUID.randomUUID();
+        var existing = EmailContact.builder()
+                .id(UUID.randomUUID())
+                .user(User.builder().id(userId).build())
+                .address("a@x.com")
+                .sentCount(2)
+                .receivedCount(7)
+                .build();
+        when(contactRepository.findByUserIdAndAddress(userId, "a@x.com")).thenReturn(Optional.of(existing));
+        when(contactRepository.save(any(EmailContact.class))).thenAnswer(i -> i.getArgument(0));
+
+        contactService.upsertSent(userId, "A@X.com");
+
+        assertEquals(3, existing.getSentCount());
+        assertEquals(7, existing.getReceivedCount());
+    }
 }

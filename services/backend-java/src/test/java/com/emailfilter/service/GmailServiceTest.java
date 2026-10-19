@@ -49,6 +49,7 @@ class GmailServiceTest {
 
     private Gmail gmail;
     private Gmail.Users.Messages.List listRequest;
+    private Gmail.Users.Messages messages;
     private TestableGmailService gmailService;
 
     private static class TestableGmailService extends GmailService {
@@ -71,7 +72,7 @@ class GmailServiceTest {
         gmailService = new TestableGmailService(gmail, fastRetryTemplate());
         listRequest = mock(Gmail.Users.Messages.List.class);
         var users = mock(Gmail.Users.class);
-        var messages = mock(Gmail.Users.Messages.class);
+        messages = mock(Gmail.Users.Messages.class);
         lenient().when(gmail.users()).thenReturn(users);
         lenient().when(users.messages()).thenReturn(messages);
         lenient().when(messages.list("me")).thenReturn(listRequest);
@@ -349,5 +350,36 @@ class GmailServiceTest {
         when(historyRequest.execute()).thenThrow(expired);
 
         assertNull(gmailService.listHistory("token", "1"));
+    }
+
+    @Test
+    void fetchSentRecipients_countsEachAddressOncePerMessage() throws Exception {
+        when(listRequest.execute()).thenReturn(new ListMessagesResponse()
+                .setMessages(List.of(new Message().setId("s1"), new Message().setId("s2")))
+                .setNextPageToken(null));
+        stubSentMessage("s1", "a@x.com, b@y.com", null);
+        stubSentMessage("s2", "A@X.com, \"Doe, Juan\" <d@x.com>", "c@z.com");
+
+        var counts = gmailService.fetchSentRecipients("token", 365, 100);
+
+        assertEquals(Map.of("a@x.com", 2, "b@y.com", 1, "c@z.com", 1, "d@x.com", 1), counts);
+    }
+
+    @Test
+    void fetchSentRecipients_returnsEmptyWhenGmailFails() throws Exception {
+        when(listRequest.execute()).thenThrow(new RuntimeException("boom"));
+
+        assertTrue(gmailService.fetchSentRecipients("token", 365, 100).isEmpty());
+    }
+
+    private void stubSentMessage(String id, String to, String cc) throws Exception {
+        var get = mock(Gmail.Users.Messages.Get.class);
+        when(messages.get("me", id)).thenReturn(get);
+        when(get.setFormat(anyString())).thenReturn(get);
+        when(get.setMetadataHeaders(any())).thenReturn(get);
+        var headers = new java.util.ArrayList<MessagePartHeader>();
+        headers.add(new MessagePartHeader().setName("To").setValue(to));
+        if (cc != null) headers.add(new MessagePartHeader().setName("Cc").setValue(cc));
+        when(get.execute()).thenReturn(new Message().setId(id).setPayload(new MessagePart().setHeaders(headers)));
     }
 }

@@ -71,6 +71,12 @@ public class EmailService {
     @Value("${email.sync.max-emails:1000}")
     int maxEmailsPerSync;
 
+    /** Ventana del primer barrido de enviados y tope de mails leídos (20 unidades cada uno). */
+    @Value("${email.contacts.sent-window-days:365}")
+    int contactsSentWindowDays;
+    @Value("${email.contacts.sent-max:2000}")
+    int contactsSentMax;
+
     private final ConcurrentHashMap<UUID, Boolean> syncingStatus = new ConcurrentHashMap<>();
     private static final long SYNC_STATUS_TTL_MS = 5 * 60 * 1000L; // 5 minutes
     private static final int EXISTING_IDS_PAGE_SIZE = 1000;
@@ -394,7 +400,7 @@ public class EmailService {
             notifyUrgentEmails(user, emails);
             syncJobService.complete(job.getId());
             log.info("Sync complete: {} new emails saved for user={}, provider={} ({} total fetched)", syncedCount, userId, provider, emails.size());
-            refreshContacts(userId);
+            refreshContacts(user);
             webSocketService.sendNotification(userId.toString(), "sync_complete");
         } catch (RuntimeException e) {
             if (job != null) {
@@ -466,7 +472,7 @@ public class EmailService {
                 // Still refresh starred/spam state for existing emails
                 refreshLabelsAndStars(user, accessToken);
                 syncJobService.complete(job.getId());
-                refreshContacts(userId);
+                refreshContacts(user);
             webSocketService.sendNotification(userId.toString(), "sync_complete");
                 return CompletableFuture.completedFuture(null);
             }
@@ -511,7 +517,7 @@ public class EmailService {
 
             log.info("Full sync complete: {} new emails saved for user={} ({} total in Gmail)",
                     fetched, userId, totalInGmail);
-            refreshContacts(userId);
+            refreshContacts(user);
             webSocketService.sendNotification(userId.toString(), "sync_complete");
 
         } catch (RuntimeException e) {
@@ -528,11 +534,18 @@ public class EmailService {
     }
 
     /** Un fallo acá no puede romper un sync ya terminado: se registra y sigue. */
-    private void refreshContacts(UUID userId) {
+    private void refreshContacts(User user) {
         try {
+            var userId = user.getId();
+            boolean firstScan = contactService.needsSentScan(userId);
             contactService.rebuildInbound(userId);
+            // El barrido de enviados cuesta ~20 unidades por mail: una vez por usuario.
+            if (firstScan && "google".equals(user.getProvider())) {
+                contactService.applySentCounts(userId, gmailService.fetchSentRecipients(
+                        getToken(user, "google"), contactsSentWindowDays, contactsSentMax));
+            }
         } catch (Exception e) {
-            log.warn("Failed to refresh contacts for user={}: {}", userId, e.getMessage());
+            log.warn("Failed to refresh contacts for user={}: {}", user.getId(), e.getMessage());
         }
     }
 
