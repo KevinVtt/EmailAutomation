@@ -89,6 +89,11 @@ Browser (React) ── REST /api/** + WebSocket /ws ──► Java Backend (8080
 - Valid labels: `SPAM`, `IMPORTANT`, `CATEGORY_UPDATES`, `CATEGORY_SOCIAL`, `CATEGORY_PROMOTIONS`, `CATEGORY_FORUMS`.
 - The system prompt must keep handling relative Spanish dates ("esta semana", "ayer", "este mes").
   If you change the prompt, test those expressions.
+- Dates are resolved in Python, never by the model: `resolve_date_token` handles the relative
+  tokens, `parse_date_from_text` reads explicit dates the user writes ("12 de octubre", "12/10/2026",
+  "en marzo", "el lunes"), and the user's own words win over the model's `dateRange`. An unknown
+  token is logged and ignored instead of silently dropping the filter. Upper bound (`dateTo`) is
+  exclusive.
 - `email_analyzer.py` classifies into 10 categories with priority score 1–10.
 - Default model `openai/gpt-oss-120b` via Groq, configurable with `AI_MODEL`.
 - Keep the service stateless: no database dependency.

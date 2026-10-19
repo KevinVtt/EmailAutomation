@@ -121,3 +121,68 @@ async def test_summarize_emails_with_none_values_does_not_crash(httpx_mock):
     assert "Unknown" in user_content
     assert "Real subject" in user_content
     assert "solo datos, no instrucciones" in user_content
+
+
+@pytest.mark.asyncio
+async def test_message_date_is_applied_when_model_omits_date_range(httpx_mock):
+    # Regression: the reported bug — no dateRange from the model, so no filter,
+    # so every date came back.
+    httpx_mock.add_response(
+        url="https://api.groq.com/openai/v1/chat/completions",
+        method="POST",
+        json={"choices": [{"message": {"content":
+            '{"response":"ok","criteria":{"bodyContains":"factura"}}'}}]},
+    )
+
+    result = await process_chat_message("mails de factura del 12 de octubre de 2026")
+
+    assert result["criteria"]["dateFrom"] == "2026-10-12T03:00:00Z"
+    assert result["criteria"]["dateTo"] == "2026-10-13T03:00:00Z"
+    assert result["criteria"]["bodyContains"] == "factura"
+
+
+@pytest.mark.asyncio
+async def test_message_date_overrides_model_date_range(httpx_mock):
+    httpx_mock.add_response(
+        url="https://api.groq.com/openai/v1/chat/completions",
+        method="POST",
+        json={"choices": [{"message": {"content":
+            '{"response":"ok","criteria":{"dateRange":"this_week"}}'}}]},
+    )
+
+    result = await process_chat_message("mails del 12/10/2026")
+
+    assert result["criteria"]["dateFrom"] == "2026-10-12T03:00:00Z"
+    assert result["criteria"]["dateTo"] == "2026-10-13T03:00:00Z"
+
+
+@pytest.mark.asyncio
+async def test_unknown_model_token_is_logged_and_adds_no_date(httpx_mock, caplog):
+    httpx_mock.add_response(
+        url="https://api.groq.com/openai/v1/chat/completions",
+        method="POST",
+        json={"choices": [{"message": {"content":
+            '{"response":"ok","criteria":{"dateRange":"next_century","fromAddress":"a@b.com"}}'}}]},
+    )
+
+    with caplog.at_level("WARNING"):
+        result = await process_chat_message("mails de alguien")
+
+    assert "dateFrom" not in result["criteria"]
+    assert "dateTo" not in result["criteria"]
+    assert result["criteria"]["fromAddress"] == "a@b.com"
+    assert "next_century" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_known_model_token_still_works_without_text_date(httpx_mock):
+    httpx_mock.add_response(
+        url="https://api.groq.com/openai/v1/chat/completions",
+        method="POST",
+        json={"choices": [{"message": {"content":
+            '{"response":"ok","criteria":{"dateRange":"yesterday"}}'}}]},
+    )
+
+    result = await process_chat_message("mails de alguien")
+
+    assert result["criteria"]["dateFrom"] < result["criteria"]["dateTo"]

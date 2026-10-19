@@ -310,6 +310,9 @@ NO calcules fechas ISO. En su lugar, usá el campo "dateRange" con uno de estos 
 
 Si el usuario NO menciona un período de tiempo, NO incluyas dateRange.
 
+Si el usuario menciona una fecha exacta o un mes por su nombre (ej: "12 de octubre",
+"12/10/2026", "los mails de marzo"), NO incluyas dateRange: el sistema la resuelve sola.
+
 ═══ CAMPOS DE CRITERIO ═══
 - fromAddress: remitente o dominio (string). Ej: "john@gmail.com", "colaborando.net"
 - subjectContains: palabra clave en el asunto (string). Podés poner múltiples palabras separadas por coma: "trabajo,empleo,job"
@@ -474,11 +477,19 @@ async def process_chat_message(message: str, conversation_id: Optional[str] = No
 
     criteria = result["criteria"]
 
-    # ── Resolve dateRange token into actual ISO dates via Python ──
+    # Dates the user names win over the model: the token table cannot express
+    # "12 de octubre", and an unknown token used to drop the filter silently.
+    text_dates = parse_date_from_text(message)
     date_range = criteria.pop("dateRange", None)
-    if isinstance(date_range, str):
+    if text_dates:
+        date_criteria = text_dates
+    elif isinstance(date_range, str):
         date_criteria = resolve_date_token(date_range)
-        criteria.update(date_criteria)
+        if not date_criteria:
+            logger.warning("Unknown dateRange token from AI, ignoring it: %r", date_range)
+    else:
+        date_criteria = {}
+    criteria.update(date_criteria)
 
     criteria = sanitize_criteria(criteria)
     result["criteria"] = criteria
