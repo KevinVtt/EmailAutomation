@@ -160,6 +160,22 @@ describe('AssistantPanel', () => {
     expect(panel).toHaveAttribute('data-expanded', 'false');
   });
 
+  it('vuelve a tamaño chico al cerrar y abrir', () => {
+    renderPanel();
+    const trigger = screen.getByRole('button', { name: 'Asistente' });
+    fireEvent.click(trigger);
+    fireEvent.focus(screen.getByPlaceholderText(/Escribe un filtro/i));
+
+    const panel = screen.getByTestId('assistant-panel');
+    expect(panel).toHaveAttribute('data-expanded', 'true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cerrar asistente' }));
+    fireEvent.click(trigger);
+
+    expect(panel).toHaveAttribute('data-open', 'true');
+    expect(panel).toHaveAttribute('data-expanded', 'false');
+  });
+
   it('limpia el filtro y la conversación para volver a empezar', async () => {
     renderPanel();
     fireEvent.click(screen.getByRole('button', { name: 'Asistente' }));

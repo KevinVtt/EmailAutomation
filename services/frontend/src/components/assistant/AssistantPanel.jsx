@@ -37,10 +37,16 @@ export default function AssistantPanel() {
     setResetKey((k) => k + 1);
   };
 
+  // Al cerrar vuelve al tamaño chico: la próxima apertura no tapa la pantalla.
+  const close = () => {
+    setOpen(false);
+    setExpanded(false);
+  };
+
   const openEmail = (email) => {
     if (!email.id) return;
     // El detalle ocupa la pantalla: el panel se aparta.
-    setOpen(false);
+    close();
     navigate(`/email/${email.id}`, { state: { email } });
   };
 
@@ -59,7 +65,7 @@ export default function AssistantPanel() {
 
   return (
     <>
-      <AssistantButton open={open} onToggle={() => setOpen((v) => !v)} />
+      <AssistantButton open={open} onToggle={() => (open ? close() : setOpen(true))} />
 
       {/* Queda montado al cerrarse: la conversación sobrevive a abrir y cerrar. */}
       <div
@@ -68,7 +74,7 @@ export default function AssistantPanel() {
         data-expanded={expanded}
         className={`${open ? 'flex' : 'hidden'} fixed bottom-24 right-6 z-40 card bg-white dark:bg-gray-800 dark:border-gray-700 shadow-2xl flex-col transition-[width,height] duration-200 ${
           expanded
-            ? 'w-[min(1100px,calc(100vw-3rem))] h-[calc(100vh-9rem)]'
+            ? 'w-[min(960px,calc(100vw-6rem))] h-[min(760px,calc(100vh-9rem))]'
             : 'w-[380px] h-[560px]'
         } max-w-[calc(100vw-2rem)] max-h-[calc(100vh-8rem)]`}
       >
@@ -112,7 +118,7 @@ export default function AssistantPanel() {
           <button
             type="button"
             aria-label="Cerrar asistente"
-            onClick={() => setOpen(false)}
+            onClick={close}
             className="p-1 text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100"
           >
             <X className="w-4 h-4" />
@@ -150,7 +156,7 @@ export default function AssistantPanel() {
             </div>
 
             {searched && (
-              <div className={`${expanded ? 'max-h-[50vh]' : 'max-h-44'} overflow-y-auto border-t border-primary-200 dark:border-gray-700 pt-2 space-y-1`}>
+              <div className={`${expanded ? 'max-h-[45%]' : 'max-h-44'} overflow-y-auto border-t border-primary-200 dark:border-gray-700 pt-2 space-y-1`}>
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     {results.length === 0
