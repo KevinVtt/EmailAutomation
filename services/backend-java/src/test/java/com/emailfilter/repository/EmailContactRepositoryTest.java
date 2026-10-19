@@ -78,4 +78,25 @@ class EmailContactRepositoryTest {
                 .receivedAt(Instant.now())
                 .build());
     }
+
+    @Test
+    void nameCandidates_groupsTheSameAddressUnderEachNameItUsed() {
+        var user = entityManager.persist(User.builder()
+                .email("names@example.com")
+                .provider("google")
+                .build());
+        entityManager.persist(com.emailfilter.model.EmailMessage.builder()
+                .user(user).provider("google").providerEmailId("n1")
+                .fromAddress("Juan@X.com").fromName("Juan").receivedAt(Instant.now()).build());
+        entityManager.persist(com.emailfilter.model.EmailMessage.builder()
+                .user(user).provider("google").providerEmailId("n2")
+                .fromAddress("juan@x.com").fromName("Juan Pérez").receivedAt(Instant.now()).build());
+        entityManager.flush();
+        entityManager.clear();
+
+        var rows = emailRepository.nameCandidates(user.getId());
+
+        assertEquals(2, rows.size());
+        assertEquals("juan@x.com", rows.get(0)[0]);
+    }
 }

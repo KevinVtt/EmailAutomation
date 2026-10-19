@@ -30,6 +30,15 @@ public interface EmailRepository extends JpaRepository<EmailMessage, UUID>,
             """)
     List<Object[]> countBySenderSince(@Param("userId") UUID userId, @Param("since") Instant since);
 
+    /** [address, fromName, lastSeen] por variante de nombre: el service se queda con la más reciente. */
+    @Query("""
+            SELECT lower(e.fromAddress), e.fromName, MAX(e.receivedAt)
+            FROM EmailMessage e
+            WHERE e.user.id = :userId AND e.fromAddress IS NOT NULL AND e.fromName IS NOT NULL
+            GROUP BY lower(e.fromAddress), e.fromName
+            """)
+    List<Object[]> nameCandidates(@Param("userId") UUID userId);
+
     @Query("SELECT e.providerEmailId FROM EmailMessage e WHERE e.user.id = :userId")
     Page<String> findProviderEmailIdsByUserId(UUID userId, Pageable pageable);
 

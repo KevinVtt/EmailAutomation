@@ -86,6 +86,8 @@ class EmailServiceTest {
     @Mock
     private TokenCryptoService tokenCryptoService;
     @Mock
+    private ContactService contactService;
+    @Mock
     private Gmail gmail;
 
     private EmailService emailService;
@@ -94,7 +96,7 @@ class EmailServiceTest {
     @BeforeEach
     void setUp() throws Exception {
         emailService = new TestableEmailService(emailRepository, oauthTokenRepository, vistoRepository,
-                gmailService, outlookService, webSocketService, aiServiceClient, htmlSanitizerService, syncJobService, userRepository, tokenCryptoService, gmail);
+                gmailService, outlookService, webSocketService, aiServiceClient, htmlSanitizerService, syncJobService, userRepository, tokenCryptoService, contactService, gmail);
         // El crypto real deja texto plano sin "enc:" tal cual; el mock debe imitarlo.
         lenient().when(tokenCryptoService.decrypt(any())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(tokenCryptoService.encrypt(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -120,10 +122,10 @@ class EmailServiceTest {
                              OutlookService outlookService, WebSocketService webSocketService,
                              AIServiceClient aiServiceClient, HtmlSanitizerService htmlSanitizerService,
                              SyncJobService syncJobService, UserRepository userRepository,
-                             TokenCryptoService tokenCryptoService, Gmail gmail) {
+                             TokenCryptoService tokenCryptoService, ContactService contactService, Gmail gmail) {
             super(emailRepository, oauthTokenRepository, vistoRepository, gmailService, outlookService,
                     webSocketService, aiServiceClient, htmlSanitizerService, syncJobService, userRepository,
-                    tokenCryptoService);
+                    tokenCryptoService, contactService);
             this.gmail = gmail;
         }
 

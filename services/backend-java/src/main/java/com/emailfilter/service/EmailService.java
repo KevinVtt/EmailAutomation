@@ -66,6 +66,7 @@ public class EmailService {
     private final SyncJobService syncJobService;
     private final UserRepository userRepository;
     private final TokenCryptoService tokenCryptoService;
+    private final ContactService contactService;
 
     @Value("${email.sync.max-emails:1000}")
     int maxEmailsPerSync;
@@ -393,6 +394,7 @@ public class EmailService {
             notifyUrgentEmails(user, emails);
             syncJobService.complete(job.getId());
             log.info("Sync complete: {} new emails saved for user={}, provider={} ({} total fetched)", syncedCount, userId, provider, emails.size());
+            refreshContacts(userId);
             webSocketService.sendNotification(userId.toString(), "sync_complete");
         } catch (RuntimeException e) {
             if (job != null) {
@@ -464,7 +466,8 @@ public class EmailService {
                 // Still refresh starred/spam state for existing emails
                 refreshLabelsAndStars(user, accessToken);
                 syncJobService.complete(job.getId());
-                webSocketService.sendNotification(userId.toString(), "sync_complete");
+                refreshContacts(userId);
+            webSocketService.sendNotification(userId.toString(), "sync_complete");
                 return CompletableFuture.completedFuture(null);
             }
 
@@ -508,6 +511,7 @@ public class EmailService {
 
             log.info("Full sync complete: {} new emails saved for user={} ({} total in Gmail)",
                     fetched, userId, totalInGmail);
+            refreshContacts(userId);
             webSocketService.sendNotification(userId.toString(), "sync_complete");
 
         } catch (RuntimeException e) {
@@ -521,6 +525,15 @@ public class EmailService {
             syncingTimestamps.remove(userId);
         }
         return CompletableFuture.completedFuture(null);
+    }
+
+    /** Un fallo acá no puede romper un sync ya terminado: se registra y sigue. */
+    private void refreshContacts(UUID userId) {
+        try {
+            contactService.rebuildInbound(userId);
+        } catch (Exception e) {
+            log.warn("Failed to refresh contacts for user={}: {}", userId, e.getMessage());
+        }
     }
 
     /**
