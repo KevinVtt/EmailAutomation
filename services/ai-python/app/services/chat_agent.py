@@ -193,11 +193,26 @@ _PHRASE_TOKENS = [
 ]
 _PHRASE_RES = [(re.compile(r"\b" + re.escape(p) + r"\b"), t) for p, t in _PHRASE_TOKENS]
 
+# Date shapes that can appear as either side of a range. Longest alternative
+# first: a full "d/m/y" must not be split into a bare "d/m" plus a stray year.
+_DATE_ALT = (
+    r"\d{4}-\d{1,2}-\d{1,2}"
+    r"|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}"
+    r"|\d{1,2}[/-]\d{1,2}"
+    r"|\d{1,2} de (?:" + _MONTH_RE + r")(?: de \d{4})?"
+    r"|(?:" + _MONTH_RE + r")(?: de \d{4})?"
+)
 _RE_ISO = re.compile(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b")
+# A range is checked before any single date, because it contains two of them.
+_RE_RANGE = re.compile(
+    r"\b(?:del|de|desde el|entre el)\s+(?:dia\s+)?(" + _DATE_ALT + r")"
+    r"\s+(?:al|a|hasta el|hasta|y)\s+(?:el\s+|dia\s+)?(" + _DATE_ALT + r")\b"
+)
+_RE_4DIGIT = re.compile(r"\b\d{4}\b")
+_RE_DMY_FULL = re.compile(r"\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b")
 # A bare "n/m" is not a date ("24/7" support, "1/2" a half, "2-3" a version), so
 # the short form needs a 4-digit year or a cue word in front of it.
-_RE_DMY_FULL = re.compile(r"\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b")
-_RE_DMY_CUED = re.compile(r"\b(?:del|de|el|desde el|para el|hasta el)\s+(\d{1,2})[/-](\d{1,2})\b")
+_RE_DMY_CUED = re.compile(r"\b(?:del|de|el|desde el|para el|hasta el)\s+(?:dia\s+)?(\d{1,2})[/-](\d{1,2})\b")
 _RE_DAY_MONTH = re.compile(r"\b(\d{1,2}) de (" + _MONTH_RE + r")\b")
 _RE_MONTH = re.compile(r"\b(?:en |de |del )(" + _MONTH_FULL_RE + r")\b")
 _RE_YEAR = re.compile(r"\b(?:de|del|en)\s+(\d{4})\b")
@@ -211,8 +226,10 @@ _RE_LAST_DAYS = re.compile(r"\bultimos (\d{1,2}) dias?\b")
 _RE_TAIL = re.compile(r"^\s*(?:de|del)\s+(?:(\d{4})\b|(ano\s+(?:pasado|anterior))\b)")
 
 _MIN_YEAR, _MAX_YEAR = 1900, 2100
-# shortcut: only a single day/period is parsed; "del 3/4 al 5/4" keeps the first
-# day only. Upgrade when a range query is reported.
+# shortcut: a range must be two numeric or month-name dates; a weekday inside one
+# ("del lunes al viernes") falls back to the range's first day. An end month with
+# no year is read in the start's year when it would otherwise run backwards.
+# Upgrade when a weekday range is reported.
 
 
 def _strip_accents(s: str) -> str:
@@ -270,6 +287,31 @@ def _range_for_phrase(token: str, days_back: int, moment: datetime, today: date)
     return resolve_date_token(token, moment - timedelta(days=days_back))
 
 
+def _plus_year(rng: dict) -> dict:
+    """Same day of the next year, for an end month written without one."""
+
+    def bump(iso: str) -> str:
+        return _to_utc_z(_start_of_day(date(int(iso[:4]) + 1, int(iso[5:7]), int(iso[8:10]))))
+
+    try:
+        return {"dateFrom": bump(rng["dateFrom"]), "dateTo": bump(rng["dateTo"])}
+    except ValueError:  # 29 February, which the next year may not have
+        return rng
+
+
+def _range_from_fragments(left_frag: str, right_frag: str, moment: datetime) -> dict:
+    """Two dates joined by "al"/"hasta"/"y": the left one's start and the right one's end."""
+    left = parse_date_from_text("del " + left_frag, moment)
+    right = parse_date_from_text("del " + right_frag, moment)
+    if not left or not right:
+        return {}
+    if not _RE_4DIGIT.search(right_frag) and right["dateFrom"] < left["dateFrom"]:
+        right = _plus_year(right)  # "de diciembre a enero" wraps into the next year
+    if left["dateFrom"] >= right["dateTo"]:
+        return {}  # backwards range, let the single-date rules have a go
+    return {"dateFrom": left["dateFrom"], "dateTo": right["dateTo"]}
+
+
 def parse_date_from_text(message: str, now: Optional[datetime] = None) -> dict:
     """Date named in the user's own words -> {'dateFrom','dateTo'} (UTC, Z, exclusive
     upper bound), or {} when the message names no date.
@@ -284,6 +326,12 @@ def parse_date_from_text(message: str, now: Optional[datetime] = None) -> dict:
         text = re.sub(r"\s+", " ", _strip_accents(message).lower())
         moment = _ba_now(now)
         today = moment.date()
+
+        m = _RE_RANGE.search(text)
+        if m:
+            rng = _range_from_fragments(m.group(1), m.group(2), moment)
+            if rng:
+                return rng
 
         m = _RE_ISO.search(text)
         if m:

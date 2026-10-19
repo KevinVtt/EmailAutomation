@@ -115,6 +115,31 @@ def test_parse_invalid_numeric_date_falls_through_to_the_month():
         "dateFrom": _d("2026-10-01"), "dateTo": _d("2026-11-01")}
 
 
+@pytest.mark.parametrize("message,from_day,to_day", [
+    ("Filtrame los mails de steam del dia 10/09/2026 al 19/10/2026", "2026-09-10", "2026-10-20"),
+    ("mails del 10/09/2026 al 19/10/2026", "2026-09-10", "2026-10-20"),
+    ("mails del 12/10 al 15/10", "2026-10-12", "2026-10-16"),
+    ("mails del 3/4 al 5/4", "2026-04-03", "2026-04-06"),
+    ("mails entre el 12/10 y el 15/10", "2026-10-12", "2026-10-16"),
+    ("mails del 12/10 hasta el 15/10", "2026-10-12", "2026-10-16"),
+    ("mails de octubre a diciembre", "2026-10-01", "2027-01-01"),
+    ("mails de diciembre a enero", "2025-12-01", "2026-02-01"),
+])
+def test_parse_date_range(message, from_day, to_day):
+    assert parse_date_from_text(message, NOW) == {"dateFrom": _d(from_day), "dateTo": _d(to_day)}
+
+
+def test_parse_inverted_range_with_years_keeps_the_first_date():
+    # 20 October to 10 October is a typo, not a range that wraps a year.
+    assert parse_date_from_text("mails del 20/10/2026 al 10/10/2026", NOW) == {
+        "dateFrom": _d("2026-10-20"), "dateTo": _d("2026-10-21")}
+
+
+def test_parse_single_date_prefixed_with_dia():
+    assert parse_date_from_text("mails del dia 12/10", NOW) == {
+        "dateFrom": _d("2026-10-12"), "dateTo": _d("2026-10-13")}
+
+
 @pytest.mark.parametrize("token,days", [("last_7_days", 7), ("last_30_days", 30), ("last_90_days", 90)])
 def test_last_n_days_covers_exactly_n_days(token, days):
     from datetime import date, timedelta

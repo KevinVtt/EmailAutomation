@@ -157,6 +157,25 @@ async def test_message_date_overrides_model_date_range(httpx_mock):
 
 
 @pytest.mark.asyncio
+async def test_message_date_range_is_applied_end_to_end(httpx_mock):
+    # The reported query: both ends of the range must survive all the way to criteria.
+    httpx_mock.add_response(
+        url="https://api.groq.com/openai/v1/chat/completions",
+        method="POST",
+        json={"choices": [{"message": {"content":
+            '{"response":"ok","criteria":{"fromAddress":"steam"}}'}}]},
+    )
+
+    result = await process_chat_message(
+        "Filtrame los mails de steam del dia 10/09/2026 al 19/10/2026"
+    )
+
+    assert result["criteria"]["dateFrom"] == "2026-09-10T03:00:00Z"
+    assert result["criteria"]["dateTo"] == "2026-10-20T03:00:00Z"
+    assert result["criteria"]["fromAddress"] == "steam"
+
+
+@pytest.mark.asyncio
 async def test_unknown_model_token_is_logged_and_adds_no_date(httpx_mock, caplog):
     httpx_mock.add_response(
         url="https://api.groq.com/openai/v1/chat/completions",
