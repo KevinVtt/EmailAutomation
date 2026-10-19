@@ -278,4 +278,42 @@ class EmailControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("sent"));
     }
+
+    @Test
+    @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
+    void bulkAction_reportsHowManyItApplied() throws Exception {
+        when(emailService.bulkAction(any(), any()))
+                .thenReturn(Map.of("applied", 3, "failed", List.of()));
+
+        mockMvc.perform(post("/api/emails/bulk-action")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"provider":"google","emailIds":["m1","m2","m3"],"action":"star"}"""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.applied").value(3));
+    }
+
+    @Test
+    @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
+    void bulkAction_rejectsMoreThan100Ids() throws Exception {
+        var ids = new StringBuilder();
+        for (int i = 0; i < 101; i++) {
+            ids.append(i == 0 ? "" : ",").append("\"m").append(i).append("\"");
+        }
+
+        mockMvc.perform(post("/api/emails/bulk-action")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"provider\":\"google\",\"emailIds\":[" + ids + "],\"action\":\"star\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
+    void bulkAction_rejectsAnUnknownAction() throws Exception {
+        mockMvc.perform(post("/api/emails/bulk-action")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"provider":"google","emailIds":["m1"],"action":"papelera"}"""))
+                .andExpect(status().isBadRequest());
+    }
 }

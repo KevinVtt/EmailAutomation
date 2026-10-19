@@ -1,5 +1,6 @@
 package com.emailfilter.service;
 
+import com.emailfilter.dto.BulkActionRequest;
 import com.emailfilter.dto.ComposeRequest;
 import com.emailfilter.dto.EmailDTO;
 import com.emailfilter.dto.GmailHistoryChanges;
@@ -551,6 +552,43 @@ public class EmailService {
         contactService.upsertSent(user.getId(), request.getTo());
         webSocketService.sendNotification(user.getId().toString(), "emails_changed");
         return Map.of("status", "sent", "messageId", messageId != null ? messageId : "");
+    }
+
+    public Map<String, Object> bulkAction(User user, BulkActionRequest request) {
+        var userId = user.getId();
+        var provider = request.getProvider();
+
+        // Sólo los ids del usuario, en una consulta: la acción no puede tocar mails ajenos.
+        var owned = emailRepository.findByUserIdAndProviderEmailIdIn(userId, request.getEmailIds()).stream()
+                .map(EmailMessage::getProviderEmailId)
+                .collect(Collectors.toSet());
+
+        int applied = 0;
+        var failed = new ArrayList<String>();
+        for (var emailId : request.getEmailIds()) {
+            if (!owned.contains(emailId)) {
+                failed.add(emailId);
+                continue;
+            }
+            try {
+                switch (request.getAction()) {
+                    case "star" -> toggleStar(user, provider, emailId, true);
+                    case "unstar" -> toggleStar(user, provider, emailId, false);
+                    case "read" -> markAsRead(user, provider, emailId);
+                    case "unread" -> markAsUnread(user, provider, emailId);
+                    case "trash" -> moveToTrash(user, provider, emailId);
+                    default -> throw new IllegalArgumentException("Unknown action: " + request.getAction());
+                }
+                applied++;
+            } catch (Exception e) {
+                log.warn("Bulk action {} failed for {}: {}", request.getAction(), emailId, e.getMessage());
+                failed.add(emailId);
+            }
+        }
+
+        // Un solo aviso para todo el lote: el dashboard refresca una vez, no 100.
+        webSocketService.sendNotification(userId.toString(), "emails_changed");
+        return Map.of("applied", applied, "failed", failed);
     }
 
     /** Un fallo acá no puede romper un sync ya terminado: se registra y sigue. */

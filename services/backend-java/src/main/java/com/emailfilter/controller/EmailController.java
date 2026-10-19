@@ -1,5 +1,6 @@
 package com.emailfilter.controller;
 
+import com.emailfilter.dto.BulkActionRequest;
 import com.emailfilter.dto.ComposeRequest;
 import com.emailfilter.dto.EmailDTO;
 import com.emailfilter.dto.PrioritySummaryDTO;
@@ -204,6 +205,17 @@ public class EmailController {
                 userId, provider, emailId, replyBody.length());
         var result = emailService.sendReply(user, provider, emailId, replyBody);
         return ResponseEntity.ok(result);
+    }
+
+    @PostMapping("/bulk-action")
+    public ResponseEntity<Map<String, Object>> bulkAction(
+            Authentication auth,
+            @jakarta.validation.Valid @RequestBody BulkActionRequest request) {
+        var userId = getUserId(auth);
+        var user = userDetailsService.loadUserEntityById(userId);
+        log.info("Bulk action: userId={}, action={}, ids={}",
+                userId, request.getAction(), request.getEmailIds().size());
+        return ResponseEntity.ok(emailService.bulkAction(user, request));
     }
 
     @PostMapping("/compose")

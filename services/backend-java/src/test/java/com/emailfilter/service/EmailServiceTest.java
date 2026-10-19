@@ -1104,4 +1104,61 @@ class EmailServiceTest {
 
         verify(contactService, never()).upsertSent(any(), anyString());
     }
+
+    @Test
+    void bulkAction_starsEachOwnedEmailAndNotifiesOnce() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).provider("google").build();
+        var token = OAuthToken.builder()
+                .accessToken("t")
+                .expiresAt(Instant.now().plusSeconds(3600))
+                .build();
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
+                .thenReturn(Optional.of(token));
+        when(emailRepository.findByUserIdAndProviderEmailIdIn(eq(userId), anyCollection()))
+                .thenReturn(List.of(owned(user, "m1"), owned(user, "m2"), owned(user, "m3")));
+
+        var result = emailService.bulkAction(user, bulk("google", List.of("m1", "m2", "m3"), "star"));
+
+        assertEquals(3, result.get("applied"));
+        verify(gmailService, times(3)).toggleStar(eq("t"), anyString(), eq(true));
+        verify(webSocketService, times(1)).sendNotification(userId.toString(), "emails_changed");
+    }
+
+    @Test
+    void bulkAction_doesNotTouchAnEmailThatIsNotTheUsers() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).provider("google").build();
+        var token = OAuthToken.builder()
+                .accessToken("t")
+                .expiresAt(Instant.now().plusSeconds(3600))
+                .build();
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
+                .thenReturn(Optional.of(token));
+        when(emailRepository.findByUserIdAndProviderEmailIdIn(eq(userId), anyCollection()))
+                .thenReturn(List.of(owned(user, "mine")));
+
+        var result = emailService.bulkAction(user, bulk("google", List.of("mine", "foreign"), "trash"));
+
+        assertEquals(1, result.get("applied"));
+        assertEquals(List.of("foreign"), result.get("failed"));
+        verify(gmailService, times(1)).moveToTrash("t", "mine");
+    }
+
+    private static EmailMessage owned(User user, String providerEmailId) {
+        return EmailMessage.builder()
+                .id(UUID.randomUUID())
+                .user(user)
+                .provider("google")
+                .providerEmailId(providerEmailId)
+                .build();
+    }
+
+    private static com.emailfilter.dto.BulkActionRequest bulk(String provider, List<String> ids, String action) {
+        return com.emailfilter.dto.BulkActionRequest.builder()
+                .provider(provider)
+                .emailIds(ids)
+                .action(action)
+                .build();
+    }
 }
