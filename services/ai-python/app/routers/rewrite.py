@@ -21,6 +21,7 @@ async def rewrite(request: RewriteRequest):
             tone=request.tone,
             language=request.language,
             custom_rules=request.custom_rules,
+            user_name=request.user_name,
         )
         logger.info("=== REWRITE FIN === rewritten_len=%d", len(result["rewritten"]))
         return RewriteResponse(

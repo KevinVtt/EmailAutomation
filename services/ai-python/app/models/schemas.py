@@ -63,6 +63,7 @@ class RewriteRequest(BaseModel):
     tone: str = "formal"
     language: str = "auto"
     custom_rules: str = ""
+    user_name: str = ""
 
 
 class RewriteResponse(BaseModel):

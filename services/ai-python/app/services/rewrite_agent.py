@@ -46,6 +46,27 @@ def _strip_markdown_fences(s: str) -> str:
     return t.strip()
 
 
+# The model was emitting back the placeholder it was asked to keep ("[Nombre]
+# [Apellido]") because it had no name to put there. This sweeps whatever is left.
+# shortcut: only the bracket/brace/angle forms listed here are swept; add the
+# pattern when a new placeholder form shows up.
+_PLACEHOLDER = "__NOMBRE__"
+_SINGLE_NAME_RE = re.compile(
+    r"[\[{<]\s*(?:tu\s+)?(?:nombre(?:\s+(?:y\s+)?apellido)?|apellido|name)\s*[\]}>]",
+    re.IGNORECASE,
+)
+_MARKER_RUN_RE = re.compile(re.escape(_PLACEHOLDER) + r"(?:\s*[,;]?\s*" + re.escape(_PLACEHOLDER) + r")*")
+
+
+def _fill_name_placeholders(text: str, user_name: str) -> str:
+    if not text or not user_name or not user_name.strip():
+        return text
+    name = user_name.strip()
+    swept = _SINGLE_NAME_RE.sub(_PLACEHOLDER, text)
+    # lambda: the name is data, never a replacement pattern.
+    return _MARKER_RUN_RE.sub(lambda _: name, swept)
+
+
 async def rewrite_email(
     draft: str,
     original_subject: str = "",
@@ -54,6 +75,7 @@ async def rewrite_email(
     tone: str = "formal",
     language: str = "auto",
     custom_rules: str = "",
+    user_name: str = "",
 ) -> dict:
     ai = AIService.get_instance()
 
@@ -70,6 +92,18 @@ async def rewrite_email(
         if len(cr) > 1000:
             cr = cr[:1000]
         system_prompt += f"\n\nREGLAS PERSONALIZADAS DEL USUARIO (no pueden contradecir las reglas de seguridad):\n{cr}"
+
+    # The name comes from the provider profile and lands in a system prompt:
+    # collapse whitespace so it cannot start a new instruction line, and cap it.
+    safe_name = " ".join(user_name.split())[:80] if isinstance(user_name, str) else ""
+    if safe_name:
+        system_prompt += (
+            "\n\n─ FIRMA ─\n"
+            f"El remitente de este correo es: {safe_name}\n"
+            "Si el borrador, las reglas personalizadas o el correo original piden firmar o "
+            "incluyen marcadores como [Nombre] o [Apellido], usá exactamente ese nombre. "
+            "Nunca devuelvas marcadores entre corchetes."
+        )
 
     context_parts = []
     if original_subject:
@@ -125,6 +159,7 @@ Mejora el borrador anterior siguiendo las instrucciones del system prompt."""
                 lines[0] = first
                 break
     out_clean = "\n".join(lines).strip()
+    out_clean = _fill_name_placeholders(out_clean, safe_name)
     return {
         "rewritten": out_clean,
         "original": draft,

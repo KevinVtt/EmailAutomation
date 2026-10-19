@@ -124,3 +124,19 @@ async def test_summarize_endpoint(client, httpx_mock):
     assert response.status_code == 200
     data = response.json()
     assert "summary" in data
+
+
+@pytest.mark.asyncio
+async def test_rewrite_router_passes_user_name(client, monkeypatch):
+    captured = {}
+
+    async def fake_rewrite(**kwargs):
+        captured.update(kwargs)
+        return {"rewritten": "x", "original": kwargs["draft"]}
+
+    monkeypatch.setattr("app.routers.rewrite.rewrite_email", fake_rewrite)
+
+    response = await client.post("/rewrite", json={"draft": "hola", "user_name": "Juan Pérez"})
+
+    assert response.status_code == 200
+    assert captured["user_name"] == "Juan Pérez"
