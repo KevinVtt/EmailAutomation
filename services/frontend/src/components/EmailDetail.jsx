@@ -59,10 +59,10 @@ export default function EmailDetail({ email, onClose, onAction, onRead }) {
     setActionLoading(actionType);
     try {
       await api.emails.action(email.provider, email.providerEmailId, actionType);
-      if (actionType === 'star') {
-        setDetail(prev => prev ? { ...prev, isStarred: true } : prev);
-      } else if (actionType === 'unstar') {
-        setDetail(prev => prev ? { ...prev, isStarred: false } : prev);
+      if (actionType === 'star' || actionType === 'unstar') {
+        // Lo que diga el servidor, no una suposición: si Gmail rechazó el cambio, acá se ve.
+        const fresh = await api.emails.get(email.id);
+        setDetail(fresh);
       } else if (actionType === 'read') {
         setDetail(prev => prev ? { ...prev, visto: true } : prev);
       } else if (actionType === 'unread') {

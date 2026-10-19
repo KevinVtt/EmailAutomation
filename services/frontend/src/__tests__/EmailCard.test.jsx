@@ -30,8 +30,14 @@ describe('EmailCard component', () => {
   });
 
   it('renders star icon for starred emails', () => {
-    render(<EmailCard email={mockEmail} onClick={() => {}} />);
-    const card = screen.getByText('Test Subject').closest('div');
-    expect(card).toBeTruthy();
+    const { container } = render(<EmailCard email={mockEmail} onClick={() => {}} />);
+    expect(container.querySelector('.fill-yellow-400')).toBeTruthy();
+  });
+
+  it('renders no star icon when the server says the email is not starred', () => {
+    const { container } = render(
+      <EmailCard email={{ ...mockEmail, isStarred: false }} onClick={() => {}} />
+    );
+    expect(container.querySelector('.fill-yellow-400')).toBeNull();
   });
 });

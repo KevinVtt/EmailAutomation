@@ -763,21 +763,16 @@ public class EmailService {
     }
 
     public void toggleStar(User user, String provider, String emailId, boolean starred) {
-        // Update local DB — stars stay on email_messages
+        // Gmail manda: si el proveedor rechaza, la base no cambia y el error sube.
+        var token = getToken(user, provider);
+        if ("google".equals(provider)) gmailService.toggleStar(token, emailId, starred);
+        else outlookService.toggleStar(token, emailId, starred);
+
         emailRepository.findByProviderEmailIdAndUserId(emailId, user.getId())
                 .ifPresent(email -> {
                     email.setStarred(starred);
                     emailRepository.save(email);
                 });
-
-        // Sync with provider — best effort
-        try {
-            var token = getToken(user, provider);
-            if ("google".equals(provider)) gmailService.toggleStar(token, emailId, starred);
-            else outlookService.toggleStar(token, emailId, starred);
-        } catch (Exception e) {
-            log.warn("Failed to toggle star on {}: {}", provider, e.getMessage());
-        }
     }
 
     public void moveToTrash(User user, String provider, String emailId) {

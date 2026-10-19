@@ -1032,4 +1032,32 @@ class EmailServiceTest {
         assertEquals(0L, perDay.get(0).get("count"));
         assertEquals(2L, perDay.get(6).get("count"));
     }
+
+    @Test
+    void toggleStar_doesNotTouchTheDatabaseWhenTheProviderFails() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var email = EmailMessage.builder()
+                .id(UUID.randomUUID())
+                .provider("google")
+                .providerEmailId("m1")
+                .isStarred(false)
+                .user(user)
+                .build();
+        var token = OAuthToken.builder()
+                .accessToken("test-access-token")
+                .expiresAt(Instant.now().plusSeconds(3600))
+                .build();
+
+        lenient().when(emailRepository.findByProviderEmailIdAndUserId("m1", userId))
+                .thenReturn(Optional.of(email));
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
+                .thenReturn(Optional.of(token));
+        doThrow(new RuntimeException("boom"))
+                .when(gmailService).toggleStar("test-access-token", "m1", true);
+
+        assertThrows(RuntimeException.class, () -> emailService.toggleStar(user, "google", "m1", true));
+        verify(emailRepository, never()).save(any());
+        assertFalse(email.isStarred(), "the local star must not change when Gmail rejects it");
+    }
 }

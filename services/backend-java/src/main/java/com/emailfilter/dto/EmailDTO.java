@@ -1,5 +1,6 @@
 package com.emailfilter.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -21,8 +22,12 @@ public class EmailDTO {
     private String subject;
     private String bodyPreview;
     private String bodyHtml;
-    private boolean isRead;
+    // Lombok generates isStarred(); without the annotation Jackson emits "starred".
+    @JsonProperty("isStarred")
     private boolean isStarred;
+    // Same trap: without this the client reads undefined and every mail looks unread.
+    @JsonProperty("isRead")
+    private boolean isRead;
     private boolean visto;
     private String labels;
     private Instant receivedAt;
