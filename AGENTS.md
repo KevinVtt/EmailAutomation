@@ -27,6 +27,10 @@ Browser (React) ── REST /api/** + WebSocket /ws ──► Java Backend (8080
 2. **Email sync**: `POST /api/emails/sync` → GmailService paginates inbox + spam → dedup by (userId, providerEmailId).
 3. **AI chat filter**: message → `/api/chat` → Python `/chat` → `{response, criteria}` → JPA Specifications → WebSocket push of filtered emails.
 4. **Stats**: `GET /api/emails/stats` returns the dashboard counters + 7-day activity in one call.
+5. **Assistant (global panel)**: `/api/contacts` lists the people you actually exchange mail with (`email_contact`
+   table: inbound rebuilt on each sync + a one-time Gmail `in:sent` sweep), `POST /api/emails/compose` sends a new
+   mail and `POST /api/emails/bulk-action` applies one action to up to 100 ids. `/api/chat` accepts an optional
+   `scope {folder, criteria, description}` and the backend ANDs `scope.criteria` into the AI criteria.
 
 ## Working rules
 - Work one service at a time. Do not modify files outside the service you were asked to change
@@ -57,6 +61,14 @@ Browser (React) ── REST /api/** + WebSocket /ws ──► Java Backend (8080
 - Provider HTTP calls (`markAsRead`, `toggleStar`, `moveToTrash`, `sendReply`, ...) must stay OUTSIDE a DB
   transaction: they can sleep on retry/backoff and would otherwise pin a pooled connection (pool size 10).
 - CORS is controlled by `FRONTEND_URL` (`CorsConfig`).
+- Contacts (`GET /api/contacts`, `PATCH /api/contacts/{id}`, `POST /api/contacts/{id}/draft|enrich`) read
+  `email_contact`; sent mail is counted there and never stored in `email_messages`. `ContactService.rebuildInbound`
+  runs after every sync and its failure is logged, not propagated. The sent sweep runs once per user, Gmail only.
+- `POST /api/emails/compose` takes ONE address and a subject without line breaks (header injection), sends
+  provider-first and only then calls `upsertSent`. `POST /api/emails/bulk-action` caps at 100 ids, resolves
+  ownership in one query before touching the provider, and emits a single `emails_changed` for the batch.
+- `/api/chat` `scope.criteria` is applied after the AI criteria (the current list wins) and its values are
+  normalized with `String.valueOf`, because the specification parses text and the UI sends JSON booleans.
 - There is no Redis in this project. Do not add Redis-dependent code unless it is enabled in Docker Compose.
 
 ## Frontend (`services/frontend/`)
@@ -79,6 +91,12 @@ Browser (React) ── REST /api/** + WebSocket /ws ──► Java Backend (8080
 - Email bodies are decoded from Gmail's raw MIME: base64 **and** quoted-printable (`util/QuotedPrintable`),
   preferring the `text/html` part. Without the quoted-printable step the reader shows `=3D`, `=C3=A9`, etc.
 - `ChatPanel` dedups AI responses by `conversation_id`. Do not remove that logic.
+- The assistant is global (`components/assistant/`): `ScreenScopeProvider` publishes `{folder, criteria, description}`
+  for Inbox/Starred/Spam (cleared on unmount); `AssistantPanel` stays mounted when closed so the conversation
+  survives, and it is an overlay — never a route. Chat results render in the panel with star/trash buttons
+  (trash asks first). The Contacts tab uses `api.contacts.*`; `ComposeForm` sends only after the confirmation.
+- `api.chat.send(message, conversationId, scope)` forwards the screen scope; keep the `scope` optional so the
+  Dashboard chat keeps working unscoped.
 - Vite proxies `/api` and `/ws` in dev: check `vite.config.js` before touching proxy rules.
 - Use Tailwind utilities and existing classes (`btn-primary`, `card`, `input`) before adding CSS.
 
@@ -95,6 +113,9 @@ Browser (React) ── REST /api/** + WebSocket /ws ──► Java Backend (8080
   token is logged and ignored instead of silently dropping the filter. Upper bound (`dateTo`) is
   exclusive.
 - `email_analyzer.py` classifies into 10 categories with priority score 1–10.
+- `/compose` returns `{subject, body}` signed with the authenticated `user_name` (sent by the backend) and
+  `/contact-profile` returns `{company, topic}` capped at 200 chars each, empty when there is no evidence.
+  The user request and the contact ficha travel as data inside markers, never as system instructions.
 - Default model `openai/gpt-oss-120b` via Groq, configurable with `AI_MODEL`.
 - Keep the service stateless: no database dependency.
 - In Docker its port 8000 is NOT published (only the backend reaches it internally); local dev runs it on 8000.
@@ -103,6 +124,9 @@ Browser (React) ── REST /api/** + WebSocket /ws ──► Java Backend (8080
 - Never drop or rename columns without a migration script.
 - Changes to `email_messages` (especially `labels`, `bodyPreview`, `providerEmailId`) must account for the backend.
   `labels` is a comma-separated VARCHAR.
+- `email_contact` lives in `02-email-contacts.sql` (unique `(userId, address)`, addresses normalized from the raw
+  `From` header). Sent mail is counted there and is NOT in `email_messages`, so don't put sent-folder filters in
+  the email queries. `CONTACTS_SENT_WINDOW_DAYS` and `CONTACTS_SENT_MAX` bound the one-time sent sweep.
 - New env vars go in `.env.example` with a comment explaining their purpose.
 - `filter_criteria` and `chat_history` are unused (the "saved filters" feature and a `ChatMessage` entity
   were removed); their DDL is gone from the init SQL. Databases created before that change may still have
@@ -110,7 +134,8 @@ Browser (React) ── REST /api/** + WebSocket /ws ──► Java Backend (8080
 
 ## Contracts (do not break)
 ```
-Chat:      Backend → AI   POST /chat  { message, conversation_id, context: [...] }
+Chat:      Backend → AI   POST /chat  { message, conversation_id, context: [...],
+                                        scope?: {folder, criteria, description} }
            AI → Backend   { response, criteria: {...}, conversation_id }
            Backend → UI   { response, criteria, conversation_id, emails: [...] }  (emails = list, not a Page)
 Rewrite:   Backend → AI   POST /rewrite { draft, original_subject, original_from, original_body,
@@ -127,6 +152,17 @@ WebSocket: connect /ws (SockJS)
            publish   /app/chat.send
            notifications: sync_complete | sync_progress:<n>:<total> | sync_error | urgent_emails:<n>:<subjects>
                           | emails_changed (email action done → Dashboard refreshes counters)
+Contacts:  Backend → UI   GET /api/contacts?limit=20 →
+                          [{id, address, displayName, company, topic, notes, sentCount, receivedCount, lastActivityAt}]
+                          PATCH /api/contacts/{id} {company, topic, notes}
+                          POST  /api/contacts/{id}/draft {instruction} → {subject, body}
+                          POST  /api/contacts/{id}/enrich → {company, topic}
+Compose:   Backend → UI   POST /api/emails/compose {to, subject, body} → {status, messageId}
+Bulk:      Backend → UI   POST /api/emails/bulk-action {provider, emailIds[], action} → {applied, failed: [ids]}
+           action ∈ star|unstar|read|unread|trash   (max 100 ids)
+AI drafts: Backend → AI   POST /compose {instruction, contact_*, recent_subjects, tone, language, user_name}
+                          → {subject, body}
+                          POST /contact-profile {address, display_name, subjects} → {company, topic}
 ```
 
 ## Run locally
