@@ -47,14 +47,14 @@ describe('Login OAuth error handling', () => {
       status: 400,
       headers: new Headers({ 'content-type': 'application/json' }),
       text: () => Promise.resolve(JSON.stringify({
-        error: 'outlook no está configurado: falta un client id real en .env',
+        error: 'google no está configurado: falta un client id real en .env',
       })),
     });
     renderLogin();
 
-    fireEvent.click(screen.getByText(/Continuar con Outlook/i).closest('button'));
+    fireEvent.click(screen.getByText(/Continuar con Google/i).closest('button'));
 
-    expect(await screen.findByText(/outlook no está configurado/i)).toBeTruthy();
+    expect(await screen.findByText(/google no está configurado/i)).toBeTruthy();
   });
 
   it('clears the error and redirects when a retry succeeds', async () => {

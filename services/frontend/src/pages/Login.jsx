@@ -13,14 +13,6 @@ const PROVIDERS = [
     iconBg: 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400',
     hoverBorder: 'hover:border-red-300 dark:hover:border-red-700',
   },
-  {
-    id: 'outlook',
-    name: 'Outlook',
-    description: 'Conecta tu cuenta de Microsoft 365',
-    icon: Mail,
-    iconBg: 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
-    hoverBorder: 'hover:border-blue-300 dark:hover:border-blue-700',
-  },
 ];
 
 const PROVIDER_LABELS = { google: 'Google', outlook: 'Outlook' };

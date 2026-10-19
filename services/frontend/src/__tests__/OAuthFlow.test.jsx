@@ -52,17 +52,10 @@ describe('OAuth flow provider persistence', () => {
   });
 
   describe('Login', () => {
-    it('saves outlook and the OAuth state to sessionStorage before redirecting', async () => {
+    it('does not offer Outlook while it is parked', () => {
       renderLogin();
 
-      const outlookBtn = screen.getByText(/Continuar con Outlook/i).closest('button');
-      fireEvent.click(outlookBtn);
-
-      await waitFor(() => {
-        expect(window.location.href).toBe(AUTH_URL);
-      });
-      expect(sessionStorage.getItem('oauthProvider')).toBe('outlook');
-      expect(sessionStorage.getItem('oauthState')).toBe('csrf-state-123');
+      expect(screen.queryByText(/Continuar con Outlook/i)).toBeNull();
     });
 
     it('saves google and the OAuth state to sessionStorage before redirecting', async () => {

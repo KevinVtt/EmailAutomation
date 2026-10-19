@@ -36,10 +36,10 @@ describe('Login page', () => {
     });
   });
 
-  it('renders login buttons', () => {
+  it('offers Google only while Outlook is parked', () => {
     renderWithProviders(<Login />);
     expect(screen.getByText(/Continuar con Google/i)).toBeTruthy();
-    expect(screen.getByText(/Continuar con Outlook/i)).toBeTruthy();
+    expect(screen.queryByText(/Continuar con Outlook/i)).toBeNull();
   });
 
   it('redirects to Google OAuth URL on click and stores the CSRF state', async () => {
