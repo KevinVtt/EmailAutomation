@@ -127,15 +127,15 @@ def resolve_date_token(token: str, now: Optional[datetime] = None) -> dict:
             _to_utc_z(_start_next_day(today)),
         ),
         "last_7_days": (
-            _to_utc_z(_start_of_day(today - timedelta(days=7))),
+            _to_utc_z(_start_of_day(today - timedelta(days=6))),
             _to_utc_z(_start_next_day(today)),
         ),
         "last_30_days": (
-            _to_utc_z(_start_of_day(today - timedelta(days=30))),
+            _to_utc_z(_start_of_day(today - timedelta(days=29))),
             _to_utc_z(_start_next_day(today)),
         ),
         "last_90_days": (
-            _to_utc_z(_start_of_day(today - timedelta(days=90))),
+            _to_utc_z(_start_of_day(today - timedelta(days=89))),
             _to_utc_z(_start_next_day(today)),
         ),
     }

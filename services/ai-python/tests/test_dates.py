@@ -73,3 +73,14 @@ def test_parse_last_days_crosses_month_boundary():
 
 def test_parse_rejects_absurd_last_days_count():
     assert parse_date_from_text("últimos 0 días", NOW) == {}
+
+
+@pytest.mark.parametrize("token,days", [("last_7_days", 7), ("last_30_days", 30), ("last_90_days", 90)])
+def test_last_n_days_covers_exactly_n_days(token, days):
+    from datetime import date, timedelta
+    from app.services.chat_agent import resolve_date_token
+    out = resolve_date_token(token, NOW)
+    start = date(*map(int, out["dateFrom"][:10].split("-")))
+    end = date(*map(int, out["dateTo"][:10].split("-")))
+    assert (end - start).days == days          # exclusive upper bound -> exactly n days
+    assert end == date(2026, 10, 15)           # ends tomorrow local
