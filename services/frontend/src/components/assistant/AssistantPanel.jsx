@@ -17,9 +17,24 @@ export default function AssistantPanel() {
   // Solo tiene sentido cuando la lista actual restringe (Spam, Destacados).
   const restricted = Object.keys(scope.criteria || {}).length > 0;
   const [searchAll, setSearchAll] = useState(false);
+  const [resetKey, setResetKey] = useState(0);
+  // Se mostró al menos una búsqueda (aunque vuelva vacía): así el botón de
+  // limpiar sigue disponible cuando el filtro no encontró nada.
+  const [searched, setSearched] = useState(false);
 
   // Cambiar de lista devuelve el alcance al de esa lista.
   useEffect(() => setSearchAll(false), [scope.folder]);
+
+  const applyResults = (emails) => {
+    setResults(emails);
+    setSearched(true);
+  };
+
+  const clearFilter = () => {
+    setResults([]);
+    setSearched(false);
+    setResetKey((k) => k + 1);
+  };
 
   const openEmail = (email) => {
     if (!email.id) return;
@@ -112,14 +127,25 @@ export default function AssistantPanel() {
         ) : (
           <div className="flex flex-col gap-2 pt-2 flex-1 min-h-0">
             <div className="flex-1 min-h-0">
-              <ChatPanel scope={searchAll ? null : scope} onResults={setResults} />
+              <ChatPanel scope={searchAll ? null : scope} onResults={applyResults} resetKey={resetKey} />
             </div>
 
-            {results.length > 0 && (
+            {searched && (
               <div className="max-h-44 overflow-y-auto border-t border-primary-200 dark:border-gray-700 pt-2 space-y-1">
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {results.length} resultado{results.length === 1 ? '' : 's'}
-                </p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {results.length === 0
+                      ? 'Sin resultados'
+                      : `${results.length} resultado${results.length === 1 ? '' : 's'}`}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={clearFilter}
+                    className="text-xs font-medium text-primary-700 dark:text-primary-300 hover:underline"
+                  >
+                    Limpiar filtro
+                  </button>
+                </div>
                 {results.map((email) => (
                   <div
                     key={email.providerEmailId}

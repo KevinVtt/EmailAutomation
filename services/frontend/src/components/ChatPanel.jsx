@@ -3,18 +3,38 @@ import { api } from '../lib/api';
 import { Sparkles, Send, Bot, User } from 'lucide-react';
 import { LoadingState } from './states';
 
-export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsumed, scope, onResults }) {
-  const [messages, setMessages] = useState([
-    {
-      role: 'assistant',
-      content: '¡Hola! Puedes pedirme que filtre tus emails. Por ejemplo:\n\n• "Muéstrame los emails importantes de esta semana"\n• "Busca emails de facturación"\n• "¿Qué emails tengo sin leer de ayer?"',
-    },
-  ]);
+const GREETING = {
+  role: 'assistant',
+  content: '¡Hola! Puedes pedirme que filtre tus emails. Por ejemplo:\n\n• "Muéstrame los emails importantes de esta semana"\n• "Busca emails de facturación"\n• "¿Qué emails tengo sin leer de ayer?"',
+};
+
+export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsumed, scope, onResults, resetKey = 0 }) {
+  const [messages, setMessages] = useState([GREETING]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState('');
   const messagesEndRef = useRef(null);
   const processedCids = useRef(new Set());
+  const textareaRef = useRef(null);
+
+  // Crece con el texto hasta ~5 líneas; después scrollea.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, 40), 120)}px`;
+  }, [input]);
+
+  // "Limpiar filtro": vuelve al estado inicial para que la próxima consulta no
+  // arrastre el criterio anterior (el backend recuerda el hilo por conversation_id).
+  useEffect(() => {
+    if (!resetKey) return;
+    setMessages([GREETING]);
+    setConversationId('');
+    setInput('');
+    setLoading(false);
+    processedCids.current.clear();
+  }, [resetKey]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -127,13 +147,21 @@ export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsum
         <div ref={messagesEndRef} />
       </div>
 
-      <form onSubmit={handleSubmit} className="flex gap-2">
-        <input
-          type="text"
+      <form onSubmit={handleSubmit} className="flex gap-2 items-end">
+        <textarea
+          ref={textareaRef}
+          rows={2}
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            // Enter envía; Shift+Enter agrega una línea.
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              handleSubmit(e);
+            }
+          }}
           placeholder="Escribe un filtro en lenguaje natural..."
-          className="input flex-1 text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100 dark:placeholder-gray-400"
+          className="input flex-1 text-sm resize-none dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100 dark:placeholder-gray-400"
           disabled={loading}
         />
         <button

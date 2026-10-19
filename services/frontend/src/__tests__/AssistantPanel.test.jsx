@@ -131,6 +131,62 @@ describe('AssistantPanel', () => {
     expect(screen.getByTestId('assistant-panel')).toHaveAttribute('data-open', 'false');
   });
 
+  it('usa un textarea: Enter envía y Shift+Enter agrega una línea', async () => {
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Asistente' }));
+
+    const box = screen.getByPlaceholderText(/Escribe un filtro/i);
+    expect(box.tagName).toBe('TEXTAREA');
+
+    fireEvent.change(box, { target: { value: 'una consulta larga' } });
+    fireEvent.keyDown(box, { key: 'Enter', shiftKey: true });
+    expect(global.fetch).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(screen.getByText('Encontré 2 mails.')).toBeTruthy());
+  });
+
+  it('limpia el filtro y la conversación para volver a empezar', async () => {
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Asistente' }));
+    fireEvent.change(screen.getByPlaceholderText(/Escribe un filtro/i), {
+      target: { value: 'el mail de la factura' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
+    await waitFor(() => expect(screen.getByText('Primera')).toBeTruthy());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Limpiar filtro' }));
+
+    expect(screen.queryByText('Primera')).toBeNull();
+    expect(screen.getByText(/Puedes pedirme que filtre/i)).toBeTruthy();
+
+    // La próxima consulta arranca un hilo nuevo, sin el criterio anterior.
+    fireEvent.change(screen.getByPlaceholderText(/Escribe un filtro/i), {
+      target: { value: 'otra cosa' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(global.fetch.mock.calls[1][1].body).conversationId).toBe('');
+  });
+
+  it('deja limpiar el filtro aunque no haya resultados', async () => {
+    global.fetch = vi.fn().mockResolvedValue(jsonResponse({
+      response: 'No encontré mails.',
+      criteria: { fromAddress: 'nadie@x.com' },
+      conversation_id: 'c9',
+      emails: [],
+    }));
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Asistente' }));
+    fireEvent.change(screen.getByPlaceholderText(/Escribe un filtro/i), {
+      target: { value: 'correos de nadie' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
+
+    expect(await screen.findByText('Sin resultados')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Limpiar filtro' })).toBeTruthy();
+  });
+
   it('keeps the conversation when it is closed and reopened', async () => {    renderPanel();
 
     const toggle = screen.getByRole('button', { name: 'Asistente' });
