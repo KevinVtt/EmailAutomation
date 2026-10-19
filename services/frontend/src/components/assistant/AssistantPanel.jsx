@@ -74,7 +74,7 @@ export default function AssistantPanel() {
         data-expanded={expanded}
         className={`${open ? 'flex' : 'hidden'} fixed bottom-24 right-6 z-40 card bg-white dark:bg-gray-800 dark:border-gray-700 shadow-2xl flex-col transition-[width,height] duration-200 ${
           expanded
-            ? 'w-[min(960px,calc(100vw-6rem))] h-[min(760px,calc(100vh-9rem))]'
+            ? 'top-24 w-[min(960px,calc(100vw-6rem))]'
             : 'w-[380px] h-[560px]'
         } max-w-[calc(100vw-2rem)] max-h-[calc(100vh-8rem)]`}
       >
