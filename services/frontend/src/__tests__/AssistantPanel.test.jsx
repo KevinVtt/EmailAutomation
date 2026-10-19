@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import AssistantPanel from '../components/assistant/AssistantPanel';
 import { ScreenScopeProvider } from '../context/ScreenScopeContext';
 import Spam from '../pages/Spam';
@@ -9,8 +10,8 @@ vi.mock('../components/EmailListView', () => ({
 }));
 
 const EMAILS = [
-  { providerEmailId: 'm1', provider: 'google', subject: 'Primera', fromAddress: 'a@x.com' },
-  { providerEmailId: 'm2', provider: 'google', subject: 'Segunda', fromAddress: 'b@x.com' },
+  { id: 'e1', providerEmailId: 'm1', provider: 'google', subject: 'Primera', fromAddress: 'a@x.com' },
+  { id: 'e2', providerEmailId: 'm2', provider: 'google', subject: 'Segunda', fromAddress: 'b@x.com' },
 ];
 
 function jsonResponse(payload) {
@@ -44,10 +45,12 @@ describe('AssistantPanel', () => {
 
   const renderPanel = (children = null) =>
     render(
-      <ScreenScopeProvider>
-        {children}
-        <AssistantPanel />
-      </ScreenScopeProvider>
+      <MemoryRouter>
+        <ScreenScopeProvider>
+          {children}
+          <AssistantPanel />
+        </ScreenScopeProvider>
+      </MemoryRouter>
     );
 
   it('shows a floating button and starts closed', () => {
@@ -82,8 +85,53 @@ describe('AssistantPanel', () => {
     expect(payload.scope).toEqual({ folder: 'spam', criteria: { label: 'SPAM' }, description: 'Spam' });
   });
 
-  it('keeps the conversation when it is closed and reopened', async () => {
+  it('no muestra el chip de alcance cuando la lista no restringe', () => {
     renderPanel();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Asistente' }));
+
+    expect(screen.queryByText('Buscar en todo')).toBeNull();
+  });
+
+  it('permite buscar en toda la cuenta desde una lista que restringe', async () => {
+    renderPanel(<Spam />);
+    fireEvent.click(screen.getByRole('button', { name: 'Asistente' }));
+
+    expect(screen.getByText('Buscando solo en Spam')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Buscar en todo' }));
+    expect(screen.getByText('Buscando en toda la cuenta')).toBeTruthy();
+
+    fireEvent.change(screen.getByPlaceholderText(/Escribe un filtro/i), {
+      target: { value: 'el mail de la factura' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
+
+    await waitFor(() => expect(screen.getByText('Encontré 2 mails.')).toBeTruthy());
+    const chatCall = global.fetch.mock.calls.find(([url]) => String(url).includes('/api/chat'));
+    expect(JSON.parse(chatCall[1].body).scope).toBeUndefined();
+  });
+
+  it('abre el email del resultado en su propia vista', async () => {
+    renderPanel(
+      <Routes>
+        <Route path="/email/:id" element={<div>vista-email</div>} />
+      </Routes>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Asistente' }));
+    fireEvent.change(screen.getByPlaceholderText(/Escribe un filtro/i), {
+      target: { value: 'cuáles tengo' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
+    await waitFor(() => expect(screen.getByText('Primera')).toBeTruthy());
+
+    fireEvent.click(screen.getByText('Primera'));
+
+    expect(await screen.findByText('vista-email')).toBeTruthy();
+    expect(screen.getByTestId('assistant-panel')).toHaveAttribute('data-open', 'false');
+  });
+
+  it('keeps the conversation when it is closed and reopened', async () => {    renderPanel();
 
     const toggle = screen.getByRole('button', { name: 'Asistente' });
     fireEvent.click(toggle);

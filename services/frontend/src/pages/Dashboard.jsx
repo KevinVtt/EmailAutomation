@@ -1,9 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { api } from '../lib/api';
-import ChatPanel from '../components/ChatPanel';
 import { LoadingState, ErrorState } from '../components/states';
 import { format } from 'date-fns';
 import ReactMarkdown from 'react-markdown';
@@ -59,11 +57,9 @@ function BarChart({ data }) {
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [chatResponse, setChatResponse] = useState(null);
   const [wsError, setWsError] = useState(null);
   const [syncStatus, setSyncStatus] = useState(null); // null | 'syncing' | 'success' | 'error'
   const [syncProgress, setSyncProgress] = useState({ current: 0, total: 0 });
@@ -211,12 +207,6 @@ export default function Dashboard() {
     }
   }, [finishSync, stopSyncPoll]);
 
-  const onChat = useCallback((data) => {
-    if (data.type === 'chat_response' && data.data) {
-      setChatResponse(data.data);
-    }
-  }, []);
-
   const onNotifications = useCallback((data) => {
     if (data.type !== 'notification') return;
 
@@ -253,7 +243,6 @@ export default function Dashboard() {
 
   useWebSocket(localStorage.getItem('accessToken'), {
     onNotifications,
-    onChat,
     onConnect: () => setWsError(null),
     onError: () => setWsError('Conexión WebSocket perdida. Reintentando...'),
   });
@@ -279,11 +268,6 @@ export default function Dashboard() {
       });
     }
   }, [user, handleSync]);
-
-  // Chat filters now navigate to the inbox, which renders the filtered emails.
-  const handleChatFilters = useCallback((criteria) => {
-    navigate('/inbox', { state: { criteria } });
-  }, [navigate]);
 
   const isSyncing = syncStatus === 'syncing';
   const provider = user?.provider || 'google';
@@ -314,8 +298,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="flex gap-6">
-        <div className="flex-1 min-w-0 space-y-6">
+      <div className="space-y-6">
           {/* Header */}
           <div className="flex items-center justify-between">
             <div>
@@ -622,18 +605,6 @@ export default function Dashboard() {
               </div>
             </>
           )}
-        </div>
-
-        {/* Chat panel */}
-        <div className="flex-shrink-0 hidden lg:block w-96">
-          <div className="sticky top-20 h-[calc(100vh-6rem)]">
-            <ChatPanel
-              onFiltersApplied={handleChatFilters}
-              chatResponse={chatResponse}
-              onChatConsumed={() => setChatResponse(null)}
-            />
-          </div>
-        </div>
       </div>
     </div>
   );

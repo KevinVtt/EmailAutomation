@@ -27,11 +27,6 @@ vi.mock('../hooks/useWebSocket', () => ({
   useWebSocket: vi.fn(),
 }));
 
-// ChatPanel makes its own API calls — keep the Dashboard test focused on stats.
-vi.mock('../components/ChatPanel', () => ({
-  default: () => <div>Asistente IA</div>,
-}));
-
 const mockAuth = {
   user: { id: 'user-1', email: 'a@b.com', name: 'Ana', provider: 'google' },
   loading: false,
@@ -78,6 +73,16 @@ describe('Dashboard', () => {
     expect(screen.getByTestId('dashboard-loading')).toBeTruthy();
   });
 
+  it('no renderiza el asistente inline: vive en el botón flotante global', () => {
+    api.emails.stats.mockResolvedValue(statsFixture());
+    api.emails.summary.mockResolvedValue({ summary: 'Sin novedades.', emailCount: 0, date: '2026-09-09' });
+    api.emails.prioritySummary.mockResolvedValue({ urgentes: 0, destacadosSinLeer: 0, pendientesRespuesta: 0 });
+
+    renderDashboard();
+
+    expect(screen.queryByText('Asistente IA')).toBeNull();
+  });
+
   it('releases the sync UI when the status poll never reports completion', async () => {
     vi.useFakeTimers();
     try {
@@ -104,8 +109,7 @@ describe('Dashboard', () => {
     }
   });
 
-  it('renders the stat cards and the 7-day chart from the single stats endpoint', async () => {
-    api.emails.stats.mockResolvedValue(statsFixture({ dayCount: 5 }));
+  it('renders the stat cards and the 7-day chart from the single stats endpoint', async () => {    api.emails.stats.mockResolvedValue(statsFixture({ dayCount: 5 }));
 
     renderDashboard();
 
