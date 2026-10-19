@@ -149,6 +149,22 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ provider, emailIds, action }),
       }),
+    compose: ({ to, subject, body }) =>
+      request('/api/emails/compose', {
+        method: 'POST',
+        body: JSON.stringify({ to, subject, body }),
+      }),
+  },
+  contacts: {
+    list: (limit = 20) =>
+      request(`/api/contacts?limit=${limit}`),
+    draft: (id, instruction) =>
+      request(`/api/contacts/${id}/draft`, {
+        method: 'POST',
+        body: JSON.stringify({ instruction }),
+      }),
+    enrich: (id) =>
+      request(`/api/contacts/${id}/enrich`, { method: 'POST' }),
   },
   chat: {
     send: (message, conversationId = '', scope = null) =>

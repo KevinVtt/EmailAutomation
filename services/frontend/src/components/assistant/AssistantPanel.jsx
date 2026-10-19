@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Star, Trash2, X } from 'lucide-react';
 import ChatPanel from '../ChatPanel';
 import AssistantButton from './AssistantButton';
+import ContactsTab from './ContactsTab';
 import { useScreenScope } from '../../context/ScreenScopeContext';
 import { api } from '../../lib/api';
 
@@ -81,8 +82,8 @@ export default function AssistantPanel() {
         )}
 
         {tab === 'contacts' ? (
-          <div className="p-4 text-sm text-gray-600 dark:text-gray-300">
-            Elegí un contacto para escribirle.
+          <div className="flex flex-col flex-1 min-h-0 pt-2">
+            <ContactsTab />
           </div>
         ) : (
           <div className="flex flex-col gap-2 pt-2 flex-1 min-h-0">
