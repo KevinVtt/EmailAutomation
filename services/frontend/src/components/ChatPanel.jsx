@@ -3,7 +3,7 @@ import { api } from '../lib/api';
 import { Sparkles, Send, Bot, User } from 'lucide-react';
 import { LoadingState } from './states';
 
-export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsumed }) {
+export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsumed, scope, onResults }) {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
@@ -34,10 +34,12 @@ export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsum
     setLoading(false);
     onChatConsumed?.();
 
+    if (Array.isArray(chatResponse.emails)) onResults?.(chatResponse.emails);
+
     if (chatResponse.criteria && Object.keys(chatResponse.criteria).length > 0) {
       onFiltersApplied?.(chatResponse.criteria);
     }
-  }, [chatResponse, onFiltersApplied, onChatConsumed]);
+  }, [chatResponse, onFiltersApplied, onChatConsumed, onResults]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -52,10 +54,11 @@ export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsum
     setLoading(true);
 
     try {
-      const response = await api.chat.send(userMessage, conversationId);
+      const response = await api.chat.send(userMessage, conversationId, scope);
       const cid = response.conversationId || response.conversation_id || conversationId;
       setConversationId(cid);
       if (cid) processedCids.current.add(cid);
+      if (Array.isArray(response.emails)) onResults?.(response.emails);
       if (response.response) {
         setMessages((prev) => [
           ...prev,
@@ -135,6 +138,7 @@ export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsum
         />
         <button
           type="submit"
+          aria-label="Enviar"
           disabled={!input.trim() || loading}
           className="btn-primary p-2"
         >

@@ -144,12 +144,17 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ provider, emailId, body }),
       }),
+    bulkAction: (provider, emailIds, action) =>
+      request('/api/emails/bulk-action', {
+        method: 'POST',
+        body: JSON.stringify({ provider, emailIds, action }),
+      }),
   },
   chat: {
-    send: (message, conversationId = '') =>
+    send: (message, conversationId = '', scope = null) =>
       request('/api/chat', {
         method: 'POST',
-        body: JSON.stringify({ message, conversationId }),
+        body: JSON.stringify({ message, conversationId, ...(scope ? { scope } : {}) }),
       }),
   },
   rewrite: {

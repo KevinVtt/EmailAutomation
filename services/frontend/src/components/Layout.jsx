@@ -8,6 +8,8 @@ import {
   LayoutDashboard, Inbox, Star, ShieldAlert, Settings,
 } from 'lucide-react';
 import clsx from 'clsx';
+import AssistantPanel from './assistant/AssistantPanel';
+import { ScreenScopeProvider } from '../context/ScreenScopeContext';
 
 // Cada cuánto se busca correo nuevo en segundo plano mientras la app está abierta.
 const SYNC_INTERVAL_MS = 120000;
@@ -50,7 +52,8 @@ export default function Layout() {
   }, [user?.provider]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-primary-50 dark:bg-gray-900 transition-colors">
+    <ScreenScopeProvider>
+      <div className="min-h-screen flex flex-col bg-primary-50 dark:bg-gray-900 transition-colors">
       <header className="bg-white dark:bg-gray-800 border-b border-primary-200 dark:border-gray-700 sticky top-0 z-50 transition-colors">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
@@ -124,6 +127,9 @@ export default function Layout() {
           <Outlet />
         </main>
       </div>
-    </div>
+      </div>
+
+      <AssistantPanel />
+    </ScreenScopeProvider>
   );
 }
