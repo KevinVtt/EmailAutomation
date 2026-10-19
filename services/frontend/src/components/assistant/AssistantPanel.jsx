@@ -107,22 +107,25 @@ export default function AssistantPanel() {
               Contactos
             </button>
           </div>
-          <button
-            type="button"
-            aria-label={expanded ? 'Contraer asistente' : 'Expandir asistente'}
-            onClick={() => setExpanded((v) => !v)}
-            className="p-1 text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100"
-          >
-            {expanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-          </button>
-          <button
-            type="button"
-            aria-label="Cerrar asistente"
-            onClick={close}
-            className="p-1 text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          {/* Los dos íconos van juntos: justify-between con tres hijos los separaba. */}
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              aria-label={expanded ? 'Contraer asistente' : 'Expandir asistente'}
+              onClick={() => setExpanded((v) => !v)}
+              className="p-1 text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100"
+            >
+              {expanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            </button>
+            <button
+              type="button"
+              aria-label="Cerrar asistente"
+              onClick={close}
+              className="p-1 text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {restricted && (
@@ -152,6 +155,7 @@ export default function AssistantPanel() {
                 onResults={applyResults}
                 resetKey={resetKey}
                 onExpand={() => setExpanded(true)}
+                embedded
               />
             </div>
 

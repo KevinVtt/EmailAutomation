@@ -8,7 +8,7 @@ const GREETING = {
   content: '¡Hola! Puedes pedirme que filtre tus emails. Por ejemplo:\n\n• "Muéstrame los emails importantes de esta semana"\n• "Busca emails de facturación"\n• "¿Qué emails tengo sin leer de ayer?"',
 };
 
-export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsumed, scope, onResults, resetKey = 0, onExpand }) {
+export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsumed, scope, onResults, resetKey = 0, onExpand, embedded = false }) {
   const [messages, setMessages] = useState([GREETING]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -99,13 +99,15 @@ export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsum
   };
 
   return (
-    <div className="card flex flex-col h-full dark:bg-gray-800 dark:border-gray-700">
-      <div className="flex items-center gap-2 mb-4 pb-3 border-b border-primary-200 dark:border-gray-700">
-        <Bot className="w-5 h-5 text-accent-600" />
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Asistente IA</h2>
-      </div>
+    <div className={embedded ? 'flex flex-col h-full' : 'card flex flex-col h-full dark:bg-gray-800 dark:border-gray-700'}>
+      {!embedded && (
+        <div className="flex items-center gap-2 mb-4 pb-3 border-b border-primary-200 dark:border-gray-700">
+          <Bot className="w-5 h-5 text-accent-600" />
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Asistente IA</h2>
+        </div>
+      )}
 
-      <div className="flex-1 overflow-y-auto space-y-3 mb-4 -mx-4 px-4">
+      <div className={`flex-1 overflow-y-auto space-y-3 mb-4 ${embedded ? '' : '-mx-4 px-4'}`}>
         {messages.map((msg, i) => (
           <div
             key={i}
