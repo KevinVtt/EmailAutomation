@@ -70,7 +70,7 @@ class ChatControllerTest {
         var auth = mock(Authentication.class);
         when(auth.getName()).thenReturn(userId.toString());
         var aiResponse = aiResponseWithCriteria();
-        when(aiServiceClient.chat("hola", "c1")).thenReturn(aiResponse);
+        when(aiServiceClient.chat(eq("hola"), eq("c1"), any())).thenReturn(aiResponse);
         when(filterService.applyAiFilters(eq(userId), anyMap(), eq(0), eq(20)))
                 .thenReturn(new PageImpl<>(List.of(EmailDTO.builder().providerEmailId("e1").build()),
                         PageRequest.of(0, 20), 1));
@@ -92,7 +92,7 @@ class ChatControllerTest {
         var auth = mock(Authentication.class);
         when(auth.getName()).thenReturn(userId.toString());
         var aiResponse = aiResponseWithCriteria();
-        when(aiServiceClient.chat("hola", "c1")).thenReturn(aiResponse);
+        when(aiServiceClient.chat(eq("hola"), eq("c1"), any())).thenReturn(aiResponse);
         when(filterService.applyAiFilters(eq(userId), anyMap(), eq(0), eq(20)))
                 .thenReturn(new PageImpl<>(List.of(EmailDTO.builder().providerEmailId("e1").build()),
                         PageRequest.of(0, 20), 1));
@@ -103,5 +103,53 @@ class ChatControllerTest {
         assertInstanceOf(List.class, response.getBody().get("emails"));
         verify(webSocketService).sendEmailsToUser(eq(userId.toString()), any());
         verify(webSocketService).sendChatResponse(eq(userId.toString()), any());
+    }
+
+    @Test
+    void chat_withScope_addsTheScreenFilterOnTopOfTheModel() {
+        var userId = UUID.randomUUID();
+        var auth = mock(Authentication.class);
+        when(auth.getName()).thenReturn(userId.toString());
+        var aiResponse = new HashMap<String, Object>();
+        aiResponse.put("response", "ok");
+        aiResponse.put("criteria", Map.of("bodyContains", "steam"));
+        aiResponse.put("conversation_id", "c1");
+        when(aiServiceClient.chat(eq("hola"), eq("c1"), any())).thenReturn(aiResponse);
+        when(filterService.applyAiFilters(eq(userId), anyMap(), eq(0), eq(20)))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
+
+        var request = request("hola", "c1");
+        request.setScope(Map.of(
+                "folder", "spam",
+                "criteria", Map.of("label", "SPAM", "destacados", true),
+                "description", "Spam"));
+
+        chatController.chat(auth, request);
+
+        @SuppressWarnings("unchecked")
+        var captor = org.mockito.ArgumentCaptor.forClass(Map.class);
+        verify(filterService).applyAiFilters(eq(userId), captor.capture(), eq(0), eq(20));
+        var criteria = (Map<String, String>) captor.getValue();
+        assertEquals("steam", criteria.get("bodyContains"));
+        assertEquals("SPAM", criteria.get("label"));
+        assertEquals("true", criteria.get("destacados"));
+    }
+
+    @Test
+    void chat_withoutScope_leavesTheCriteriaAsTheyWere() {
+        var userId = UUID.randomUUID();
+        var auth = mock(Authentication.class);
+        when(auth.getName()).thenReturn(userId.toString());
+        var aiResponse = aiResponseWithCriteria();
+        when(aiServiceClient.chat(eq("hola"), eq("c1"), any())).thenReturn(aiResponse);
+        when(filterService.applyAiFilters(eq(userId), anyMap(), eq(0), eq(20)))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
+
+        chatController.chat(auth, request("hola", "c1"));
+
+        @SuppressWarnings("unchecked")
+        var captor = org.mockito.ArgumentCaptor.forClass(Map.class);
+        verify(filterService).applyAiFilters(eq(userId), captor.capture(), eq(0), eq(20));
+        assertEquals(Map.of("isRead", "false"), captor.getValue());
     }
 }

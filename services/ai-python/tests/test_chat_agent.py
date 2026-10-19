@@ -221,3 +221,51 @@ async def test_known_model_token_still_works_without_text_date(httpx_mock):
     result = await process_chat_message("mails de alguien")
 
     assert result["criteria"]["dateFrom"] < result["criteria"]["dateTo"]
+
+
+@pytest.mark.asyncio
+async def test_scope_criteria_are_merged_after_the_model(httpx_mock):
+    httpx_mock.add_response(
+        url="https://api.groq.com/openai/v1/chat/completions",
+        method="POST",
+        json={"choices": [{"message": {"content": '{"response":"ok","criteria":{"bodyContains":"steam"}}'}}]},
+    )
+
+    result = await process_chat_message(
+        "mails de steam",
+        scope={"folder": "spam", "criteria": {"label": "SPAM"}, "description": "Spam"},
+    )
+
+    assert result["criteria"] == {"bodyContains": "steam", "label": "SPAM"}
+
+
+@pytest.mark.asyncio
+async def test_scope_wins_over_the_model_label(httpx_mock):
+    httpx_mock.add_response(
+        url="https://api.groq.com/openai/v1/chat/completions",
+        method="POST",
+        json={"choices": [{"message": {"content": '{"response":"ok","criteria":{"label":"IMPORTANT"}}'}}]},
+    )
+
+    result = await process_chat_message(
+        "los importantes",
+        scope={"folder": "spam", "criteria": {"label": "SPAM"}, "description": "Spam"},
+    )
+
+    assert result["criteria"]["label"] == "SPAM"
+
+
+@pytest.mark.asyncio
+async def test_scope_booleans_become_strings_the_backend_can_parse(httpx_mock):
+    httpx_mock.add_response(
+        url="https://api.groq.com/openai/v1/chat/completions",
+        method="POST",
+        json={"choices": [{"message": {"content": '{"response":"ok","criteria":{}}'}}]},
+    )
+
+    result = await process_chat_message(
+        "cuáles tengo",
+        scope={"folder": "starred", "criteria": {"destacados": True}, "description": "Destacados"},
+    )
+
+    assert result["criteria"] == {"destacados": "true"}

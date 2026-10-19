@@ -35,12 +35,12 @@ public class ChatController {
         log.info("=== CHAT REST INICIO === userId={}, message={}, conversationId={}", userId, request.getMessage(), request.getConversationId());
 
         long t0 = System.currentTimeMillis();
-        var aiResponse = aiServiceClient.chat(request.getMessage(), request.getConversationId());
+        var aiResponse = aiServiceClient.chat(request.getMessage(), request.getConversationId(), request.getScope());
         long t1 = System.currentTimeMillis();
         log.info("AI service respondió en {} ms. response={}", (t1-t0), aiResponse.get("response"));
 
         long t2 = System.currentTimeMillis();
-        var found = processChat(userId, aiResponse);
+        var found = processChat(userId, aiResponse, request.getScope());
         long t3 = System.currentTimeMillis();
         log.info("Filtros aplicados en {} ms. emails encontrados: {}", (t3-t2), found);
 
@@ -55,10 +55,10 @@ public class ChatController {
         var userId = getUserId(auth);
         log.info("=== CHAT WEBSOCKET INICIO === userId={}, message={}, conversationId={}", userId, request.getMessage(), request.getConversationId());
 
-        var aiResponse = aiServiceClient.chat(request.getMessage(), request.getConversationId());
+        var aiResponse = aiServiceClient.chat(request.getMessage(), request.getConversationId(), request.getScope());
         log.info("AI service respondió (WebSocket): {}", aiResponse.get("response"));
 
-        var found = processChat(userId, aiResponse);
+        var found = processChat(userId, aiResponse, request.getScope());
         log.info("emails encontrados: {}", found);
 
         log.info("=== CHAT WEBSOCKET FIN === userId={}", userId);
@@ -69,8 +69,9 @@ public class ChatController {
      * resultados vacíos y empuja filtered_emails + chat_response. Devuelve el total
      * de emails encontrados (los handlers lo registran con su propio logging).
      */
-    private long processChat(UUID userId, Map<String, Object> aiResponse) {
+    private long processChat(UUID userId, Map<String, Object> aiResponse, Map<String, Object> scope) {
         var criteria = extractCriteria(aiResponse);
+        applyScope(criteria, scope);
         log.info("Criteria extraídos: {}", criteria);
         if (criteria.isEmpty()) {
             log.info("Enviando chat_response por WebSocket a usuario {}", userId);
@@ -108,7 +109,7 @@ public class ChatController {
     private Map<String, String> extractCriteria(Map<String, Object> aiResponse) {
         var criteria = aiResponse.get("criteria");
         if (!(criteria instanceof Map<?, ?> raw)) {
-            return Map.of();
+            return new HashMap<>();
         }
         // The AI service may return non-string scalars (e.g. "size": 20, booleans).
         // Coerce every value to String so the Map<String, String> contract holds and
@@ -121,6 +122,20 @@ public class ChatController {
             result.put(entry.getKey().toString(), entry.getValue().toString());
         }
         return result;
+    }
+
+    /**
+     * La lista que el usuario está viendo se aplica al final: gana sobre el modelo.
+     * Los valores se normalizan a String porque el filtro los parsea como texto
+     * (un booleano JSON llega acá como Boolean).
+     */
+    private void applyScope(Map<String, String> criteria, Map<String, Object> scope) {
+        if (scope == null) return;
+        if (!(scope.get("criteria") instanceof Map<?, ?> scoped)) return;
+        for (var entry : scoped.entrySet()) {
+            if (entry.getKey() == null || entry.getValue() == null) continue;
+            criteria.put(entry.getKey().toString(), String.valueOf(entry.getValue()));
+        }
     }
 
     private int extractSize(Map<String, String> criteria) {

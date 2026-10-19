@@ -34,6 +34,7 @@ class ChatRequest(BaseModel):
     message: str
     conversation_id: str = ""
     context: list[dict] | None = None
+    scope: Optional[dict] = None
 
 
 class ChatResponse(BaseModel):

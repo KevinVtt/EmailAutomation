@@ -64,7 +64,7 @@ class AIServiceClientTest {
                         {"response": "ok", "criteria": {"isRead": false}}
                         """, MediaType.APPLICATION_JSON));
 
-        var result = aiServiceClient.chat("Show important emails", "conv-123");
+        var result = aiServiceClient.chat("Show important emails", "conv-123", null);
 
         assertEquals("ok", result.get("response"));
         assertNotNull(result.get("criteria"));

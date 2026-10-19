@@ -49,14 +49,16 @@ public class AIServiceClient {
         return result;
     }
 
-    public Map<String, Object> chat(String message, String conversationId) {
+    public Map<String, Object> chat(String message, String conversationId, Map<String, Object> scope) {
         var headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        var body = Map.of(
-                "message", message,
-                "conversation_id", conversationId != null ? conversationId : "",
-                "context", List.of()
-        );
+        var body = new java.util.HashMap<String, Object>();
+        body.put("message", message);
+        body.put("conversation_id", conversationId != null ? conversationId : "");
+        body.put("context", List.of());
+        if (scope != null) {
+            body.put("scope", scope);
+        }
         var entity = new HttpEntity<>(body, headers);
 
         log.info("AIServiceClient llamando a {}/chat con message={}, conversationId={}", aiServiceUrl, message, conversationId);
