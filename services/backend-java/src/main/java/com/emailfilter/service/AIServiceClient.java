@@ -95,7 +95,8 @@ public class AIServiceClient {
     }
 
     public Map<String, Object> rewrite(String draft, String originalSubject, String originalFrom,
-                                        String originalBody, String tone, String language, String customRules) {
+                                        String originalBody, String tone, String language, String customRules,
+                                        String userName) {
         var headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         var body = Map.of(
@@ -105,7 +106,8 @@ public class AIServiceClient {
                 "original_body", originalBody != null ? originalBody : "",
                 "tone", tone != null ? tone : "formal",
                 "language", language != null ? language : "auto",
-                "custom_rules", customRules != null ? customRules : ""
+                "custom_rules", customRules != null ? customRules : "",
+                "user_name", userName != null ? userName : ""
         );
         var entity = new HttpEntity<>(body, headers);
 

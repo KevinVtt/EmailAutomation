@@ -97,6 +97,28 @@ class AIServiceClientContractTest {
         assertEquals("Resumen de contrato", summary);
     }
 
+    @Test
+    void rewriteEnviaElNombreDelUsuarioYElPayloadEsperadoPorLaIA() {
+        stubFor(post(urlEqualTo("/rewrite"))
+                .willReturn(okJson("""
+                        {"rewritten":"ok","original":"x"}
+                        """)));
+
+        AIServiceClient client = newClient();
+
+        Map<String, Object> result = client.rewrite(
+                "Hola,\n[Nombre] [Apellido]", "Asunto", "a@b.com", "cuerpo",
+                "formal", "auto", "firmar con mi nombre", "Juan Pérez");
+
+        verify(postRequestedFor(urlEqualTo("/rewrite"))
+                .withRequestBody(matchingJsonPath("$.draft"))
+                .withRequestBody(matchingJsonPath("$.tone"))
+                .withRequestBody(matchingJsonPath("$.custom_rules"))
+                .withRequestBody(matchingJsonPath("$.user_name")));
+
+        assertEquals("ok", result.get("rewritten"));
+    }
+
     private AIServiceClient newClient() {
         AIServiceClient client = new AIServiceClient();
         ReflectionTestUtils.setField(client, "aiServiceUrl", "http://localhost:" + wireMockServer.port());

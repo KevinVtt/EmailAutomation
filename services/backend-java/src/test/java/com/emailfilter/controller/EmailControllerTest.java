@@ -205,4 +205,24 @@ class EmailControllerTest {
         verify(emailService).syncEmailsAsync(any(), eq("google"));
         verify(emailService).syncAllEmailsAsync(any(), eq("google"));
     }
+
+    @Test
+    @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
+    void rewriteEmail_injectsAuthenticatedUserName() throws Exception {
+        when(userDetailsService.loadUserEntityById(any()))
+                .thenReturn(com.emailfilter.model.User.builder().name("Juan Pérez").build());
+        when(aiServiceClient.rewrite(anyString(), anyString(), anyString(), anyString(),
+                anyString(), anyString(), anyString(), eq("Juan Pérez")))
+                .thenReturn(Map.of("rewritten", "ok", "original", "x"));
+
+        mockMvc.perform(post("/api/emails/rewrite")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"draft":"hola","tone":"formal","language":"auto"}"""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rewritten").value("ok"));
+
+        verify(aiServiceClient).rewrite(anyString(), anyString(), anyString(), anyString(),
+                anyString(), anyString(), anyString(), eq("Juan Pérez"));
+    }
 }

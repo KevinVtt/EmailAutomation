@@ -113,6 +113,11 @@ Browser (React) ── REST /api/** + WebSocket /ws ──► Java Backend (8080
 Chat:      Backend → AI   POST /chat  { message, conversation_id, context: [...] }
            AI → Backend   { response, criteria: {...}, conversation_id }
            Backend → UI   { response, criteria, conversation_id, emails: [...] }  (emails = list, not a Page)
+Rewrite:   Backend → AI   POST /rewrite { draft, original_subject, original_from, original_body,
+                                          tone, language, custom_rules, user_name }
+           user_name is the authenticated user's name, injected by the backend (never taken from the
+           request body). The AI signs the improved draft with it and sweeps leftover [Nombre]/[Apellido]
+           placeholders.
 OAuth:     GET  /api/auth/oauth2/{provider}          → { authUrl } (authUrl carries &state=<uuid>)
            POST /api/auth/callback/{provider}        body { authorizationCode, provider, state }  (401 on bad/used/expired state)
 JWT:       Authorization: Bearer <token>; access + refresh, HMAC-SHA; principal = userId;

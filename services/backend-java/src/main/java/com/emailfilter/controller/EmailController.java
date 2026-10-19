@@ -170,7 +170,9 @@ public class EmailController {
                 request.getOriginalBody(),
                 request.getTone(),
                 request.getLanguage(),
-                request.getCustomRules()
+                request.getCustomRules(),
+                // The name never comes from the request body: it is the authenticated user's.
+                userDetailsService.loadUserEntityById(userId).getName()
         );
 
         log.info("=== REWRITE FIN === userId={}", userId);
