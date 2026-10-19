@@ -140,3 +140,58 @@ async def test_rewrite_router_passes_user_name(client, monkeypatch):
 
     assert response.status_code == 200
     assert captured["user_name"] == "Juan Pérez"
+
+
+@pytest.mark.asyncio
+async def test_compose_endpoint(client, monkeypatch):
+    captured = {}
+
+    async def fake_compose(**kwargs):
+        captured.update(kwargs)
+        return {"subject": "Factura", "body": "Hola"}
+
+    monkeypatch.setattr("app.routers.compose.compose_email", fake_compose)
+
+    response = await client.post(
+        "/compose",
+        json={"instruction": "mandale la factura", "contact_name": "Juan", "user_name": "Lucía"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"subject": "Factura", "body": "Hola"}
+    assert captured["user_name"] == "Lucía"
+
+
+@pytest.mark.asyncio
+async def test_compose_endpoint_without_instruction_is_422(client):
+    response = await client.post("/compose", json={"user_name": "Lucía"})
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_compose_endpoint_internal_error_is_sanitized(client, monkeypatch):
+    async def boom(**kwargs):
+        raise RuntimeError("secret db password: hunter2")
+
+    monkeypatch.setattr("app.routers.compose.compose_email", boom)
+
+    response = await client.post("/compose", json={"instruction": "hola"})
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Internal server error"
+
+
+@pytest.mark.asyncio
+async def test_contact_profile_endpoint(client, monkeypatch):
+    async def fake_profile(**kwargs):
+        return {"company": "Acme", "topic": "Facturas"}
+
+    monkeypatch.setattr("app.routers.compose.contact_profile", fake_profile)
+
+    response = await client.post(
+        "/contact-profile",
+        json={"address": "juan@x.com", "subjects": ["Factura 1"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"company": "Acme", "topic": "Facturas"}

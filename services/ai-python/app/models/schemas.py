@@ -69,3 +69,32 @@ class RewriteRequest(BaseModel):
 class RewriteResponse(BaseModel):
     rewritten: str
     original: str
+
+
+class ComposeRequest(BaseModel):
+    instruction: str
+    contact_name: str = ""
+    contact_company: str = ""
+    contact_topic: str = ""
+    contact_notes: str = ""
+    recent_subjects: list[str] = []
+    subject_hint: str = ""
+    tone: str = "formal"
+    language: str = "auto"
+    user_name: str = ""
+
+
+class ComposeResponse(BaseModel):
+    subject: str
+    body: str
+
+
+class ContactProfileRequest(BaseModel):
+    address: str
+    display_name: str = ""
+    subjects: list[str] = []
+
+
+class ContactProfileResponse(BaseModel):
+    company: str = ""
+    topic: str = ""
