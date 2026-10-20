@@ -18,6 +18,12 @@ public interface SyncJobRepository extends JpaRepository<SyncJob, UUID> {
 
     @Modifying
     @Transactional
+    @Query("UPDATE SyncJob j SET j.status = 'FAILED', j.errorMessage = 'Stale job: sin progreso', j.updatedAt = CURRENT_TIMESTAMP " +
+            "WHERE j.user.id = :userId AND j.status = 'RUNNING' AND j.updatedAt < :cutoff")
+    int failStaleRunningForUser(@Param("userId") UUID userId, @Param("cutoff") Instant cutoff);
+
+    @Modifying
+    @Transactional
     @Query("UPDATE SyncJob j SET j.fetched = :fetched, j.total = :total, j.updatedAt = :updatedAt WHERE j.id = :jobId")
     int updateProgress(@Param("jobId") UUID jobId, @Param("fetched") int fetched, @Param("total") int total, @Param("updatedAt") Instant updatedAt);
 

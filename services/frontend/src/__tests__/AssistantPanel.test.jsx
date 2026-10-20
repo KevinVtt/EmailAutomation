@@ -1,13 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import AssistantPanel from '../components/assistant/AssistantPanel';
 import { ScreenScopeProvider } from '../context/ScreenScopeContext';
+import { useWebSocket } from '../hooks/useWebSocket';
 import Spam from '../pages/Spam';
 
 vi.mock('../components/EmailListView', () => ({
   default: () => <div>email-list</div>,
 }));
+
+vi.mock('../hooks/useWebSocket', () => ({ useWebSocket: vi.fn() }));
 
 const EMAILS = [
   { id: 'e1', providerEmailId: 'm1', provider: 'google', subject: 'Primera', fromAddress: 'a@x.com' },
@@ -67,6 +70,22 @@ describe('AssistantPanel', () => {
 
     expect(screen.getByTestId('assistant-panel')).toHaveAttribute('data-open', 'true');
     expect(screen.getByTestId('page-content')).toBeTruthy();
+  });
+
+  it('shows a chat response pushed over WebSocket', async () => {
+    // El REST queda pendiente: la respuesta llega sólo por el push.
+    global.fetch = vi.fn(() => new Promise(() => {}));
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Asistente' }));
+    fireEvent.change(screen.getByPlaceholderText(/Escribe un filtro/i), {
+      target: { value: 'hola' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
+
+    const { onChat } = useWebSocket.mock.calls[0][1];
+    act(() => onChat({ response: 'Llegó por WebSocket', conversation_id: 'ws-1' }));
+
+    expect(await screen.findByText('Llegó por WebSocket')).toBeTruthy();
   });
 
   it('sends the Spam scope with the message', async () => {

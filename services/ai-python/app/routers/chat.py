@@ -12,13 +12,15 @@ router = APIRouter()
 
 @router.post("", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-    logger.info("=== PYTHON CHAT INICIO === message=%s, conversation_id=%s", request.message, request.conversation_id)
+    logger.info("=== PYTHON CHAT INICIO === message_len=%d, conversation_id=%s",
+                len(request.message or ""), request.conversation_id)
     try:
         t0 = time.time()
         result = await process_chat_message(request.message, request.conversation_id, request.scope)
         t1 = time.time()
-        logger.info("=== PYTHON CHAT FIN === response=%s, criteria=%s, conversation_id=%s, tiempo=%.0fms",
-                     result.get("response","")[:100], result.get("criteria"), result.get("conversation_id",""), (t1-t0)*1000)
+        logger.info("=== PYTHON CHAT FIN === response_len=%d, criteria_keys=%s, conversation_id=%s, tiempo=%.0fms",
+                     len(result.get("response", "")), sorted((result.get("criteria") or {}).keys()),
+                     result.get("conversation_id", ""), (t1-t0)*1000)
         return ChatResponse(
             response=result.get("response", ""),
             criteria=result.get("criteria"),

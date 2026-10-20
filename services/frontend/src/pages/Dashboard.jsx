@@ -197,7 +197,9 @@ export default function Dashboard() {
       }, 2000);
       // Safety: si el poll no ve terminar la sync, liberamos la UI igual (antes
       // solo se cortaba el interval y el botón quedaba en "Sincronizando...").
-      const timeout = mode === 'full' ? 600000 : 180000;
+      // 10 min para ambos modos: un full sync con tope de 1000 mails tarda ~4-5 min
+      // y un incremental grande puede pasar los 3 min que tenía antes.
+      const timeout = 600000;
       syncSafetyRef.current = setTimeout(() => {
         if (pollIntervalRef.current) finishSync('error');
       }, timeout);

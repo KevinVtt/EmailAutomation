@@ -51,8 +51,8 @@ public class GmailService {
      * Espaciado entre {@code messages.get} para respetar la cuota por usuario de
      * Gmail (6.000 unidades/min). Un {@code messages.get} cuesta 20 unidades, así
      * que 250ms equivale a ~240 req/min (~4.800 unidades), dejando margen para los
-     * list. Es un espaciado GLOBAL (ver {@link #throttleRequests()}), así que la
-     * tasa agregada no cambia aunque se descargue en paralelo.
+     * list. Es un espaciado POR USUARIO (ver {@link #throttleRequests(String)}), así
+     * que la tasa de cada token no cambia aunque se descargue en paralelo.
      * Configurable via {@code EMAIL_SYNC_REQUEST_DELAY_MS}.
      */
     @Value("${email.sync.request-delay-ms:250}")
@@ -62,8 +62,10 @@ public class GmailService {
     @Value("${email.sync.fetch-concurrency:6}")
     private int fetchConcurrency;
 
-    private final Object throttleLock = new Object();
-    private long nextRequestAtMs = 0L;
+    private final java.util.concurrent.ConcurrentHashMap<String, Object> throttleLocks =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ConcurrentHashMap<String, Long> nextRequestAtByKey =
+            new java.util.concurrent.ConcurrentHashMap<>();
     private volatile ExecutorService detailExecutor;
 
     protected Gmail buildGmailClient(String accessToken) {
@@ -105,7 +107,7 @@ public class GmailService {
         }
 
         var emails = messages.stream()
-                .map(msg -> fetchMessageDetail(gmail, msg))
+                .map(msg -> fetchMessageDetail(gmail, msg, accessToken))
                 .collect(Collectors.toList());
 
         result.put("emails", emails);
@@ -140,8 +142,8 @@ public class GmailService {
         var sinceDate = dateFormatter.format(java.util.Date.from(since));
 
         // Fetch BOTH inbox and spam (spam was previously never queried in incremental sync)
-        var inbox = fetchIncrementalByQuery(gmail, "in:inbox after:" + sinceDate, existingIds);
-        var spam = fetchIncrementalByQuery(gmail, "in:spam after:" + sinceDate, existingIds);
+        var inbox = fetchIncrementalByQuery(gmail, "in:inbox after:" + sinceDate, existingIds, accessToken);
+        var spam = fetchIncrementalByQuery(gmail, "in:spam after:" + sinceDate, existingIds, accessToken);
 
         // Merge with dedup by providerEmailId (a message can appear in both inbox and spam)
         var all = new java.util.LinkedHashMap<String, com.emailfilter.model.EmailMessage>();
@@ -153,7 +155,7 @@ public class GmailService {
     }
 
     private List<com.emailfilter.model.EmailMessage> fetchIncrementalByQuery(
-            Gmail gmail, String query, java.util.Set<String> existingIds) {
+            Gmail gmail, String query, java.util.Set<String> existingIds, String throttleKey) {
         var newEmails = new java.util.ArrayList<com.emailfilter.model.EmailMessage>();
 
         String pageToken = null;
@@ -175,7 +177,7 @@ public class GmailService {
                 // Skip messages we already have in the DB
                 if (existingIds.contains(msg.getId())) continue;
                 // Fetch full details only for new messages
-                newEmails.add(fetchMessageDetail(gmail, msg));
+                newEmails.add(fetchMessageDetail(gmail, msg, throttleKey));
             }
 
             pageToken = response.getNextPageToken();
@@ -209,7 +211,7 @@ public class GmailService {
 
             for (var msg : messages) {
                 if (allEmails.size() >= maxTotal) break;
-                allEmails.add(fetchMessageDetail(gmail, msg));
+                allEmails.add(fetchMessageDetail(gmail, msg, accessToken));
             }
 
             pageToken = response.getNextPageToken();
@@ -218,9 +220,9 @@ public class GmailService {
         return allEmails;
     }
 
-    private com.emailfilter.model.EmailMessage fetchMessageDetail(Gmail gmail, Message msg) {
+    private com.emailfilter.model.EmailMessage fetchMessageDetail(Gmail gmail, Message msg, String throttleKey) {
         var full = retryTemplateExecute(() -> {
-            throttleRequests();
+            throttleRequests(throttleKey);
             return gmail.users().messages().get("me", msg.getId()).setFormat("full").execute();
         });
         return mapToEmail(full);
@@ -235,12 +237,17 @@ public class GmailService {
      * se pudieron bajar, en el mismo orden de entrada.
      */
     public List<com.emailfilter.model.EmailMessage> fetchMessagesByIds(Gmail gmail, List<String> messageIds) {
+        return fetchMessagesByIds(gmail, messageIds, "global");
+    }
+
+    public List<com.emailfilter.model.EmailMessage> fetchMessagesByIds(Gmail gmail, List<String> messageIds,
+                                                                       String throttleKey) {
         if (messageIds == null || messageIds.isEmpty()) return List.of();
         var futures = messageIds.stream()
                 .map(id -> CompletableFuture.supplyAsync(() -> {
                     try {
                         var full = retryTemplateExecute(() -> {
-                            throttleRequests();
+                            throttleRequests(throttleKey);
                             return gmail.users().messages().get("me", id).setFormat("full").execute();
                         });
                         return mapToEmail(full);
@@ -340,7 +347,7 @@ public class GmailService {
                 for (var msg : messages) {
                     if (seen >= maxTotal) break;
                     seen++;
-                    for (var address : recipientsOf(gmail, msg.getId())) {
+                    for (var address : recipientsOf(gmail, msg.getId(), accessToken)) {
                         counts.merge(address, 1, Integer::sum);
                     }
                 }
@@ -353,9 +360,9 @@ public class GmailService {
         return counts;
     }
 
-    private Set<String> recipientsOf(Gmail gmail, String messageId) {
+    private Set<String> recipientsOf(Gmail gmail, String messageId, String throttleKey) {
         var full = retryTemplateExecute(() -> {
-            throttleRequests();
+            throttleRequests(throttleKey);
             return gmail.users().messages().get("me", messageId)
                     .setFormat("metadata")
                     .setMetadataHeaders(List.of("To", "Cc"))
@@ -499,22 +506,39 @@ public class GmailService {
     }
 
     public String sendEmail(String accessToken, String to, String subject, String body) {
+        return sendEmail(accessToken, to, subject, body, null);
+    }
+
+    public String sendEmail(String accessToken, String to, String subject, String body, String threadId) {
         var gmail = buildGmailClient(accessToken);
         var raw = Base64.getUrlEncoder().withoutPadding()
                 .encodeToString(buildMimeMessage(to, subject, body).getBytes(StandardCharsets.UTF_8));
+        var message = new Message().setRaw(raw);
+        if (threadId != null && !threadId.isBlank()) {
+            // Sin threadId Gmail abre un hilo nuevo y la respuesta queda suelta.
+            message.setThreadId(threadId);
+        }
         var response = retryTemplateExecute(() ->
-                gmail.users().messages().send("me", new Message().setRaw(raw)).execute());
-        log.info("Gmail message sent: id={}, to={}, subject={}", response.getId(), to, subject);
+                gmail.users().messages().send("me", message).execute());
+        log.info("Gmail message sent: id={}", response.getId());
         return response.getId();
     }
 
     String buildMimeMessage(String to, String subject, String body) {
         return "From: me\r\n"
                 + "To: " + to + "\r\n"
-                + "Subject: " + subject + "\r\n"
+                + "Subject: " + encodeHeader(subject) + "\r\n"
                 + "Content-Type: text/plain; charset=UTF-8\r\n"
                 + "\r\n"
                 + body;
+    }
+
+    /** RFC 2047: los headers MIME no son UTF-8; un asunto con acentos viaja en base64. */
+    static String encodeHeader(String value) {
+        if (value == null || value.chars().allMatch(c -> c < 0x80)) {
+            return value;
+        }
+        return "=?UTF-8?B?" + Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8)) + "?=";
     }
 
     private void modifyMessage(String accessToken, String messageId,
@@ -556,7 +580,7 @@ public class GmailService {
             }
             if (status >= 400 && status < 500) {
                 // 401/403 (token vencido, permisos revocados) y otros 4xx no se arreglan reintentando
-                return new PermanentApiException("Gmail API error permanente (HTTP " + status + ")", e);
+                return new PermanentApiException("Gmail API error permanente (HTTP " + status + ")", e, status);
             }
             return new TransientApiException("Gmail API error transitorio (HTTP " + status + ")", e);
         }
@@ -599,19 +623,23 @@ public class GmailService {
     }
 
     /**
-     * Espaciado global (compartido entre todos los hilos) entre requests de
-     * detalle. Reserva el próximo slot bajo lock y duerme lo justo: la tasa
-     * agregada queda en ~1000/delay req/s aunque se descargue en paralelo.
+     * Espaciado por usuario (clave = access token) entre requests de detalle. Cada
+     * usuario tiene su propia cuota de Gmail: un sync pesado no debe frenar a otro.
+     * Reserva el próximo slot bajo lock y duerme lo justo; la concurrencia sólo
+     * solapa latencia de red, no sube la tasa.
      */
-    private void throttleRequests() {
+    private void throttleRequests(String key) {
         if (requestDelayMs <= 0) return;
-        synchronized (throttleLock) {
+        var lockKey = key != null ? key : "global";
+        var lock = throttleLocks.computeIfAbsent(lockKey, ignored -> new Object());
+        synchronized (lock) {
             long now = System.currentTimeMillis();
-            if (nextRequestAtMs > now) {
-                sleepQuietly(nextRequestAtMs - now);
+            long next = nextRequestAtByKey.getOrDefault(lockKey, 0L);
+            if (next > now) {
+                sleepQuietly(next - now);
                 now = System.currentTimeMillis();
             }
-            nextRequestAtMs = Math.max(now, nextRequestAtMs) + requestDelayMs;
+            nextRequestAtByKey.put(lockKey, Math.max(now, next) + requestDelayMs);
         }
     }
 

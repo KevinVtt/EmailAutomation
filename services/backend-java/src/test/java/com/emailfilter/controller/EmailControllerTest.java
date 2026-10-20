@@ -89,6 +89,7 @@ class EmailControllerTest {
     @Test
     @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
     void performAction_returnsOk() throws Exception {
+        when(emailService.ownsEmail(any(), eq("12345"))).thenReturn(true);
         var body = """
                 {
                     "provider": "google",
@@ -101,6 +102,42 @@ class EmailControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
+    void performAction_emailOfAnotherUser_returns404AndDoesNotTouchProvider() throws Exception {
+        when(emailService.ownsEmail(any(), eq("ajeno"))).thenReturn(false);
+
+        mockMvc.perform(post("/api/emails/action")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"provider":"google","emailId":"ajeno","action":"trash"}"""))
+                .andExpect(status().isNotFound());
+
+        verify(emailService, never()).moveToTrash(any(), any(), any());
+    }
+
+    @Test
+    @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
+    void getEmails_clampsPageAndSize() throws Exception {
+        when(emailService.getEmails(any(), eq(0), eq(100)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        mockMvc.perform(get("/api/emails").param("page", "-1").param("size", "9999"))
+                .andExpect(status().isOk());
+
+        verify(emailService).getEmails(any(), eq(0), eq(100));
+    }
+
+    @Test
+    @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
+    void getEmail_missing_returns404() throws Exception {
+        when(emailService.getEmailById(any(), any()))
+                .thenThrow(new com.emailfilter.exception.ResourceNotFoundException("nope"));
+
+        mockMvc.perform(get("/api/emails/" + UUID.randomUUID()))
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -225,6 +262,19 @@ class EmailControllerTest {
 
         verify(aiServiceClient).rewrite(anyString(), anyString(), anyString(), anyString(),
                 anyString(), anyString(), anyString(), eq("Juan Pérez"));
+    }
+
+    @Test
+    @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
+    void rewriteEmail_rejectsBlankDraft() throws Exception {
+        mockMvc.perform(post("/api/emails/rewrite")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"draft":"   ","tone":"formal","language":"auto"}"""))
+                .andExpect(status().isBadRequest());
+
+        verify(aiServiceClient, never()).rewrite(anyString(), anyString(), anyString(), anyString(),
+                anyString(), anyString(), anyString(), anyString());
     }
 
     @Test

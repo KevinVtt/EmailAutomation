@@ -1,9 +1,11 @@
 package com.emailfilter.dto;
 
 import lombok.Data;
+import jakarta.validation.constraints.NotBlank;
 
 @Data
 public class RewriteRequest {
+    @NotBlank
     private String draft;
     private String originalSubject = "";
     private String originalFrom = "";

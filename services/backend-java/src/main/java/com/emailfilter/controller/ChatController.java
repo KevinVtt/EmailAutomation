@@ -32,12 +32,14 @@ public class ChatController {
             Authentication auth,
             @Valid @RequestBody ChatRequest request) {
         var userId = getUserId(auth);
-        log.info("=== CHAT REST INICIO === userId={}, message={}, conversationId={}", userId, request.getMessage(), request.getConversationId());
+        log.info("=== CHAT REST INICIO === userId={}, message_len={}, conversationId={}",
+                userId, request.getMessage() != null ? request.getMessage().length() : 0, request.getConversationId());
 
         long t0 = System.currentTimeMillis();
         var aiResponse = aiServiceClient.chat(request.getMessage(), request.getConversationId(), request.getScope());
         long t1 = System.currentTimeMillis();
-        log.info("AI service respondió en {} ms. response={}", (t1-t0), aiResponse.get("response"));
+        log.info("AI service respondió en {} ms (response_len={})", (t1-t0),
+                aiResponse.get("response") instanceof String s ? s.length() : 0);
 
         long t2 = System.currentTimeMillis();
         var found = processChat(userId, aiResponse, request.getScope());
@@ -53,10 +55,12 @@ public class ChatController {
             Authentication auth,
             @Payload ChatRequest request) {
         var userId = getUserId(auth);
-        log.info("=== CHAT WEBSOCKET INICIO === userId={}, message={}, conversationId={}", userId, request.getMessage(), request.getConversationId());
+        log.info("=== CHAT WEBSOCKET INICIO === userId={}, message_len={}, conversationId={}",
+                userId, request.getMessage() != null ? request.getMessage().length() : 0, request.getConversationId());
 
         var aiResponse = aiServiceClient.chat(request.getMessage(), request.getConversationId(), request.getScope());
-        log.info("AI service respondió (WebSocket): {}", aiResponse.get("response"));
+        log.info("AI service respondió (WebSocket, response_len={})",
+                aiResponse.get("response") instanceof String s ? s.length() : 0);
 
         var found = processChat(userId, aiResponse, request.getScope());
         log.info("emails encontrados: {}", found);
@@ -72,7 +76,7 @@ public class ChatController {
     private long processChat(UUID userId, Map<String, Object> aiResponse, Map<String, Object> scope) {
         var criteria = extractCriteria(aiResponse);
         applyScope(criteria, scope);
-        log.info("Criteria extraídos: {}", criteria);
+        log.info("Criteria extraídos: {}", criteria.keySet());
         if (criteria.isEmpty()) {
             log.info("Enviando chat_response por WebSocket a usuario {}", userId);
             webSocketService.sendChatResponse(userId.toString(), Map.of(
@@ -142,7 +146,8 @@ public class ChatController {
         var sizeStr = criteria.get("size");
         if (sizeStr != null) {
             try {
-                return Integer.parseInt(sizeStr);
+                int parsed = Integer.parseInt(sizeStr);
+                return Math.max(1, Math.min(parsed, 100));
             } catch (NumberFormatException e) {
                 log.warn("Invalid size in criteria: {}", sizeStr);
             }

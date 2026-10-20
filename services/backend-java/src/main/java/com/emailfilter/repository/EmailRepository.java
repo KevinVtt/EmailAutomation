@@ -56,6 +56,8 @@ public interface EmailRepository extends JpaRepository<EmailMessage, UUID>,
 
     Optional<EmailMessage> findByProviderEmailIdAndUserId(String providerEmailId, UUID userId);
 
+    boolean existsByUserIdAndProviderEmailId(UUID userId, String providerEmailId);
+
     List<EmailMessage> findByUserIdAndProviderEmailIdIn(UUID userId, Collection<String> providerEmailIds);
 
     @Modifying
@@ -73,6 +75,24 @@ public interface EmailRepository extends JpaRepository<EmailMessage, UUID>,
     @Transactional
     @Query("UPDATE EmailMessage e SET e.isStarred = true WHERE e.user.id = :userId AND e.providerEmailId IN :starredIds")
     int starByProviderEmailIds(@Param("userId") UUID userId, @Param("starredIds") Collection<String> starredIds);
+
+    @Modifying
+    @Transactional
+    @Query("UPDATE EmailMessage e SET e.isStarred = false WHERE e.user.id = :userId AND e.providerEmailId IN :unstarredIds")
+    int unstarByProviderEmailIds(@Param("userId") UUID userId, @Param("unstarredIds") Collection<String> unstarredIds);
+
+    @Query("SELECT e.providerEmailId FROM EmailMessage e WHERE e.user.id = :userId AND e.isStarred = true")
+    List<String> findStarredProviderEmailIds(@Param("userId") UUID userId);
+
+    @Query("SELECT e.providerEmailId FROM EmailMessage e WHERE e.user.id = :userId AND e.labels LIKE '%SPAM%'")
+    List<String> findSpamProviderEmailIds(@Param("userId") UUID userId);
+
+    @Modifying
+    @Transactional
+    @Query("UPDATE EmailMessage e SET e.labels = " +
+            "REPLACE(REPLACE(REPLACE(e.labels, ',SPAM', ''), 'SPAM,', ''), 'SPAM', '') " +
+            "WHERE e.user.id = :userId AND e.providerEmailId IN :spamIds AND e.labels LIKE '%SPAM%'")
+    int removeSpamLabelByProviderEmailIds(@Param("userId") UUID userId, @Param("spamIds") Collection<String> spamIds);
 
     @Modifying
     @Transactional

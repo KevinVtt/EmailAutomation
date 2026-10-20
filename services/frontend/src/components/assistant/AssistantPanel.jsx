@@ -6,13 +6,19 @@ import AssistantButton from './AssistantButton';
 import ContactsTab from './ContactsTab';
 import { useScreenScope } from '../../context/ScreenScopeContext';
 import { api } from '../../lib/api';
+import { getStoredAuth } from '../../lib/auth';
+import { useWebSocket } from '../../hooks/useWebSocket';
 
 export default function AssistantPanel() {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState('chat');
   const [results, setResults] = useState([]);
   const [error, setError] = useState('');
+  const [chatResponse, setChatResponse] = useState(null);
   const { scope } = useScreenScope();
+  // El backend manda el resultado del chat por WebSocket; sin esta suscripción
+  // el panel sólo veía la respuesta REST y la ruta WS quedaba muerta.
+  useWebSocket(getStoredAuth()?.accessToken, { onChat: setChatResponse });
   const navigate = useNavigate();
   // Solo tiene sentido cuando la lista actual restringe (Spam, Destacados).
   const restricted = Object.keys(scope.criteria || {}).length > 0;
@@ -152,6 +158,8 @@ export default function AssistantPanel() {
             <div className="flex-1 min-h-0">
               <ChatPanel
                 scope={searchAll ? null : scope}
+                chatResponse={chatResponse}
+                onChatConsumed={() => setChatResponse(null)}
                 onResults={applyResults}
                 resetKey={resetKey}
                 onExpand={() => setExpanded(true)}

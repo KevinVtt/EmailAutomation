@@ -60,6 +60,20 @@ describe('EmailListView', () => {
     expect(await screen.findByText('Email destacado')).toBeTruthy();
   });
 
+  it('sends dateFrom at local midnight, not UTC midnight', async () => {
+    api.emails.filter.mockResolvedValue({ content: [], totalPages: 0 });
+    const { container } = renderList();
+    await waitFor(() => expect(api.emails.filter).toHaveBeenCalled());
+
+    const dateInput = container.querySelector('input[type="date"]');
+    fireEvent.change(dateInput, { target: { value: '2026-10-20' } });
+
+    await waitFor(() => {
+      const lastCall = api.emails.filter.mock.calls.at(-1);
+      expect(lastCall[0].dateFrom).toBe(new Date('2026-10-20T00:00:00').toISOString());
+    });
+  });
+
   it('renders the section title', async () => {
     api.emails.filter.mockResolvedValue({ content: [], totalPages: 0 });
     renderList();

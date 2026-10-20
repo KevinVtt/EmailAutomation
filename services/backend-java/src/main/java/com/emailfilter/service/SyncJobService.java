@@ -24,6 +24,8 @@ public class SyncJobService {
 
     @Transactional
     public SyncJob start(UUID userId, String provider, String mode) {
+        // Un job RUNNING que dejó de reportar progreso no puede bloquear el sync para siempre.
+        repo.failStaleRunningForUser(userId, Instant.now().minus(10, ChronoUnit.MINUTES));
         repo.findActiveByUserId(userId).ifPresent(j -> {
             throw new IllegalStateException("Ya hay una sincronización en curso");
         });

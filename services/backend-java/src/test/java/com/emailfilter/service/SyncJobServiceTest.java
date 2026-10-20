@@ -57,6 +57,7 @@ class SyncJobServiceTest {
         assertEquals("incremental", job.getMode());
         assertEquals(0, job.getFetched());
         assertEquals(0, job.getTotal());
+        verify(repo).failStaleRunningForUser(eq(userId), any(Instant.class));
         verify(repo).save(any(SyncJob.class));
     }
 

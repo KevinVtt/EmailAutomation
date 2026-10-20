@@ -61,7 +61,8 @@ public class AIServiceClient {
         }
         var entity = new HttpEntity<>(body, headers);
 
-        log.info("AIServiceClient llamando a {}/chat con message={}, conversationId={}", aiServiceUrl, message, conversationId);
+        log.info("AIServiceClient llamando a {}/chat (message_len={}, conversationId={})", aiServiceUrl,
+                message != null ? message.length() : 0, conversationId);
         long t0 = System.currentTimeMillis();
         var result = restTemplate.exchange(
                 aiServiceUrl + "/chat",
@@ -70,7 +71,10 @@ public class AIServiceClient {
                 new ParameterizedTypeReference<Map<String, Object>>() {}
         ).getBody();
         long t1 = System.currentTimeMillis();
-        log.info("AIServiceClient chat respondió en {} ms. response={}, criteria={}", (t1-t0), result != null ? result.get("response") : "null", result != null ? result.get("criteria") : "null");
+        var criteria = result != null ? result.get("criteria") : null;
+        log.info("AIServiceClient chat respondió en {} ms (response_len={}, criteria_keys={})", (t1-t0),
+                result != null && result.get("response") instanceof String s ? s.length() : 0,
+                criteria instanceof Map<?, ?> m ? m.keySet() : "none");
         return result;
     }
 
@@ -92,7 +96,7 @@ public class AIServiceClient {
         ).getBody();
 
         var summary = response != null ? (String) response.get("summary") : "";
-        log.info("AIServiceClient summarize respuesta: {}", summary);
+        log.info("AIServiceClient summarize respuesta (len={})", summary != null ? summary.length() : 0);
         return summary;
     }
 

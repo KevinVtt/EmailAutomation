@@ -36,7 +36,7 @@ public class EmailController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         var userId = getUserId(auth);
-        return ResponseEntity.ok(emailService.getEmails(userId, page, size));
+        return ResponseEntity.ok(emailService.getEmails(userId, clampPage(page), clampSize(size)));
     }
 
     @GetMapping("/{id}")
@@ -54,7 +54,7 @@ public class EmailController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         var userId = getUserId(auth);
-        return ResponseEntity.ok(emailService.filterEmails(userId, filters, page, size));
+        return ResponseEntity.ok(emailService.filterEmails(userId, filters, clampPage(page), clampSize(size)));
     }
 
     @PostMapping("/action")
@@ -75,6 +75,10 @@ public class EmailController {
         }
         if (actionType == null || actionType.isBlank()) {
             return ResponseEntity.badRequest().build();
+        }
+        // Sin esto, cualquier id de Gmail (de otra cuenta) se modificaba en el proveedor.
+        if (!emailService.ownsEmail(userId, emailId)) {
+            return ResponseEntity.notFound().build();
         }
 
         var user = userDetailsService.loadUserEntityById(userId);
@@ -160,7 +164,7 @@ public class EmailController {
     @PostMapping("/rewrite")
     public ResponseEntity<Map<String, Object>> rewriteEmail(
             Authentication auth,
-            @RequestBody RewriteRequest request) {
+            @jakarta.validation.Valid @RequestBody RewriteRequest request) {
         var userId = getUserId(auth);
         log.info("=== REWRITE INICIO === userId={}, tone={}, language={}, draft_len={}",
                 userId, request.getTone(), request.getLanguage(), request.getDraft().length());
@@ -231,5 +235,13 @@ public class EmailController {
 
     private UUID getUserId(Authentication auth) {
         return UUID.fromString(auth.getName());
+    }
+
+    private static int clampPage(int page) {
+        return Math.max(0, page);
+    }
+
+    private static int clampSize(int size) {
+        return Math.max(1, Math.min(size, 100));
     }
 }

@@ -38,7 +38,8 @@ export default function EmailListView({
 
   const buildFilters = useCallback((overrides = {}) => {
     const merged = { ...filtersRef.current };
-    if (dateFrom) merged.dateFrom = new Date(dateFrom).toISOString();
+    // Sin la hora, "2026-10-20" se parsea como UTC y en Argentina cae el día anterior.
+    if (dateFrom) merged.dateFrom = new Date(dateFrom + 'T00:00:00').toISOString();
     if (dateTo) merged.dateTo = new Date(dateTo + 'T23:59:59').toISOString();
     return { ...merged, ...overrides };
   }, [dateFrom, dateTo]);

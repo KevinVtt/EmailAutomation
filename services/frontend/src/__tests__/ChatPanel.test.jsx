@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { useState } from 'react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import ChatPanel from '../components/ChatPanel';
 
 describe('ChatPanel component', () => {
@@ -39,5 +40,43 @@ describe('ChatPanel component', () => {
     await waitFor(() => {
       expect(screen.getByText('Showing important emails.')).toBeTruthy();
     });
+  });
+
+  it('does not duplicate a response already received over WebSocket', async () => {
+    const payload = { response: 'Misma respuesta', conversation_id: 'c1', conversationId: 'c1' };
+    let resolveFetch;
+    global.fetch = vi.fn(() => new Promise((resolve) => { resolveFetch = resolve; }));
+
+    function Harness() {
+      const [ws, setWs] = useState(null);
+      return (
+        <>
+          <button onClick={() => setWs(payload)}>push-ws</button>
+          <ChatPanel chatResponse={ws} onChatConsumed={() => setWs(null)} />
+        </>
+      );
+    }
+
+    render(<Harness />);
+    fireEvent.change(screen.getByPlaceholderText(/Escribe un filtro/i), {
+      target: { value: 'hola' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
+
+    // El push llega antes que el REST: muestra la respuesta una vez.
+    fireEvent.click(screen.getByText('push-ws'));
+    await waitFor(() => expect(screen.getAllByText('Misma respuesta')).toHaveLength(1));
+
+    await act(async () => {
+      resolveFetch({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: () => Promise.resolve(JSON.stringify(payload)),
+      });
+    });
+
+    // El REST no la agrega de nuevo.
+    expect(screen.getAllByText('Misma respuesta')).toHaveLength(1);
   });
 });

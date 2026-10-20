@@ -179,7 +179,7 @@ public class OutlookService {
             }
             if (status >= 400 && status < 500) {
                 // 401/403 (token vencido, permisos revocados) y otros 4xx no se arreglan reintentando
-                return new PermanentApiException("Graph API error permanente (HTTP " + status + ")", e);
+                return new PermanentApiException("Graph API error permanente (HTTP " + status + ")", e, status);
             }
             return new TransientApiException("Graph API error transitorio (HTTP " + status + ")", e);
         }

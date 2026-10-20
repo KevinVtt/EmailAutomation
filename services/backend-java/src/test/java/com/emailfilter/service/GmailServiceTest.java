@@ -31,6 +31,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -264,6 +265,27 @@ class GmailServiceTest {
         assertTrue(decoded.contains("To: to@example.com"));
         assertTrue(decoded.contains("Subject: Re: Hola"));
         assertTrue(decoded.contains("Content-Type: text/plain; charset=UTF-8"));
+    }
+
+    @Test
+    void sendEmail_withThreadId_repliesInSameThread() throws Exception {
+        var sendRequest = mock(Gmail.Users.Messages.Send.class);
+        when(gmail.users().messages().send(eq("me"), any(Message.class))).thenReturn(sendRequest);
+        when(sendRequest.execute()).thenReturn(new Message().setId("sent-2"));
+
+        gmailService.sendEmail("token", "to@example.com", "Re: Hola", "Cuerpo", "thread-1");
+
+        var captor = ArgumentCaptor.forClass(Message.class);
+        verify(gmail.users().messages()).send(eq("me"), captor.capture());
+        assertEquals("thread-1", captor.getValue().getThreadId());
+    }
+
+    @Test
+    void buildMimeMessage_encodesNonAsciiSubject() {
+        var mime = gmailService.buildMimeMessage("to@example.com", "Facturación", "Cuerpo");
+
+        assertTrue(mime.contains("Subject: =?UTF-8?B?"));
+        assertFalse(mime.contains("Subject: Facturación"));
     }
 
     /**

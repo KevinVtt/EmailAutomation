@@ -173,8 +173,13 @@ public class AuthController {
         if (body == null || body.get("refreshToken") == null || body.get("refreshToken").isBlank()) {
             return ResponseEntity.badRequest().build();
         }
-        var response = authService.refreshAccessToken(body.get("refreshToken"));
-        return ResponseEntity.ok(response);
+        try {
+            var response = authService.refreshAccessToken(body.get("refreshToken"));
+            return ResponseEntity.ok(response);
+        } catch (com.emailfilter.exception.ResourceNotFoundException e) {
+            // Un refresh inválido/vencido es 401, no un 500.
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
     }
 
     @SuppressWarnings("unchecked")

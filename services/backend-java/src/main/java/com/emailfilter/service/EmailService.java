@@ -5,6 +5,8 @@ import com.emailfilter.dto.ComposeRequest;
 import com.emailfilter.dto.EmailDTO;
 import com.emailfilter.dto.GmailHistoryChanges;
 import com.emailfilter.dto.PrioritySummaryDTO;
+import com.emailfilter.exception.PermanentApiException;
+import com.emailfilter.exception.ResourceNotFoundException;
 import com.emailfilter.exception.TransientApiException;
 import com.emailfilter.model.EmailMessage;
 import com.emailfilter.model.OAuthToken;
@@ -32,6 +34,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.Instant;
@@ -70,9 +73,21 @@ public class EmailService {
     private final UserRepository userRepository;
     private final TokenCryptoService tokenCryptoService;
     private final ContactService contactService;
+    private final TransactionTemplate transactionTemplate;
 
     @Value("${email.sync.max-emails:1000}")
-    int maxEmailsPerSync;
+    int maxEmailsPerSync = 1000;
+
+    @Value("${google.client-id:}")
+    private String googleClientId;
+    @Value("${google.client-secret:}")
+    private String googleClientSecret;
+    @Value("${outlook.client-id:}")
+    private String outlookClientId;
+    @Value("${outlook.client-secret:}")
+    private String outlookClientSecret;
+    @Value("${outlook.tenant:common}")
+    private String outlookTenant;
 
     /** Ventana del primer barrido de enviados y tope de mails leídos (20 unidades cada uno). */
     @Value("${email.contacts.sent-window-days:365}")
@@ -81,7 +96,7 @@ public class EmailService {
     int contactsSentMax;
 
     private final ConcurrentHashMap<UUID, Boolean> syncingStatus = new ConcurrentHashMap<>();
-    private static final long SYNC_STATUS_TTL_MS = 5 * 60 * 1000L; // 5 minutes
+    private static final long SYNC_STATUS_TTL_MS = 15 * 60 * 1000L; // 15 minutes, con heartbeat en cada progreso
     private static final int EXISTING_IDS_PAGE_SIZE = 1000;
     private final ConcurrentHashMap<UUID, Long> syncingTimestamps = new ConcurrentHashMap<>();
 
@@ -95,11 +110,15 @@ public class EmailService {
     @Transactional(readOnly = true)
     public EmailDTO getEmailById(UUID userId, UUID emailId) {
         var email = emailRepository.findById(emailId)
-                .orElseThrow(() -> new RuntimeException("Email not found: " + emailId));
+                .orElseThrow(() -> new ResourceNotFoundException("Email not found: " + emailId));
         if (!email.getUser().getId().equals(userId)) {
-            throw new RuntimeException("Email does not belong to user");
+            throw new ResourceNotFoundException("Email does not belong to user");
         }
         return toDTO(email, fetchVistoEmailIds(userId, List.of(email)));
+    }
+
+    public boolean ownsEmail(UUID userId, String providerEmailId) {
+        return emailRepository.existsByUserIdAndProviderEmailId(userId, providerEmailId);
     }
 
     @Transactional(readOnly = true)
@@ -228,8 +247,19 @@ public class EmailService {
         var dayEnd = targetDate.plusDays(1).atStartOfDay(zone).toInstant();
 
         var filters = Map.of("dateFrom", dayStart.toString(), "dateTo", dayEnd.minusNanos(1).toString());
-        var emailPage = filterEmails(userId, filters, 0, 100);
-        var dtos = emailPage.getContent();
+        var emailPage = filterEmails(userId, filters, 0, 20);
+        // DTOs livianos: el resumen no necesita el HTML de 100 correos (era el payload
+        // más pesado hacia el servicio de IA).
+        var dtos = emailPage.getContent().stream()
+                .limit(20)
+                .map(email -> EmailDTO.builder()
+                        .providerEmailId(email.getProviderEmailId())
+                        .subject(email.getSubject())
+                        .fromAddress(email.getFromAddress())
+                        .fromName(email.getFromName())
+                        .bodyPreview(truncate(email.getBodyPreview(), 200))
+                        .build())
+                .toList();
         var totalElements = emailPage.getTotalElements();
 
         if (dtos.isEmpty()) {
@@ -287,7 +317,7 @@ public class EmailService {
     @Transactional(readOnly = true)
     public PrioritySummaryDTO buildPrioritySummary(UUID userId) {
         var user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found: " + userId));
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
         long urgentes = emailRepository.countUrgentesByUserId(userId);
         long destacadosSinLeer = emailRepository.countDestacadosSinLeerByUserId(userId);
         long pendientesRespuesta = emailRepository.countPendientesRespuestaByUserId(userId, user.getEmail());
@@ -382,8 +412,11 @@ public class EmailService {
             log.info("OAuth token obtained for user={}, provider={}", userId, provider);
 
             List<EmailMessage> emails;
+            boolean deleted = false;
             if ("google".equals(provider)) {
-                emails = syncGoogle(user, accessToken);
+                var result = syncGoogle(user, accessToken);
+                emails = result.emails();
+                deleted = result.deleted();
             } else if ("outlook".equals(provider)) {
                 log.info("Fetching emails from Outlook for user={}", userId);
                 var rawEmails = outlookService.fetchEmails(accessToken, 100);
@@ -395,15 +428,22 @@ public class EmailService {
                 throw new IllegalArgumentException("Unsupported provider: " + provider);
             }
 
-            int syncedCount = saveEmails(emails, user, provider);
+            var newEmails = new ArrayList<EmailMessage>();
+            int syncedCount = saveEmails(emails, user, provider, newEmails);
+            syncingTimestamps.put(userId, System.currentTimeMillis());
             syncJobService.updateProgress(job.getId(), emails.size(), emails.size());
             if ("google".equals(provider)) {
                 refreshLabelsAndStars(user, accessToken);
+                syncingTimestamps.put(userId, System.currentTimeMillis());
             }
-            notifyUrgentEmails(user, emails);
+            // Sólo los recién insertados: en Outlook el fetch devuelve siempre los mismos 100.
+            notifyUrgentEmails(user, newEmails);
             syncJobService.complete(job.getId());
             log.info("Sync complete: {} new emails saved for user={}, provider={} ({} total fetched)", syncedCount, userId, provider, emails.size());
-            refreshContacts(user);
+            // Sin altas ni bajas no hay nada que recalcular en contactos (antes corría cada 2 min).
+            if (syncedCount > 0 || deleted) {
+                refreshContacts(user);
+            }
             webSocketService.sendNotification(userId.toString(), "sync_complete");
         } catch (RuntimeException e) {
             if (job != null) {
@@ -465,6 +505,14 @@ public class EmailService {
                     .filter(id -> !existingIds.contains(id))
                     .collect(Collectors.toList());
 
+            // Un full sync de 20k correos superaba el timeout del dashboard y la TTL del
+            // estado de sync. Se corta por corrida; la próxima full sigue con el resto.
+            int cap = maxEmailsPerSync > 0 ? maxEmailsPerSync : Integer.MAX_VALUE;
+            if (newIds.size() > cap) {
+                log.info("Full sync capped to {} of {} new emails for user={}", cap, newIds.size(), userId);
+                newIds = new ArrayList<>(newIds.subList(0, cap));
+            }
+
             log.info("Of {} total, {} already in DB, {} new to fetch for user={}",
                     totalInGmail, existingIds.size(), newIds.size(), userId);
             webSocketService.sendNotification(userId.toString(),
@@ -476,7 +524,7 @@ public class EmailService {
                 refreshLabelsAndStars(user, accessToken);
                 syncJobService.complete(job.getId());
                 refreshContacts(user);
-            webSocketService.sendNotification(userId.toString(), "sync_complete");
+                webSocketService.sendNotification(userId.toString(), "sync_complete");
                 return CompletableFuture.completedFuture(null);
             }
 
@@ -491,11 +539,12 @@ public class EmailService {
                 }
 
                 var batch = newIds.subList(i, Math.min(i + batchSize, newIds.size()));
-                var batchEmails = gmailService.fetchMessagesByIds(gmail, batch);
+                var batchEmails = gmailService.fetchMessagesByIds(gmail, batch, accessToken);
 
                 if (!batchEmails.isEmpty()) {
-                    saveEmails(batchEmails, user, provider);
-                    allSavedEmails.addAll(batchEmails);
+                    var batchNew = new ArrayList<EmailMessage>();
+                    saveEmails(batchEmails, user, provider, batchNew);
+                    allSavedEmails.addAll(batchNew);
                     // Acotar memoria: solo conservamos los últimos 20 (los que se pasan
                     // a notifyUrgentEmails al final); en syncs largas el resto era basura.
                     if (allSavedEmails.size() > 20) {
@@ -505,6 +554,7 @@ public class EmailService {
                 }
 
                 fetched += batch.size();
+                syncingTimestamps.put(userId, System.currentTimeMillis());
                 syncJobService.updateProgress(job.getId(), fetched, newIds.size());
                 webSocketService.sendNotification(userId.toString(),
                         "sync_progress:" + fetched + ":" + newIds.size());
@@ -515,6 +565,7 @@ public class EmailService {
             }
 
             refreshLabelsAndStars(user, accessToken);
+            syncingTimestamps.put(userId, System.currentTimeMillis());
             notifyUrgentEmails(user, allSavedEmails);
             syncJobService.complete(job.getId());
 
@@ -614,7 +665,9 @@ public class EmailService {
      * borrado en Gmail deja de aparecer. Sin cursor (o vencido) cae al fetch por
      * fecha y guarda el cursor para la próxima.
      */
-    private List<EmailMessage> syncGoogle(User user, String accessToken) {
+    private record GoogleSyncResult(List<EmailMessage> emails, boolean deleted) {}
+
+    private GoogleSyncResult syncGoogle(User user, String accessToken) {
         var userId = user.getId();
         var oauthToken = oauthTokenRepository
                 .findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google")
@@ -625,7 +678,7 @@ public class EmailService {
             if (changes != null) {
                 var emails = applyHistoryChanges(user, accessToken, changes);
                 persistHistoryId(oauthToken, changes.latestHistoryId());
-                return emails;
+                return new GoogleSyncResult(emails, !changes.deletedIds().isEmpty());
             }
             log.warn("Stale historyId for user={}, falling back to date-based sync", userId);
         }
@@ -644,7 +697,7 @@ public class EmailService {
         }
         log.info("Incremental fetch: {} new emails for user={}", emails.size(), userId);
         persistHistoryId(oauthToken, cursor);
-        return emails;
+        return new GoogleSyncResult(emails, false);
     }
 
     /** Aplica altas/bajas del history de Gmail sobre la base local y devuelve los mails nuevos. */
@@ -666,7 +719,7 @@ public class EmailService {
         if (newIds.isEmpty()) {
             return List.of();
         }
-        return gmailService.fetchMessagesByIds(buildGmailClient(accessToken), newIds);
+        return gmailService.fetchMessagesByIds(buildGmailClient(accessToken), newIds, accessToken);
     }
 
     private void persistHistoryId(OAuthToken oauthToken, String historyId) {
@@ -690,58 +743,78 @@ public class EmailService {
         }
     }
 
-    @Transactional
     public int saveEmails(List<EmailMessage> emails, User user, String provider) {
+        return saveEmails(emails, user, provider, new ArrayList<>());
+    }
+
+    /**
+     * {@code newEmailsOut} recibe sólo las filas insertadas: urgencias y contactos
+     * deciden con eso, no con el lote entero (Outlook repite los mismos 100 cada sync).
+     * Todo el guardado va en una transacción: antes, un fallo a mitad de batch dejaba
+     * filas a medias y los existentes se guardaban de a uno.
+     */
+    private int saveEmails(List<EmailMessage> emails, User user, String provider,
+                           List<EmailMessage> newEmailsOut) {
         if (emails.isEmpty()) {
             return 0;
         }
-        int syncedCount = 0;
+        return transactionTemplate.execute(status -> {
+            int syncedCount = 0;
 
-        // Una sola query en lugar de una por mensaje: en syncs completas de miles de
-        // correos, la consulta individual era el cuello de botella dominante.
-        var incomingIds = emails.stream()
-                .map(EmailMessage::getProviderEmailId)
-                .collect(Collectors.toSet());
-        var existingById = new HashMap<String, EmailMessage>();
-        emailRepository.findByUserIdAndProviderEmailIdIn(user.getId(), incomingIds)
-                .forEach(e -> existingById.put(e.getProviderEmailId(), e));
+            // Una sola query en lugar de una por mensaje: en syncs completas de miles de
+            // correos, la consulta individual era el cuello de botella dominante.
+            var incomingIds = emails.stream()
+                    .map(EmailMessage::getProviderEmailId)
+                    .collect(Collectors.toSet());
+            var existingById = new HashMap<String, EmailMessage>();
+            emailRepository.findByUserIdAndProviderEmailIdIn(user.getId(), incomingIds)
+                    .forEach(e -> existingById.put(e.getProviderEmailId(), e));
 
-        var newEmails = new ArrayList<EmailMessage>();
-        for (var email : emails) {
-            var existing = existingById.get(email.getProviderEmailId());
-            if (existing != null) {
-                // Refresh existing email with the latest state from the provider
-                existing.setStarred(email.isStarred());
-                existing.setRead(email.isRead());
-                existing.setLabels(email.getLabels());
-                existing.setSubject(email.getSubject());
-                existing.setFromAddress(email.getFromAddress());
-                existing.setFromName(email.getFromName());
-                existing.setToAddresses(email.getToAddresses());
-                existing.setBodyPreview(email.getBodyPreview());
-                existing.setBodyHtml(htmlSanitizerService.sanitize(email.getBodyHtml()));
-                existing.setReceivedAt(email.getReceivedAt());
-                existing.setThreadId(email.getThreadId());
-                emailRepository.save(existing);
-            } else {
-                email.setUser(user);
-                email.setProvider(provider);
-                email.setBodyHtml(htmlSanitizerService.sanitize(email.getBodyHtml()));
-                newEmails.add(email);
-                syncedCount++;
+            var existingToSave = new ArrayList<EmailMessage>();
+            var newEmails = new ArrayList<EmailMessage>();
+            for (var email : emails) {
+                var existing = existingById.get(email.getProviderEmailId());
+                if (existing != null) {
+                    // Refresh existing email with the latest state from the provider
+                    existing.setStarred(email.isStarred());
+                    existing.setRead(email.isRead());
+                    existing.setLabels(email.getLabels());
+                    existing.setSubject(email.getSubject());
+                    existing.setFromAddress(email.getFromAddress());
+                    existing.setFromName(email.getFromName());
+                    existing.setToAddresses(email.getToAddresses());
+                    existing.setBodyPreview(email.getBodyPreview());
+                    existing.setBodyHtml(htmlSanitizerService.sanitize(email.getBodyHtml()));
+                    existing.setReceivedAt(email.getReceivedAt());
+                    existing.setThreadId(email.getThreadId());
+                    existingToSave.add(existing);
+                } else {
+                    email.setUser(user);
+                    email.setProvider(provider);
+                    email.setBodyHtml(htmlSanitizerService.sanitize(email.getBodyHtml()));
+                    newEmails.add(email);
+                    syncedCount++;
+                }
             }
-        }
-        if (!newEmails.isEmpty()) {
-            emailRepository.saveAll(newEmails);
-        }
-        return syncedCount;
+            if (!existingToSave.isEmpty()) {
+                emailRepository.saveAll(existingToSave);
+            }
+            if (!newEmails.isEmpty()) {
+                emailRepository.saveAll(newEmails);
+            }
+            newEmailsOut.addAll(newEmails);
+            return syncedCount;
+        });
     }
 
     /**
      * Best-effort refresh of starred/spam state for existing emails.
-     * Never throws — failures are logged and the sync continues.
+     * Nunca lanza: un fallo se registra y el sync continúa.
+     *
+     * <p>Se calcula el diff contra la DB: antes se hacía {@code unstarAll} +
+     * {@code removeSpamLabelByUserId} + re-marcar todo en CADA sync (cada 2 min),
+     * reescribiendo la tabla completa aunque no hubiera cambios.
      */
-    @Transactional
     public void refreshLabelsAndStars(User user, String accessToken) {
         try {
             var gmail = buildGmailClient(accessToken);
@@ -750,18 +823,32 @@ public class EmailService {
             var starredIds = fetchAllMessageIds(gmail, "is:starred");
             var spamIds = fetchAllMessageIds(gmail, "in:spam");
 
-            // Reset all stars, then re-star the ones currently starred in Gmail
-            emailRepository.unstarAllByUserId(userId);
-            if (!starredIds.isEmpty()) {
-                emailRepository.starByProviderEmailIds(userId, starredIds);
-            }
+            transactionTemplate.execute(status -> {
+                var localStarred = new HashSet<>(emailRepository.findStarredProviderEmailIds(userId));
+                var starToAdd = new HashSet<>(starredIds);
+                starToAdd.removeAll(localStarred);
+                var starToRemove = new HashSet<>(localStarred);
+                starToRemove.removeAll(starredIds);
+                if (!starToRemove.isEmpty()) {
+                    emailRepository.unstarByProviderEmailIds(userId, starToRemove);
+                }
+                if (!starToAdd.isEmpty()) {
+                    emailRepository.starByProviderEmailIds(userId, starToAdd);
+                }
 
-            // Quitar SPAM de lo que YA NO está en spam (si no, el filtro "Mostrar SPAM"
-            // muestra correo limpio) y luego marcar los que hoy están en spam.
-            emailRepository.removeSpamLabelByUserId(userId);
-            if (!spamIds.isEmpty()) {
-                emailRepository.addSpamLabelByProviderEmailIds(userId, spamIds);
-            }
+                var localSpam = new HashSet<>(emailRepository.findSpamProviderEmailIds(userId));
+                var spamToAdd = new HashSet<>(spamIds);
+                spamToAdd.removeAll(localSpam);
+                var spamToRemove = new HashSet<>(localSpam);
+                spamToRemove.removeAll(spamIds);
+                if (!spamToRemove.isEmpty()) {
+                    emailRepository.removeSpamLabelByProviderEmailIds(userId, spamToRemove);
+                }
+                if (!spamToAdd.isEmpty()) {
+                    emailRepository.addSpamLabelByProviderEmailIds(userId, spamToAdd);
+                }
+                return null;
+            });
 
             log.info("Label refresh complete for user={}: {} starred, {} spam", userId, starredIds.size(), spamIds.size());
         } catch (Exception e) {
@@ -868,9 +955,13 @@ public class EmailService {
         } catch (TransientApiException e) {
             // El proveedor no respondió: se conserva la fila local para poder reintentar.
             throw e;
-        } catch (Exception e) {
-            // 4xx (p. ej. el mail ya no existe) o proveedor no-Google: se borra igual, es idempotente.
-            log.warn("Failed to move to trash on {}: {}", provider, e.getMessage());
+        } catch (PermanentApiException e) {
+            // Sólo 404/410 significan "ya no existe" y habilitan borrar la fila local.
+            // Un 401/403/500 deja el mail vivo en el proveedor: no se puede perder la fila.
+            if (e.getStatusCode() != 404 && e.getStatusCode() != 410) {
+                throw e;
+            }
+            log.warn("Email {} already gone on {} (HTTP {})", emailId, provider, e.getStatusCode());
         }
 
         // El listado muestra TODAS las filas locales, así que sin este borrado el
@@ -894,15 +985,15 @@ public class EmailService {
 
         String messageId;
         if ("google".equals(provider)) {
-            messageId = gmailService.sendEmail(token, to, subject, body);
+            messageId = gmailService.sendEmail(token, to, subject, body, original.getThreadId());
         } else if ("outlook".equals(provider)) {
             messageId = outlookService.sendEmail(token, to, subject, body);
         } else {
             throw new IllegalArgumentException("Unsupported provider: " + provider);
         }
 
-        log.info("Reply sent: userId={}, provider={}, to={}, subject={}, messageId={}",
-                user.getId(), provider, to, subject, messageId);
+        log.info("Reply sent: userId={}, provider={}, messageId={}",
+                user.getId(), provider, messageId);
         return Map.of("status", "sent", "messageId", messageId);
     }
 
@@ -946,9 +1037,9 @@ public class EmailService {
             } else if ("outlook".equals(oauthToken.getProvider())) {
                 return outlookService.refreshAccessToken(
                         refreshToken,
-                        System.getenv("OUTLOOK_CLIENT_ID"),
-                        System.getenv("OUTLOOK_CLIENT_SECRET"),
-                        System.getenv().getOrDefault("OUTLOOK_TENANT", "common")
+                        outlookClientId,
+                        outlookClientSecret,
+                        outlookTenant
                 );
             }
             throw new RuntimeException("Unsupported provider for token refresh: " + oauthToken.getProvider());
@@ -964,8 +1055,8 @@ public class EmailService {
             throw new RuntimeException("Cannot refresh Google token: no refresh token available");
         }
         var body = new LinkedMultiValueMap<String, String>();
-        body.add("client_id", System.getenv("GOOGLE_CLIENT_ID"));
-        body.add("client_secret", System.getenv("GOOGLE_CLIENT_SECRET"));
+        body.add("client_id", googleClientId);
+        body.add("client_secret", googleClientSecret);
         body.add("refresh_token", refreshToken);
         body.add("grant_type", "refresh_token");
 
@@ -1019,6 +1110,10 @@ public class EmailService {
 
     private String escapeLike(String value) {
         return value.replace("%", "\\%").replace("_", "\\_");
+    }
+
+    private static String truncate(String value, int max) {
+        return value == null || value.length() <= max ? value : value.substring(0, max);
     }
 
     @SuppressWarnings("unchecked")

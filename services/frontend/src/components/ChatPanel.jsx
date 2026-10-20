@@ -3,6 +3,10 @@ import { api } from '../lib/api';
 import { Sparkles, Send, Bot, User } from 'lucide-react';
 import { LoadingState } from './states';
 
+// El backend empuja cada respuesta por WS y además la devuelve por REST. La clave
+// incluye el texto: el conversation_id solo se reusa en todos los turnos del hilo.
+const responseKey = (r) => `${r.conversation_id || ''}|${r.response || ''}`;
+
 const GREETING = {
   role: 'assistant',
   content: '¡Hola! Puedes pedirme que filtre tus emails. Por ejemplo:\n\n• "Muéstrame los emails importantes de esta semana"\n• "Busca emails de facturación"\n• "¿Qué emails tengo sin leer de ayer?"',
@@ -14,7 +18,10 @@ export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsum
   const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState('');
   const messagesEndRef = useRef(null);
-  const processedCids = useRef(new Set());
+  const processedResponses = useRef(new Set());
+  // El backend empuja TODA respuesta de chat al mismo queue del usuario: sin este
+  // flag el panel se quedaba con la respuesta de un chat enviado desde otra página.
+  const pendingRequest = useRef(false);
   const textareaRef = useRef(null);
 
   // Crece con el texto hasta ~5 líneas; después scrollea.
@@ -33,7 +40,7 @@ export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsum
     setConversationId('');
     setInput('');
     setLoading(false);
-    processedCids.current.clear();
+    processedResponses.current.clear();
   }, [resetKey]);
 
   useEffect(() => {
@@ -41,12 +48,14 @@ export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsum
   }, [messages]);
 
   useEffect(() => {
-    if (!chatResponse) return;
-    if (chatResponse.conversation_id && processedCids.current.has(chatResponse.conversation_id)) {
+    if (!chatResponse || !pendingRequest.current) return;
+    const key = responseKey(chatResponse);
+    if (processedResponses.current.has(key)) {
       return;
     }
 
-    if (chatResponse.conversation_id) processedCids.current.add(chatResponse.conversation_id);
+    processedResponses.current.add(key);
+    pendingRequest.current = false;
     setMessages((prev) => [
       ...prev,
       { role: 'assistant', content: chatResponse.response },
@@ -64,7 +73,6 @@ export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsum
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!input.trim() || loading) {
-      console.log('[ChatPanel] handleSubmit bloqueado - input vacío o loading');
       return;
     }
 
@@ -72,12 +80,18 @@ export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsum
     setInput('');
     setMessages((prev) => [...prev, { role: 'user', content: userMessage }]);
     setLoading(true);
+    pendingRequest.current = true;
 
     try {
       const response = await api.chat.send(userMessage, conversationId, scope);
       const cid = response.conversationId || response.conversation_id || conversationId;
       setConversationId(cid);
-      if (cid) processedCids.current.add(cid);
+      // Si el push WS llegó antes que el REST, ya mostró el mensaje y los
+      // resultados: appendear acá duplicaba la respuesta del asistente.
+      const key = responseKey(response);
+      const alreadyProcessed = processedResponses.current.has(key);
+      if (!alreadyProcessed) processedResponses.current.add(key);
+      if (alreadyProcessed) return;
       if (Array.isArray(response.emails)) onResults?.(response.emails);
       if (response.response) {
         setMessages((prev) => [
@@ -90,11 +104,15 @@ export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsum
         onFiltersApplied?.(response.criteria);
       }
     } catch (err) {
+      // Si el WS ya entregó la respuesta, el error del REST no debe duplicar el aviso.
+      if (!pendingRequest.current) return;
       setMessages((prev) => [
         ...prev,
         { role: 'assistant', content: 'Lo siento, hubo un error al procesar tu mensaje.' },
       ]);
       setLoading(false);
+    } finally {
+      pendingRequest.current = false;
     }
   };
 
