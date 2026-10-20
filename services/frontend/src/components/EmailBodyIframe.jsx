@@ -3,7 +3,7 @@ import DOMPurify from 'dompurify';
 import { ThemeContext } from '../context/ThemeContext';
 
 const SANITIZE_CONFIG = {
-  ALLOWED_TAGS: ['p', 'br', 'b', 'i', 'u', 'strong', 'em', 'a', 'ul', 'ol', 'li', 'table', 'tr', 'td', 'th', 'img', 'span', 'div'],
+  ALLOWED_TAGS: ['p', 'br', 'b', 'i', 'u', 'strong', 'em', 'a', 'ul', 'ol', 'li', 'table', 'tr', 'td', 'th', 'img', 'span', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
   ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'target', 'rel'],
   ALLOW_DATA_ATTR: false,
 };
@@ -56,7 +56,7 @@ function buildDoc(html, dark) {
 
   // Los estilos van dentro del iframe: el CSS de la app no cruza el documento.
   return `<html><head><style>
-    html, body { margin: 0; background: transparent; }
+    html, body { margin: 0; background: transparent; overflow: hidden; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
       font-size: 15px;
@@ -67,6 +67,7 @@ function buildDoc(html, dark) {
       ${plain ? 'white-space: pre-wrap;' : ''}
     }
     p { margin: 0 0 12px; }
+    h1, h2, h3, h4, h5, h6 { margin: 0 0 8px; font-size: 1.2em; line-height: 1.3; }
     img { max-width: 100%; height: auto; }
     table { max-width: 100%; border-collapse: collapse; }
     td, th { padding: 4px 8px; }

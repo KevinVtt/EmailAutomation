@@ -32,6 +32,12 @@ describe('EmailBodyIframe', () => {
     expect(doc).toContain('rel="noopener noreferrer"');
   });
 
+  it('keeps headings and hides the inner scrollbar', () => {
+    const doc = srcDocOf(<EmailBodyIframe html={'<h2>Pedido</h2><p>Hola</p>'} />);
+    expect(doc).toContain('<h2>Pedido</h2>');
+    expect(doc).toContain('overflow: hidden');
+  });
+
   it('uses light text in dark mode', () => {
     localStorage.setItem('theme', 'dark');
     const doc = srcDocOf(
