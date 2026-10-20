@@ -4,7 +4,7 @@ import { ThemeContext } from '../context/ThemeContext';
 
 const SANITIZE_CONFIG = {
   ALLOWED_TAGS: ['p', 'br', 'b', 'i', 'u', 'strong', 'em', 'a', 'ul', 'ol', 'li', 'table', 'tr', 'td', 'th', 'img', 'span', 'div'],
-  ALLOWED_ATTR: ['href', 'src', 'alt', 'title'],
+  ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'target', 'rel'],
   ALLOW_DATA_ATTR: false,
 };
 
@@ -15,9 +15,42 @@ function escapeHtml(text) {
   return text.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
+function shortUrl(url) {
+  try {
+    const { hostname, pathname, search } = new URL(url);
+    const label = `${hostname}${pathname}${search ? '?…' : ''}`;
+    return label.length > 64 ? `${label.slice(0, 64)}…` : label;
+  } catch {
+    return url.length > 64 ? `${url.slice(0, 64)}…` : url;
+  }
+}
+
+// Texto plano: se acortan las URLs y quedan clicables, sin el token kilométrico a la vista.
+function plainToHtml(text) {
+  return text
+    .replace(/<(https?:\/\/[^>\s]+)>/g, '$1')
+    .split(/(https?:\/\/[^\s]+)/g)
+    .map((part, i) => {
+      if (i % 2 === 0) return escapeHtml(part);
+      const trail = /[.,;:]+$/.exec(part)?.[0] ?? '';
+      const url = trail ? part.slice(0, -trail.length) : part;
+      return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(url)}">${escapeHtml(shortUrl(url))}</a>${escapeHtml(trail)}`;
+    })
+    .join('');
+}
+
+function linksInNewTab(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('a').forEach((a) => {
+    a.setAttribute('target', '_blank');
+    a.setAttribute('rel', 'noopener noreferrer');
+  });
+  return doc.body.innerHTML;
+}
+
 function buildDoc(html, dark) {
   const plain = !HTML_TAG.test(html || '');
-  const content = plain ? escapeHtml(html || '') : DOMPurify.sanitize(html || '', SANITIZE_CONFIG);
+  const content = plain ? plainToHtml(html || '') : linksInNewTab(DOMPurify.sanitize(html || '', SANITIZE_CONFIG));
   const color = dark ? '#e5e7eb' : '#111827';
   const link = dark ? '#93c5fd' : '#1a73e8';
 
@@ -68,7 +101,7 @@ export function EmailBodyIframe({ html }) {
     <iframe
       ref={ref}
       title="email-body"
-      sandbox="allow-same-origin"
+      sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
       srcDoc={buildDoc(html, theme === 'dark')}
       style={{ width: '100%', border: 'none' }}
       onLoad={fit}
