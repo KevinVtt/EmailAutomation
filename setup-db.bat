@@ -48,9 +48,9 @@ REM --- 1. Crear el rol si no existe ---
 set "ROLE_EXISTS="
 for /f "usebackq" %%i in (`psql -U %PGSUPERUSER% -h %PGHOST% -p %PGPORT% -tAc "SELECT 1 FROM pg_roles WHERE rolname='%POSTGRES_USER%'"`) do set "ROLE_EXISTS=%%i"
 if "%ROLE_EXISTS%"=="1" (
-    echo [1/3] El rol %POSTGRES_USER% ya existe.
+    echo [1/4] El rol %POSTGRES_USER% ya existe.
 ) else (
-    echo [1/3] Creando rol %POSTGRES_USER%...
+    echo [1/4] Creando rol %POSTGRES_USER%...
     psql -U %PGSUPERUSER% -h %PGHOST% -p %PGPORT% -v ON_ERROR_STOP=1 -c "CREATE ROLE %POSTGRES_USER% LOGIN PASSWORD '%POSTGRES_PASSWORD%'"
     if errorlevel 1 ( echo ERROR al crear el rol. & pause & exit /b 1 )
 )
@@ -59,19 +59,24 @@ REM --- 2. Crear la base si no existe ---
 set "DB_EXISTS="
 for /f "usebackq" %%i in (`psql -U %PGSUPERUSER% -h %PGHOST% -p %PGPORT% -tAc "SELECT 1 FROM pg_database WHERE datname='%POSTGRES_DB%'"`) do set "DB_EXISTS=%%i"
 if "%DB_EXISTS%"=="1" (
-    echo [2/3] La base %POSTGRES_DB% ya existe.
+    echo [2/4] La base %POSTGRES_DB% ya existe.
 ) else (
-    echo [2/3] Creando base %POSTGRES_DB%...
+    echo [2/4] Creando base %POSTGRES_DB%...
     psql -U %PGSUPERUSER% -h %PGHOST% -p %PGPORT% -v ON_ERROR_STOP=1 -c "CREATE DATABASE %POSTGRES_DB% OWNER %POSTGRES_USER%"
     if errorlevel 1 ( echo ERROR al crear la base. & pause & exit /b 1 )
 )
 
-REM --- 3. Aplicar el esquema (idempotente) ---
-echo [3/3] Aplicando esquema...
+REM --- 3. Aplicar el esquema (idempotente, mismo orden que docker-entrypoint-initdb.d) ---
+echo [3/4] Aplicando esquema...
 psql -U %PGSUPERUSER% -h %PGHOST% -p %PGPORT% -d %POSTGRES_DB% -v ON_ERROR_STOP=1 -f "infrastructure\postgres\init\01-init.sql"
 if errorlevel 1 ( echo ERROR en 01-init.sql. & pause & exit /b 1 )
+psql -U %PGSUPERUSER% -h %PGHOST% -p %PGPORT% -d %POSTGRES_DB% -v ON_ERROR_STOP=1 -f "infrastructure\postgres\init\02-email-contacts.sql"
+if errorlevel 1 ( echo ERROR en 02-email-contacts.sql. & pause & exit /b 1 )
 psql -U %PGSUPERUSER% -h %PGHOST% -p %PGPORT% -d %POSTGRES_DB% -v ON_ERROR_STOP=1 -f "infrastructure\postgres\init\02-sync-jobs.sql"
 if errorlevel 1 ( echo ERROR en 02-sync-jobs.sql. & pause & exit /b 1 )
+
+REM --- 4. Migraciones sobre bases ya existentes ---
+echo [4/4] Aplicando migraciones...
 psql -U %PGSUPERUSER% -h %PGHOST% -p %PGPORT% -d %POSTGRES_DB% -v ON_ERROR_STOP=1 -f "infrastructure\postgres\init\03-gmail-history.sql"
 if errorlevel 1 ( echo ERROR en 03-gmail-history.sql. & pause & exit /b 1 )
 

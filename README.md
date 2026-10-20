@@ -1,6 +1,26 @@
 # EmailFilter AI
 
-Aplicación web fullstack que conecta a Gmail/Outlook vía OAuth, sincroniza tus emails a una base de datos PostgreSQL local, y expone un chat con IA para buscar, filtrar y clasificar emails en lenguaje natural.
+Aplicación web fullstack que conecta tu cuenta de Gmail vía OAuth, sincroniza los correos a
+PostgreSQL y los deja buscar, filtrar, responder y redactar en lenguaje natural con IA.
+
+---
+
+## Qué hace
+
+- **Sincronización de Gmail**: primera corrida completa (inbox + spam), después incremental con
+  `history.list` (solo lo nuevo y los borrados).
+- **Chat con IA global**: "muéstrame lo importante de esta semana", "sin leer de ayer",
+  "facturas de octubre". La IA devuelve criterios que el backend aplica con JPA Specifications.
+- **Asistente flotante**: disponible en Inbox, Destacados y Spam. Busca, da estrellas, manda a
+  papelera, responde y redacta correos nuevos sin salir de la pantalla.
+- **Contactos frecuentes**: quiénes te escriben y a quiénes les escribís, con ficha editable,
+  borradores de IA y enriquecimiento (empresa / tema).
+- **Dashboard**: contadores de no leídos, urgentes y pendientes, más actividad de los últimos 7 días.
+- **Acciones por lote**: hasta 100 correos por operación (estrella, leído, papelera).
+- **Modo claro / oscuro** y actualizaciones en vivo por WebSocket.
+
+> Outlook (Microsoft Graph) sigue en el código pero **está desactivado en la pantalla de login**.
+> Si no lo vas a usar, ignorá las variables `OUTLOOK_*`.
 
 ---
 
@@ -9,257 +29,202 @@ Aplicación web fullstack que conecta a Gmail/Outlook vía OAuth, sincroniza tus
 ```
 Browser (React)
     │
-    ├── REST /api/** + WebSocket /ws  ──► Java Backend (8080)
-    │                                        │
-    │                                        ├── PostgreSQL (5432)
-    │                                        ├── Gmail API / Microsoft Graph
-    │                                        └── HTTP ──► Python AI Service (8000)
-    │                                                        └── Groq API (openai/gpt-oss-120b)
+    ├── REST /api/** + WebSocket /ws ──► Java Backend (8080)
+    │                                       ├── PostgreSQL (5432 / 5433 en Docker)
+    │                                       ├── Gmail API
+    │                                       └── HTTP ──► Python AI (8000) ──► Groq
+    │
+    └── Login OAuth ──► Google ──► /auth/callback ──► POST /api/auth/callback/google
 ```
 
-### Flujo principal
+### Stack
 
-1. **Login OAuth** — El usuario elige Google o Outlook, se redirige al proveedor, y al volver recibe un JWT.
-2. **Sincronización de emails** — Se descargan todos los emails del buzón (inbox + spam) y se guardan en PostgreSQL con deduplicación por `(userId, providerEmailId)`.
-3. **Sincronización incremental** — Las corridas posteriores detectan cambios con la API de historial de Gmail (`history.list`) en lugar de re-descargar el buzón: solo traen emails nuevos y detectan los borrados.
-4. **Sincronización completa** — Para buzones grandes, se puede descargar todo el historial con barra de progreso en tiempo real vía WebSocket.
-5. **Chat con IA** — El usuario escribe en lenguaje natural ("muéstrame los emails importantes de esta semana") y la IA extrae criterios de filtro que se aplican vía JPA Specifications.
-
-### Stack tecnológico
-
-| Servicio | Tecnología | Puerto |
-|----------|-----------|--------|
-| Frontend | React 18 + Vite + TailwindCSS | 3001 |
-| Backend | Spring Boot 3.2.4 (Java 17) | 8080 |
-| IA | FastAPI + Groq (openai/gpt-oss-120b) | 8000 (solo red interna en Docker) |
-| Base de datos | PostgreSQL 16 (Docker) / 18 (local) | 5433 (Docker) / 5432 (local) |
+| Servicio | Tecnología | Puerto local | Puerto Docker |
+|----------|------------|--------------|---------------|
+| Frontend | React 18 + Vite + TailwindCSS | 3001 | 3001 |
+| Backend | Spring Boot 3.2.4 (Java 17) | 8080 | 8080 |
+| IA | FastAPI + Groq (`openai/gpt-oss-120b`) | 8000 | interno, sin publicar |
+| Base de datos | PostgreSQL 16 | 5432 | 5433 |
 
 ---
 
-## Requisitos previos
+## Requisitos
 
-### Opción A: Docker (recomendado)
+### Opción A — Docker (recomendado)
 
-- **Docker Desktop** (con WSL2 activado en Windows)
-- **16 GB de RAM** mínimo (el sistema usa ~3 GB con todos los contenedores)
+- **Docker Desktop** con WSL2 activado.
+- ~4 GB de RAM libre (los contenedores están limitados a 1.9 GB en total).
 
-### Opción B: Ejecución local (sin Docker)
+### Opción B — Local, sin Docker
 
-Si preferís correr sin Docker, necesitás tener instalado:
+- **JDK 17 o 21** ([Adoptium](https://adoptium.net/)) con `JAVA_HOME` definido.
+- **Maven** en el `PATH` (o una copia portable en `.tools/maven`).
+- **Python 3.10+** (el script usa `py` o `python`).
+- **Node.js 18+**.
+- **PostgreSQL 16+** corriendo en `localhost:5432`.
 
-- **Java 17 o 21** (JDK) — [Descargar](https://adoptium.net/)
-- **Maven** — [Descargar](https://maven.apache.org/download.cgi). *(También podés dejar una copia portable en `.tools/maven`; los scripts la usan automáticamente.)*
-- **Python 3.10+** — [Descargar](https://www.python.org/downloads/)
-- **Node.js 18+** — [Descargar](https://nodejs.org/)
-- **PostgreSQL** instalado y corriendo en `localhost:5432`
+### En ambos casos
 
-### Para ambas opciones
-
-- Una cuenta de **Google Cloud** o **Microsoft Azure** con OAuth configurado
-- Una API key de **Groq** (gratis en [console.groq.com](https://console.groq.com))
+- Un proyecto de **Google Cloud** con OAuth configurado (paso 2).
+- Una API key de **Groq**, gratis en [console.groq.com](https://console.groq.com).
 
 ---
 
-## Paso a paso: levantar el proyecto
+## Puesta en marcha paso a paso
 
-### Opción A: Con Docker (recomendado)
-
-#### 1. Clonar el repositorio
+### 0. Clonar
 
 ```bash
 git clone https://github.com/KevinVtt/EmailAutomation.git
 cd EmailAutomation
 ```
 
-#### 2. Configurar variables de entorno
+### 1. Crear el `.env`
 
 ```bash
-cp .env.example .env
+cp .env.example .env      # Windows: copy .env.example .env
 ```
 
-Abrí el archivo `.env` y completá las siguientes variables:
+Completá como mínimo `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `AI_API_KEY`, `JWT_SECRET` y
+`TOKEN_ENCRYPTION_KEY`. La tabla completa está en [Variables de entorno](#variables-de-entorno).
 
-##### Google OAuth2
+> **Ojo con el modo de ejecución.** El `.env.example` viene apuntando a Docker:
+> `POSTGRES_HOST=postgres` y `AI_SERVICE_URL=http://ai-python:8000`.
+> Si vas a correr **sin Docker**, cambiá esos dos a `localhost` y `http://localhost:8000`.
 
-1. Andá a [Google Cloud Console](https://console.cloud.google.com)
-2. Creá un proyecto (o usá uno existente)
-3. Habilitá la **Google People API** y la **Gmail API**
-4. Andá a **APIs & Services > Credentials**
-5. Creá un **OAuth 2.0 Client ID** (tipo Web Application)
-6. Agregá como **Authorized redirect URI**: `http://localhost:3001/auth/callback`
-7. Copiá el Client ID y Client Secret en el `.env`:
+### 2. Credenciales de Google
 
-```
-GOOGLE_CLIENT_ID=tu-client-id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=tu-client-secret
-GOOGLE_REDIRECT_URI=http://localhost:3001/auth/callback
-```
+1. Entrá a [Google Cloud Console](https://console.cloud.google.com) y creá (o elegí) un proyecto.
+2. **APIs y servicios → Biblioteca → Gmail API → Habilitar**.
+3. **APIs y servicios → Pantalla de consentimiento de OAuth**:
+   - Tipo de usuario: **Externo**.
+   - Completá nombre de la app, email de soporte y datos de contacto.
+   - Scopes: `.../auth/gmail.readonly` y `.../auth/gmail.modify`.
+   - En **Usuarios de prueba**, agregá tu propio correo mientras estés en modo *Testing*.
+4. **Credenciales → Crear credenciales → ID de cliente de OAuth → Aplicación web**.
+5. En **URIs de redireccionamiento autorizados** agregá exactamente:
 
-> El `redirect URI` debe coincidir **exactamente** con `GOOGLE_REDIRECT_URI` del `.env`
-> (y con el `OUTLOOK_REDIRECT_URI` para Microsoft). Si no coincide, el login falla con
-> `redirect_uri_mismatch`.
+   ```
+   http://localhost:3001/auth/callback
+   ```
 
-##### Groq API
+6. Copiá los valores al `.env`:
 
-1. Andá a [console.groq.com](https://console.groq.com)
-2. Creá una cuenta gratuita y generá una API key
-3. Ponela en el `.env`:
+   ```env
+   GOOGLE_CLIENT_ID=tu-client-id.apps.googleusercontent.com
+   GOOGLE_CLIENT_SECRET=tu-client-secret
+   GOOGLE_REDIRECT_URI=http://localhost:3001/auth/callback
+   ```
 
-```
-AI_API_KEY=gsk_tu-api-key
-```
+> El redirect tiene que coincidir **carácter por carácter** con `GOOGLE_REDIRECT_URI`, o el login
+> falla con `redirect_uri_mismatch`. Si desplegás, agregá también la URL pública.
 
-##### JWT Secret
+### 3. API key de Groq
 
-Cambialo por un string seguro para producción:
+1. Creá una cuenta en [console.groq.com](https://console.groq.com).
+2. Generá una API key y ponela en el `.env`:
 
-```
-JWT_SECRET=un-string-largo-y-aleatorio-de-al-menos-32-caracteres
-```
+   ```env
+   AI_API_KEY=gsk_tu_api_key
+   ```
 
-#### 3. Levantar con Docker Compose
+### 4. Base de datos
+
+- **Con Docker**: no hagas nada. El contenedor de PostgreSQL ejecuta los `.sql` de
+  `infrastructure/postgres/init/` la primera vez que se crea el volumen.
+- **Sin Docker**: ejecutá una sola vez:
+
+  ```bat
+  setup-db.bat MI_PASSWORD_DE_POSTGRES
+  ```
+
+  Crea el rol `emailfilter_user`, la base `emailfilter` y aplica el esquema completo
+  (`01-init.sql`, `02-email-contacts.sql`, `02-sync-jobs.sql`, `03-gmail-history.sql`).
+  Es idempotente: podés correrlo de nuevo sin romper nada.
+
+  Si no pasás la contraseña, `psql` la pide de forma interactiva (la del superusuario `postgres`).
+
+### 5. Levantar los servicios
+
+#### Opción A — Docker
 
 ```bash
 docker compose up -d --build
 ```
-
-Esto levanta los 4 servicios:
 
 | Contenedor | Servicio | Puerto |
 |------------|----------|--------|
 | `emailfilter-db` | PostgreSQL | 5433 |
 | `emailfilter-backend` | Spring Boot | 8080 |
 | `emailfilter-ai` | FastAPI | interno (no publicado) |
-| `emailfilter-frontend` | React (nginx) | 3001 |
+| `emailfilter-frontend` | React + nginx | 3001 |
 
-Para ver los logs en tiempo real:
+Ver logs y estado:
 
 ```bash
 docker compose logs -f
-```
-
-Para ver el estado:
-
-```bash
 docker ps
 ```
 
-#### 4. Abrir la aplicación
-
-Abrí en tu navegador: **http://localhost:3001**
-
----
-
-### Opción B: Sin Docker (ejecución local)
-
-#### 1. Clonar el repositorio
-
-```bash
-git clone https://github.com/KevinVtt/EmailAutomation.git
-cd EmailAutomation
-```
-
-#### 2. Configurar variables de entorno
-
-Igual que la opción Docker: copiá `.env.example` a `.env` y completá las variables.
-
-#### 3. Crear la base de datos
-
-Ejecutá una sola vez **`setup-db.bat`** (doble clic o por consola). Esto:
-
-1. Crea el rol `emailfilter_user` y la base `emailfilter` si no existen.
-2. Aplica el esquema (`01-init.sql` + `02-sync-jobs.sql` + `03-gmail-history.sql`) de forma idempotente.
+#### Opción B — Local, todo junto
 
 ```bat
-setup-db.bat MI_PASSWORD_DE_POSTGRES
+start-local.bat
 ```
 
-Si no pasás la contraseña como argumento, `psql` la pedirá de forma interactiva
-(la del usuario superusuario `postgres`).
+El script, en orden:
 
-#### 4. Levantar todo con un solo comando
+1. Carga el `.env` (`scripts/load-env.bat`).
+2. Verifica PostgreSQL en `localhost:5432` (e intenta iniciar el servicio si está apagado).
+3. Crea el virtualenv de Python e instala dependencias.
+4. Compila el backend con Maven.
+5. Comprueba que 8000, 8080 y 3001 estén libres.
+6. Abre una consola por servicio.
 
-Doble clic en **`start-local.bat`** — esto automáticamente:
+Después del primer arranque (ya compilado), usá la botonera:
 
-1. Carga las variables del `.env` en el entorno
-2. Verifica que PostgreSQL esté corriendo
-3. Crea el entorno virtual de Python e instala dependencias
-4. Compila el backend Java con Maven (portable en `.tools/maven` o del PATH)
-5. Abre 3 ventanas de consola, una por servicio
-
-| Servicio | Puerto | Ventana |
-|----------|--------|---------|
-| Backend Java (Spring Boot) | http://localhost:8080 | Se abre solo |
-| AI Python (FastAPI) | http://localhost:8000 | Se abre solo |
-| Frontend (Vite dev server) | http://localhost:3001 | Se abre solo |
-
-#### Alternativa: levantar servicios individualmente
-
-Si preferís levantar uno por uno, usá estos archivos `.bat`:
-
-```bash
-# Terminal 1 - Backend
-run-backend.bat
-
-# Terminal 2 - Servicio de IA
-run-ai.bat
-
-# Terminal 3 - Frontend
-run-frontend.bat
+```bat
+servicios.bat            # iniciar / parar / reiniciar / estado
+servicios.bat status
 ```
 
-Cada `.bat` compila e inicia su servicio en una ventana separada.
+#### Opción B2 — Local, uno por uno
 
-#### Control del día a día: `servicios.bat`
-
-Una vez que ya corriste `start-local.bat` al menos una vez, usá **`servicios.bat`**:
-es una botonera que inicia, para, reinicia y muestra el estado de los 3 servicios
-sin compilar nada (arranca al instante).
-
-```bash
-servicios.bat            # abre la botonera
-servicios.bat status     # también acepta: start | stop | restart | status
+```bat
+run-backend.bat      # Spring Boot  → 8080
+run-ai.bat           # FastAPI      → 8000
+run-frontend.bat     # Vite         → 3001
 ```
 
-La opción `[6] Salir y parar todo` para los 3 servicios y cierra la botonera.
+### 6. Abrir la app y entrar
 
-#### 5. Abrir la aplicación
+1. Abrí **http://localhost:3001**.
+2. **Continuar con Google** → elegí tu cuenta → aceptá los permisos.
+3. Volvés al Dashboard ya logueado.
 
-Abrí en tu navegador: **http://localhost:3001**
+Si ves *"Acceso bloqueado: … no completó el proceso de verificación"*, tu correo no está en la
+lista de usuarios de prueba. Ver [Publicar la app](#publicar-la-app-oauth-en-google).
 
----
+### 7. Primera sincronización
 
-### Pasos comunes (ambas opciones)
+Al entrar sin correos, la app lanza sola la **sincronización completa** y muestra el progreso por
+WebSocket. Puede tardar varios minutos según el tamaño del buzón.
 
-#### 6. Iniciar sesión
+Después, el botón **Sincronizar** de la bandeja ofrece:
 
-1. Hacé clic en **"Continuar con Google"** (o Outlook si lo configuraste)
-2. Autorizá la aplicación para acceder a tu correo
-3. Serás redirigido al Dashboard
+- **Actualizar nuevos**: incremental, ~1 segundo.
+- **Descargar todo el historial**: corrida completa de nuevo.
 
-#### 7. Sincronizar emails
+### 8. Probar el asistente
 
-Al iniciar sesión por primera vez, la app detecta que no hay emails y lanza automáticamente una **sincronización completa** del historial.
-
-- La barra de progreso muestra el avance en tiempo real
-- Para buzones grandes, puede tardar varios minutos
-- Las sincronizaciones posteriores son **incrementales** (solo emails nuevos, ~1 segundo)
-
-También podés usar el botón **"Sincronizar"** en la bandeja de entrada:
-
-- **Actualizar nuevos emails** — rápido, solo trae lo nuevo
-- **Descargar todo el historial** — descarga completa del buzón
-
-#### 8. Usar el chat con IA
-
-En el panel derecho, escribí frases como:
+En Inbox, Destacados o Spam abrí el botón flotante y probá:
 
 - "Muéstrame los emails importantes de esta semana"
-- "Busca emails de facturación"
-- "¿Qué emails tengo sin leer de ayer?"
-- "Filtrá por remitentes de Google"
+- "¿Qué tengo sin leer de ayer?"
+- "Busca facturas de octubre"
+- "Respondé a este diciendo que mañana confirmo"
 
-La IA interpreta tu consulta y filtra los emails automáticamente.
+El asistente filtra la lista visible, y en la pestaña **Contactos** permite redactar y enviar.
 
 ---
 
@@ -268,180 +233,224 @@ La IA interpreta tu consulta y filtra los emails automáticamente.
 ```
 EmailAutomation/
 ├── services/
-│   ├── backend-java/            # Spring Boot API
-│   │   ├── src/main/java/com/emailfilter/
-│   │   │   ├── controller/      # REST + WebSocket endpoints
-│   │   │   ├── service/         # Lógica de negocio (auth, emails, chat, Gmail/Outlook)
-│   │   │   ├── model/           # JPA entities
-│   │   │   ├── repository/      # Spring Data repos
-│   │   │   ├── security/        # JWT auth filters
-│   │   │   └── config/          # Security, CORS, WebSocket config
-│   │   └── Dockerfile
-│   ├── frontend/                # React + Vite
-│   │   ├── src/
-│   │   │   ├── pages/           # Login, Callback, Dashboard
-│   │   │   ├── components/      # Layout, EmailList, EmailCard, EmailDetail, ChatPanel
-│   │   │   ├── context/         # AuthContext, ThemeContext (dark mode)
-│   │   │   ├── hooks/           # useAuth, useWebSocket
-│   │   │   └── lib/             # api.js (REST client + JWT refresh)
-│   │   └── Dockerfile
-│   └── ai-python/               # FastAPI IA service
-│       ├── app/
-│       │   ├── routers/         # /chat, /analyze, /health
-│       │   ├── services/        # chat_agent.py, email_analyzer.py
-│       │   └── models/          # Pydantic schemas
-│       └── Dockerfile
-├── infrastructure/
-│   └── postgres/init/           # Scripts de inicialización SQL
-├── docker-compose.yml           # Levantar todo con Docker
-├── start-local.bat              # Levantar todo sin Docker (un solo clic)
-├── servicios.bat                # Botonera: iniciar / parar / reiniciar / estado
-├── run-backend.bat              # Levantar solo el backend
-├── run-frontend.bat             # Levantar solo el frontend
-├── run-ai.bat                   # Levantar solo el servicio de IA
-├── .env.example                 # Template de variables de entorno
-└── AGENTS.md                    # Documentación para agentes de código
-```
-
----
-
-## Funcionalidades
-
-### Sincronización de emails
-
-- **Primera vez**: descarga completa del historial (inbox + spam) con barra de progreso
-- **Posteriores**: sincronización incremental (solo emails nuevos, y detecta los borrados hechos en Gmail)
-- **Deduplicación**: garantizada por constraint `UNIQUE(userId, providerEmailId)`
-- **Soporte**: Gmail y Outlook (Microsoft Graph)
-
-### Chat con IA
-
-- Lenguaje natural en español e inglés
-- Extrae criterios de filtro automáticamente
-- Soporta fechas relativas ("esta semana", "ayer", "este mes")
-- Powered by openai/gpt-oss-120b vía Groq (gratis)
-
-### Filtros
-
-- Por remitente, asunto, contenido, fecha, estrella, leído/no leído
-- Por etiqueta (SPAM, IMPORTANT, CATEGORY_UPDATES, etc.)
-- Combinación de filtros manuales + IA
-
-### Interfaz
-
-- **Modo claro / oscuro** con toggle en el header (persiste en localStorage)
-- **Panel de chat** con historial de conversación
-- **Vista detalle** de email con acciones (star, read/unread, trash)
-- **Paginación** y **filtros por fecha**
-- **WebSocket** para actualizaciones en tiempo real
-
----
-
-## Comandos útiles
-
-### Docker
-
-```bash
-# Levantar todo
-docker compose up -d --build
-
-# Ver logs de un servicio específico
-docker compose logs -f backend
-docker compose logs -f ai-python
-
-# Reiniciar un servicio
-docker compose restart backend
-
-# Detener todo
-docker compose down
-
-# Detener y borrar datos (⚠️ borra la base de datos)
-docker compose down -v
-
-# Reconstruir un solo servicio
-docker compose build frontend --no-cache
-docker compose up -d frontend
-```
-
-### Local (sin Docker)
-
-```bash
-# Levantar todo junto
-start-local.bat
-
-# Controlar los servicios ya compilados (iniciar/parar/reiniciar/estado)
-servicios.bat
-
-# O uno por uno:
-run-backend.bat      # Backend Java (puerto 8080)
-run-ai.bat           # Servicio IA (puerto 8000)
-run-frontend.bat     # Frontend Vite (puerto 3001)
-
-# Crear rol, base de datos y esquema (idempotente)
-setup-db.bat
+│   ├── backend-java/                 # Spring Boot
+│   │   └── src/main/java/com/emailfilter/
+│   │       ├── controller/           # REST (auth, emails, contacts, chat) + WebSocket
+│   │       ├── service/              # Gmail, Outlook, Contact, SyncJob, AIServiceClient, TokenCrypto
+│   │       ├── model/                # Entidades JPA (User, EmailMessage, EmailContact, Visto, SyncJob)
+│   │       ├── repository/           # Spring Data + Specifications
+│   │       ├── security/             # JWT, filtro, cifrado de tokens OAuth
+│   │       └── config/               # Security, CORS, WebSocket, reintentos
+│   ├── frontend/                     # React + Vite
+│   │   └── src/
+│   │       ├── pages/                # Login, Callback, Dashboard, Inbox, Starred, Spam, Settings
+│   │       ├── components/           # Layout, EmailListView, EmailDetail, ReplyPanel, assistant/
+│   │       ├── context/              # Auth, Theme, ScreenScope
+│   │       ├── hooks/                # useWebSocket, useUndoableSend
+│   │       └── lib/                  # api.js, websocket.js, auth.js
+│   └── ai-python/                    # FastAPI
+│       └── app/
+│           ├── routers/              # /chat, /analyze, /rewrite, /compose, /contact-profile, /health
+│           └── services/             # chat_agent, compose_agent, rewrite_agent, email_analyzer
+├── infrastructure/postgres/init/     # Esquema SQL (fuente de verdad de la DB)
+├── docker-compose.yml
+├── setup-db.bat                      # Rol + base + esquema (sin Docker)
+├── start-local.bat                   # Compila y levanta los 3 servicios
+├── servicios.bat                     # Botonera de start/stop/restart/status
+├── run-backend.bat / run-ai.bat / run-frontend.bat
+├── scripts/load-env.bat              # Carga .env en el entorno
+└── .env.example
 ```
 
 ---
 
 ## Variables de entorno
 
+### Base de datos
+
 | Variable | Descripción | Default |
 |----------|-------------|---------|
-| `POSTGRES_DB` | Nombre de la base de datos | `emailfilter` |
-| `POSTGRES_USER` | Usuario de PostgreSQL | `emailfilter_user` |
-| `POSTGRES_PASSWORD` | Contraseña de PostgreSQL | `changeme_in_prod` |
-| `JWT_SECRET` | Secreto para firmar JWTs | *(requerido)* |
-| `JWT_EXPIRATION_MS` | Duración del access token | `86400000` (24h) |
+| `POSTGRES_DB` | Nombre de la base | `emailfilter` |
+| `POSTGRES_USER` | Usuario | `emailfilter_user` |
+| `POSTGRES_PASSWORD` | Contraseña | `changeme_in_prod` |
+| `POSTGRES_HOST` | Host (`postgres` en Docker, `localhost` sin Docker) | `postgres` |
+| `POSTGRES_PORT` | Puerto | `5432` |
+
+### Autenticación
+
+| Variable | Descripción | Default |
+|----------|-------------|---------|
+| `JWT_SECRET` | Secreto HMAC para access y refresh tokens | *(requerido)* |
+| `JWT_EXPIRATION_MS` | Duración del access token | `86400000` (24 h) |
 | `JWT_REFRESH_EXPIRATION_MS` | Duración del refresh token | `604800000` (7 días) |
-| `TOKEN_ENCRYPTION_KEY` | Clave para cifrar en reposo los tokens OAuth (AES-GCM). Sin ella se guardan en texto plano (solo dev) | *(recomendada)* |
-| `GOOGLE_CLIENT_ID` | Client ID de Google OAuth2 | *(requerido para Gmail)* |
-| `GOOGLE_CLIENT_SECRET` | Client Secret de Google OAuth2 | *(requerido para Gmail)* |
-| `OUTLOOK_CLIENT_ID` | Client ID de Outlook OAuth2 | *(requerido para Outlook)* |
-| `OUTLOOK_CLIENT_SECRET` | Client Secret de Outlook OAuth2 | *(requerido para Outlook)* |
+| `TOKEN_ENCRYPTION_KEY` | Cifra en reposo los tokens OAuth (AES-GCM). Sin ella quedan en texto plano | *(recomendada)* |
+
+### Sincronización y contactos
+
+| Variable | Descripción | Default |
+|----------|-------------|---------|
+| `EMAIL_SYNC_MAX_EMAILS` | Tope de correos por corrida (inicial e incremental) | `1000` |
+| `EMAIL_SYNC_REQUEST_DELAY_MS` | Pausa entre descargas para respetar la cuota de Gmail | `250` |
+| `EMAIL_SYNC_FETCH_CONCURRENCY` | Hilos de descarga de detalle en la sync completa | `6` |
+| `CONTACTS_SENT_WINDOW_DAYS` | Días de enviados que se leen al armar contactos | `365` |
+| `CONTACTS_SENT_MAX` | Tope de enviados en ese barrido | `2000` |
+
+### Google / Outlook
+
+| Variable | Descripción |
+|----------|-------------|
+| `GOOGLE_CLIENT_ID` | Client ID de OAuth2 |
+| `GOOGLE_CLIENT_SECRET` | Client Secret |
+| `GOOGLE_REDIRECT_URI` | Debe coincidir con el autorizado en Google Cloud |
+| `OUTLOOK_CLIENT_ID` / `OUTLOOK_CLIENT_SECRET` | Opcionales, Outlook está desactivado en la UI |
+| `OUTLOOK_REDIRECT_URI` | Idem |
+| `OUTLOOK_TENANT` | `common` por defecto |
+
+### Servicio de IA
+
+| Variable | Descripción | Default |
+|----------|-------------|---------|
+| `AI_SERVICE_URL` | URL del servicio Python (`http://ai-python:8000` en Docker) | `http://localhost:8000` |
 | `AI_API_KEY` | API key de Groq | *(requerido)* |
-| `AI_API_URL` | URL de la API de IA | `https://api.groq.com/openai/v1` |
-| `AI_MODEL` | Modelo de IA a usar | `openai/gpt-oss-120b` |
-| `FRONTEND_URL` | URL del frontend (para CORS) | `http://localhost:3001` |
+| `AI_API_URL` | Endpoint compatible con OpenAI | `https://api.groq.com/openai/v1` |
+| `AI_MODEL` | Modelo | `openai/gpt-oss-120b` |
+| `AI_PROVIDER` | Proveedor | `openai` |
+
+### Frontend
+
+| Variable | Descripción | Default |
+|----------|-------------|---------|
+| `FRONTEND_URL` | Origen permitido por CORS | `http://localhost:3001` |
+| `VITE_API_URL` | Base de la API si el frontend está en otro dominio | vacío (mismo origen) |
+| `VITE_WS_URL` | Base del WebSocket si está en otro dominio | vacío (mismo origen) |
 
 ---
 
-## Solución de problemas
+## Publicar la app (OAuth en Google)
+
+Mientras el proyecto esté en **Testing**, solo entran los correos cargados en *Usuarios de prueba*
+(máximo 100) y el refresh token caduca a los 7 días. Cualquier otra cuenta ve
+`Error 403: access_denied`.
+
+| Estado | Quién entra | Límite | Aviso |
+|--------|-------------|--------|-------|
+| Testing | Solo usuarios de prueba | 100 | "app en pruebas" |
+| Publicada sin verificar | Cualquier cuenta Google | **100 en total** | Pantalla "no verificada" |
+| Publicada y verificada | Cualquier cuenta | Sin límite | Ninguno |
+
+Para publicar (**Google Auth platform → Audience → Publish app**) necesitás:
+
+1. Un dominio público con HTTPS (no `localhost`).
+2. Homepage y política de privacidad en ese dominio.
+3. El redirect público agregado al cliente OAuth y en `GOOGLE_REDIRECT_URI`.
+
+Publicar sin verificar es gratis. La verificación completa exige revisión de marca, justificación de
+los scopes restringidos (`gmail.readonly` y `gmail.modify` lo son) y una auditoría **CASA** anual de
+pago.
+
+---
+
+## Deploy (referencia)
+
+Configuración mínima para un deploy gratuito separado por servicio:
+
+| Pieza | Plataforma | Variables |
+|-------|------------|-----------|
+| Frontend | Vercel | `VITE_API_URL` y `VITE_WS_URL` = URL del backend |
+| Backend | Render (Docker) | `POSTGRES_*`, `JWT_SECRET`, `TOKEN_ENCRYPTION_KEY`, `GOOGLE_*`, `FRONTEND_URL`, `AI_SERVICE_URL` |
+| IA | Render (Docker) | `AI_API_KEY`, `AI_MODEL` |
+| PostgreSQL | Neon | Aplicar los `.sql` de `infrastructure/postgres/init/` |
+
+En Google Cloud, el redirect pasa a `https://<frontend>/auth/callback`, y `FRONTEND_URL` debe ser
+`https://<frontend>` para que CORS y el WebSocket funcionen.
+
+Si preferís un solo servidor, el `docker-compose.yml` ya levanta todo junto y el nginx del frontend
+hace de proxy para `/api` y `/ws`.
+
+---
+
+## Comandos útiles
+
+```bash
+# Docker
+docker compose up -d --build
+docker compose logs -f backend
+docker compose restart backend
+docker compose down            # conserva los datos
+docker compose down -v         # ⚠️ borra la base
+
+# Local
+start-local.bat                # compila y levanta todo
+servicios.bat                  # botonera de control
+setup-db.bat                   # rol + base + esquema (idempotente)
+```
+
+## Tests
+
+```bash
+# Backend
+cd services/backend-java && mvn test
+
+# Frontend
+cd services/frontend && npm test
+
+# IA
+cd services/ai-python && python -m pytest
+```
+
+El test de integración del backend usa Testcontainers: necesita el daemon de Docker corriendo.
+
+---
+
+## Problemas comunes
+
+### `Error 403: access_denied` al iniciar sesión
+
+La app está en *Testing* y esa cuenta no es usuario de prueba. Agregala en
+**Google Auth platform → Audience → Usuarios de prueba**, o publicá la app.
+
+### `redirect_uri_mismatch`
+
+El `GOOGLE_REDIRECT_URI` del `.env` no coincide exactamente con el autorizado en Google Cloud
+(esquema, puerto y barra final incluidos).
 
 ### El backend no arranca
 
-```bash
-docker compose logs backend
-```
+- Falta `JWT_SECRET` o `GOOGLE_CLIENT_ID` en el `.env`.
+- Estás sin Docker con `POSTGRES_HOST=postgres`: cambialo a `localhost`.
 
-Causa común: falta configurar `GOOGLE_CLIENT_ID` o `JWT_SECRET` en `.env`.
+### Error de columna o tabla faltante al arrancar (`ddl-auto: validate`)
 
-### Error de columna `history_id` al arrancar el backend
-
-Una base creada antes de la sincronización incremental no tiene la columna `history_id` y el
-perfil de producción (`ddl-auto: validate`) rechaza el arranque. Aplicá la migración (idempotente)
-y reiniciá:
+La base quedó atrás respecto del esquema. Sin Docker, volvé a correr `setup-db.bat`. Con Docker,
+aplicá el `.sql` que falte a mano:
 
 ```bash
 psql -U postgres -d emailfilter -f infrastructure/postgres/init/03-gmail-history.sql
 ```
 
-En el perfil `dev` la columna se crea sola (`ddl-auto: update`), así que no hace falta.
+En el perfil `dev` (`-Dspring-boot.run.profiles=dev`) Hibernate crea lo que falta.
 
-### La sincronización no funciona
+### La sincronización no trae correos
 
-Verificá que la API de Gmail/People esté habilitada en Google Cloud Console y que el redirect URI coincida exactamente con lo que está en `.env`.
+Verificá que la **Gmail API** esté habilitada, que el redirect coincida y que la cuenta haya
+autorizado los scopes `gmail.readonly` + `gmail.modify`.
 
-### El chat con IA devuelve error
+### El chat o los borradores fallan
 
-Verificá que `AI_API_KEY` sea válida. Podés testear directamente (el puerto 8000 solo está publicado en desarrollo local; en Docker el servicio vive en la red interna):
+`AI_API_KEY` inválida o sin cuota. Probá el servicio:
 
 ```bash
 curl http://localhost:8000/health
 ```
 
-### La app se siente lenta en Docker
+### "El puerto 3001 ya está en uso"
 
-Los contenedores están limitados en RAM/CPU por `docker-compose.yml`. Si tu PC tiene recursos de sobra, podés aumentar los límites editando los valores de `mem_limit` y `cpus`.
+Hay otra instancia corriendo; `start-local.bat` se niega a abrir una segunda para no duplicar
+sesiones ni sincronizaciones. Cerrá la anterior o usá `servicios.bat stop`.
+
+### La app va lenta en Docker
+
+Los contenedores tienen `mem_limit` y `cpus` en `docker-compose.yml`. Si te sobra RAM, subilos.
 
 ---
 
