@@ -37,6 +37,7 @@ export default function EmailDetail({ email, onClose, onAction, onRead }) {
     if (!email) return;
     setLoading(true);
     setShowReply(false);
+    setDetail(null); // el detalle anterior no aplica al email que se acaba de abrir
     api.emails.get(email.id)
       .then((data) => {
         setDetail(data);

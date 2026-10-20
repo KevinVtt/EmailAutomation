@@ -14,10 +14,11 @@ export default function EmailDetailPage() {
   const location = useLocation();
   const navigate = useNavigate();
   // Desde el asistente ya viene el DTO completo; por URL directa se busca.
-  const [email, setEmail] = useState(
-    location.state?.email?.id === id ? location.state.email : null
-  );
+  // Se deriva de la ruta: al abrir otro email cambia el id, no se reusa el anterior.
+  const stateEmail = location.state?.email?.id === id ? location.state.email : null;
+  const [fetched, setFetched] = useState(null);
   const [error, setError] = useState(null);
+  const email = stateEmail || (fetched?.id === id ? fetched.email : null);
 
   const back = useCallback(() => {
     if (location.key === 'default') navigate('/inbox');
@@ -25,11 +26,20 @@ export default function EmailDetailPage() {
   }, [location.key, navigate]);
 
   useEffect(() => {
-    if (email) return;
+    setError(null);
+    if (stateEmail) return;
+    let alive = true;
     api.emails.get(id)
-      .then(setEmail)
-      .catch(() => setError('No se pudo abrir el email.'));
-  }, [email, id]);
+      .then((data) => {
+        if (alive) setFetched({ id, email: data });
+      })
+      .catch(() => {
+        if (alive) setError('No se pudo abrir el email.');
+      });
+    return () => {
+      alive = false;
+    };
+  }, [id, stateEmail]);
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 h-[calc(100vh-7rem)]">
