@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import EmailDetailPage from '../pages/EmailDetailPage';
 import { api } from '../lib/api';
@@ -77,5 +77,33 @@ describe('EmailDetailPage', () => {
     expect(await screen.findByText('Factura de octubre')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'ir al otro' }));
     expect(await screen.findByText('Otro asunto')).toBeTruthy();
+  });
+
+  it('ignora la respuesta tardía del email anterior', async () => {
+    let resolveFirst;
+    const late = { ...EMAIL, subject: 'Detalle viejo' };
+    const fresh = { ...OTHER, subject: 'Detalle nuevo' };
+    api.emails.get.mockImplementation((idId) => {
+      if (idId === 'e1') return new Promise((resolve) => { resolveFirst = resolve; });
+      return Promise.resolve(fresh);
+    });
+
+    render(
+      <MemoryRouter initialEntries={[{ pathname: '/email/e1', state: { email: EMAIL } }]}>
+        <GoToOther />
+        <Routes>
+          <Route path="/email/:id" element={<EmailDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'ir al otro' }));
+    expect(await screen.findByText('Detalle nuevo')).toBeTruthy();
+
+    await act(async () => {
+      resolveFirst(late);
+    });
+    expect(screen.queryByText('Detalle viejo')).toBeNull();
+    expect(screen.getByText('Detalle nuevo')).toBeTruthy();
   });
 });

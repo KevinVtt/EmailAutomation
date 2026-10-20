@@ -148,7 +148,7 @@ export default function EmailListView({
         </div>
         {selectedEmail && (
           <div className="flex-1 min-w-0">
-            <EmailDetail email={selectedEmail} onClose={handleCloseDetail} onRead={handleEmailRead} onAction={handleEmailAction} />
+            <EmailDetail key={selectedEmail.id} email={selectedEmail} onClose={handleCloseDetail} onRead={handleEmailRead} onAction={handleEmailAction} />
           </div>
         )}
       </div>

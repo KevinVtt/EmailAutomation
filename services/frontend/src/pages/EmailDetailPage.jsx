@@ -17,8 +17,11 @@ export default function EmailDetailPage() {
   // Se deriva de la ruta: al abrir otro email cambia el id, no se reusa el anterior.
   const stateEmail = location.state?.email?.id === id ? location.state.email : null;
   const [fetched, setFetched] = useState(null);
-  const [error, setError] = useState(null);
+  const [failure, setFailure] = useState(null);
   const email = stateEmail || (fetched?.id === id ? fetched.email : null);
+  // El error también es de un id: al abrir otro email no debe mostrarse el anterior.
+  // Con un email disponible (DTO del asistente o copia ya bajada) el error viejo no aplica.
+  const error = !email && failure?.id === id ? failure.message : null;
 
   const back = useCallback(() => {
     if (location.key === 'default') navigate('/inbox');
@@ -26,15 +29,16 @@ export default function EmailDetailPage() {
   }, [location.key, navigate]);
 
   useEffect(() => {
-    setError(null);
     if (stateEmail) return;
     let alive = true;
     api.emails.get(id)
       .then((data) => {
-        if (alive) setFetched({ id, email: data });
+        if (!alive) return;
+        setFetched({ id, email: data });
+        setFailure(null);
       })
       .catch(() => {
-        if (alive) setError('No se pudo abrir el email.');
+        if (alive) setFailure({ id, message: 'No se pudo abrir el email.' });
       });
     return () => {
       alive = false;
@@ -46,7 +50,7 @@ export default function EmailDetailPage() {
       {error ? (
         <ErrorState message={error} onRetry={back} retryLabel="Volver" />
       ) : email ? (
-        <EmailDetail email={email} onClose={back} />
+        <EmailDetail key={email.id} email={email} onClose={back} />
       ) : (
         <LoadingState label="Abriendo email..." />
       )}
