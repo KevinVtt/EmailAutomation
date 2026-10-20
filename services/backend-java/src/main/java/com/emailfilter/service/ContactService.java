@@ -93,6 +93,17 @@ public class ContactService {
         var names = latestNames(userId);
         counts.forEach((address, count) ->
                 upsertReceived(userId, address, names.get(address), lastSeen.get(address), count));
+
+        // Un remitente cuyos mails ya no existen (basura, history sync) no puede
+        // conservar el conteo viejo. shortcut: la actividad de un contacto con
+        // enviados se mantiene, porque el barrido de enviados no guarda su fecha.
+        for (var contact : contactRepository.findByUserId(userId)) {
+            if (!counts.containsKey(contact.getAddress()) && contact.getReceivedCount() > 0) {
+                contact.setReceivedCount(0);
+                if (contact.getSentCount() == 0) contact.setLastActivityAt(null);
+                contactRepository.save(contact);
+            }
+        }
     }
 
     /** La primera vez que se ve al usuario hay que leer sus enviados; después no. */
@@ -110,7 +121,6 @@ public class ContactService {
             if (address == null) return;
             var contact = findOrCreate(userId, address);
             contact.setSentCount(count);
-            touch(contact, Instant.now());
             contactRepository.save(contact);
         });
     }

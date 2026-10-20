@@ -53,6 +53,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anySet;
@@ -215,14 +216,14 @@ class EmailServiceTest {
         when(emailRepository.findProviderEmailIdsByUserId(eq(userId), any(Pageable.class))).thenReturn(page);
         when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
                 .thenReturn(Optional.of(token));
-        when(gmailService.fetchIncrementalEmails(anyString(), any(Instant.class), anySet()))
+        when(gmailService.fetchIncrementalEmails(anyString(), any(Instant.class), anySet(), anyInt()))
                 .thenReturn(List.of());
 
         emailService.syncEmailsAsync(user, "google").join();
 
         verify(emailRepository).findProviderEmailIdsByUserId(eq(userId), eq(PageRequest.of(0, 1000)));
         verify(gmailService).fetchIncrementalEmails(anyString(), any(Instant.class),
-                argThat(ids -> ids.size() == 500 && ids.contains("existing-499")));
+                argThat(ids -> ids.size() == 500 && ids.contains("existing-499")), anyInt());
     }
 
     @Test
@@ -255,14 +256,14 @@ class EmailServiceTest {
                         new PageImpl<>(page2, PageRequest.of(2, 1000), 2500));
         when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
                 .thenReturn(Optional.of(token));
-        when(gmailService.fetchIncrementalEmails(anyString(), any(Instant.class), anySet()))
+        when(gmailService.fetchIncrementalEmails(anyString(), any(Instant.class), anySet(), anyInt()))
                 .thenReturn(List.of());
 
         emailService.syncEmailsAsync(user, "google").join();
 
         verify(emailRepository, times(3)).findProviderEmailIdsByUserId(eq(userId), any(Pageable.class));
         verify(gmailService).fetchIncrementalEmails(anyString(), any(Instant.class),
-                argThat(ids -> ids.size() == 2500 && ids.contains("existing-0") && ids.contains("existing-2499")));
+                argThat(ids -> ids.size() == 2500 && ids.contains("existing-0") && ids.contains("existing-2499")), anyInt());
     }
 
     @Test
@@ -372,7 +373,7 @@ class EmailServiceTest {
         when(emailRepository.findSpamProviderEmailIds(userId)).thenReturn(List.of("old-spam"));
         when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
                 .thenReturn(Optional.of(token));
-        when(gmailService.fetchIncrementalEmails(anyString(), any(Instant.class), anySet()))
+        when(gmailService.fetchIncrementalEmails(anyString(), any(Instant.class), anySet(), anyInt()))
                 .thenReturn(List.of());
 
         emailService.syncEmailsAsync(user, "google").join();
@@ -600,6 +601,63 @@ class EmailServiceTest {
     }
 
     @Test
+    void filterEmails_bodyContains_searchesTheStoredBodyNotJustThePreview() {
+        var userId = UUID.randomUUID();
+        var page = new PageImpl<>(List.<EmailMessage>of(), PageRequest.of(0, 20), 0);
+        when(emailRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(page);
+
+        emailService.filterEmails(userId, Map.of("bodyContains", "factura"), 0, 20);
+
+        var cb = mock(CriteriaBuilder.class);
+        var root = mock(Root.class);
+        var userPath = mock(Path.class);
+        var previewPath = mock(Path.class);
+        var htmlPath = mock(Path.class);
+        when(root.get("user")).thenReturn(userPath);
+        when(userPath.get("id")).thenReturn(mock(Path.class));
+        when(root.get("bodyPreview")).thenReturn(previewPath);
+        when(root.get("bodyHtml")).thenReturn(htmlPath);
+        when(cb.equal(any(Expression.class), eq(userId))).thenReturn(mock(Predicate.class));
+        when(cb.lower(any())).thenReturn(mock(Expression.class));
+        when(cb.like(any(), anyString())).thenReturn(mock(Predicate.class));
+        when(cb.or(any(Predicate.class), any(Predicate.class))).thenReturn(mock(Predicate.class));
+        when(cb.and(any(Predicate[].class))).thenReturn(mock(Predicate.class));
+
+        var captor = ArgumentCaptor.forClass(Specification.class);
+        verify(emailRepository).findAll(captor.capture(), any(Pageable.class));
+        captor.getValue().toPredicate(root, mock(CriteriaQuery.class), cb);
+
+        verify(cb).lower(previewPath);
+        verify(cb).lower(htmlPath);
+    }
+
+    @Test
+    void filterEmails_importantFalse_excludesImportantAndRowsWithoutLabels() {
+        var userId = UUID.randomUUID();
+        var page = new PageImpl<>(List.<EmailMessage>of(), PageRequest.of(0, 20), 0);
+        when(emailRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(page);
+
+        emailService.filterEmails(userId, Map.of("important", "false"), 0, 20);
+
+        var cb = mock(CriteriaBuilder.class);
+        var root = mock(Root.class);
+        var userPath = mock(Path.class);
+        var labels = mock(Path.class);
+        when(root.get("user")).thenReturn(userPath);
+        when(userPath.get("id")).thenReturn(mock(Path.class));
+        when(root.get("labels")).thenReturn(labels);
+        when(cb.equal(any(Expression.class), eq(userId))).thenReturn(mock(Predicate.class));
+        when(cb.and(any(Predicate[].class))).thenReturn(mock(Predicate.class));
+
+        var captor = ArgumentCaptor.forClass(Specification.class);
+        verify(emailRepository).findAll(captor.capture(), any(Pageable.class));
+        captor.getValue().toPredicate(root, mock(CriteriaQuery.class), cb);
+
+        verify(cb).notLike(labels, "%IMPORTANT%");
+        verify(cb).isNull(labels);
+    }
+
+    @Test
     void filterEmails_destacados_buildsStarredOrImportantPredicate() {
         var userId = UUID.randomUUID();
         var page = new PageImpl<>(List.<EmailMessage>of(), PageRequest.of(0, 20), 0);
@@ -682,7 +740,7 @@ class EmailServiceTest {
                 .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 1000), 0));
         when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
                 .thenReturn(Optional.of(token));
-        when(gmailService.fetchIncrementalEmails(anyString(), any(Instant.class), anySet()))
+        when(gmailService.fetchIncrementalEmails(anyString(), any(Instant.class), anySet(), anyInt()))
                 .thenReturn(List.of(newEmail));
         when(emailRepository.findByUserIdAndProviderEmailIdIn(eq(userId), anyCollection()))
                 .thenReturn(List.of());
@@ -727,7 +785,7 @@ class EmailServiceTest {
                 .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 1000), 0));
         when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
                 .thenReturn(Optional.of(token));
-        when(gmailService.fetchIncrementalEmails(anyString(), any(Instant.class), anySet()))
+        when(gmailService.fetchIncrementalEmails(anyString(), any(Instant.class), anySet(), anyInt()))
                 .thenReturn(List.of(newEmail));
         when(emailRepository.findByUserIdAndProviderEmailIdIn(eq(userId), anyCollection()))
                 .thenReturn(List.of());
@@ -769,6 +827,7 @@ class EmailServiceTest {
         assertEquals("sent", result.get("status"));
         assertEquals("msg-1", result.get("messageId"));
         verify(gmailService).sendEmail("test-access-token", "sender@example.com", "Re: Hola", "Respuesta", "thread-1");
+        verify(contactService).upsertSent(userId, "sender@example.com");
     }
 
     @Test
@@ -1025,12 +1084,12 @@ class EmailServiceTest {
         when(emailRepository.findTopByUserIdOrderByReceivedAtDesc(userId)).thenReturn(Optional.of(lastEmail));
         when(emailRepository.findProviderEmailIdsByUserId(eq(userId), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 1000), 0));
-        when(gmailService.fetchIncrementalEmails(anyString(), any(Instant.class), anySet())).thenReturn(List.of());
+        when(gmailService.fetchIncrementalEmails(anyString(), any(Instant.class), anySet(), anyInt())).thenReturn(List.of());
         when(gmailService.getHistoryId("t")).thenReturn("5555");
 
         emailService.syncEmailsAsync(user, "google").join();
 
-        verify(gmailService).fetchIncrementalEmails(anyString(), any(Instant.class), anySet());
+        verify(gmailService).fetchIncrementalEmails(anyString(), any(Instant.class), anySet(), anyInt());
         verify(oauthTokenRepository).save(argThat(t -> "5555".equals(t.getHistoryId())));
     }
 
@@ -1319,6 +1378,24 @@ class EmailServiceTest {
         assertEquals(1, result.get("applied"));
         assertEquals(List.of("foreign"), result.get("failed"));
         verify(gmailService, times(1)).moveToTrash("t", "mine");
+    }
+
+    @Test
+    void bulkAction_trash_rebuildsContactsOnce() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).provider("google").build();
+        var token = OAuthToken.builder()
+                .accessToken("t")
+                .expiresAt(Instant.now().plusSeconds(3600))
+                .build();
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
+                .thenReturn(Optional.of(token));
+        when(emailRepository.findByUserIdAndProviderEmailIdIn(eq(userId), anyCollection()))
+                .thenReturn(List.of(owned(user, "m1"), owned(user, "m2")));
+
+        emailService.bulkAction(user, bulk("google", List.of("m1", "m2"), "trash"));
+
+        verify(contactService, times(1)).rebuildInbound(userId);
     }
 
     private static EmailMessage owned(User user, String providerEmailId) {

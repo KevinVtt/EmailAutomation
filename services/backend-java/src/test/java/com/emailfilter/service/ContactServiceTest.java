@@ -117,6 +117,45 @@ class ContactServiceTest {
     }
 
     @Test
+    void rebuildInbound_resetsTheCountOfAContactWhoseMailIsGone() {
+        var userId = UUID.randomUUID();
+        var stale = EmailContact.builder()
+                .id(UUID.randomUUID())
+                .user(User.builder().id(userId).build())
+                .address("juan@x.com")
+                .receivedCount(3)
+                .lastActivityAt(Instant.parse("2026-10-01T10:00:00Z"))
+                .build();
+        when(emailRepository.countBySenderSince(eq(userId), any(Instant.class))).thenReturn(List.of());
+        when(emailRepository.nameCandidates(userId)).thenReturn(List.of());
+        when(contactRepository.findByUserId(userId)).thenReturn(List.of(stale));
+        when(contactRepository.save(any(EmailContact.class))).thenAnswer(i -> i.getArgument(0));
+
+        contactService.rebuildInbound(userId);
+
+        assertEquals(0, stale.getReceivedCount());
+        org.junit.jupiter.api.Assertions.assertNull(stale.getLastActivityAt());
+    }
+
+    @Test
+    void applySentCounts_doesNotFabricateTheActivityDate() {
+        var userId = UUID.randomUUID();
+        var activity = Instant.parse("2026-01-01T00:00:00Z");
+        var existing = EmailContact.builder()
+                .id(UUID.randomUUID())
+                .user(User.builder().id(userId).build())
+                .address("a@x.com")
+                .lastActivityAt(activity)
+                .build();
+        when(contactRepository.findByUserIdAndAddress(userId, "a@x.com")).thenReturn(Optional.of(existing));
+        when(contactRepository.save(any(EmailContact.class))).thenAnswer(i -> i.getArgument(0));
+
+        contactService.applySentCounts(userId, java.util.Map.of("a@x.com", 4));
+
+        assertEquals(activity, existing.getLastActivityAt());
+    }
+
+    @Test
     void applySentCounts_setsTheCountWithoutTouchingWhatIsReceived() {
         var userId = UUID.randomUUID();
         var existing = EmailContact.builder()

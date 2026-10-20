@@ -135,15 +135,24 @@ public class GmailService {
      */
     public List<com.emailfilter.model.EmailMessage> fetchIncrementalEmails(
             String accessToken, java.time.Instant since, java.util.Set<String> existingIds) {
+        return fetchIncrementalEmails(accessToken, since, existingIds, Integer.MAX_VALUE);
+    }
+
+    public List<com.emailfilter.model.EmailMessage> fetchIncrementalEmails(
+            String accessToken, java.time.Instant since, java.util.Set<String> existingIds, int maxTotal) {
         var gmail = buildGmailClient(accessToken);
+        if (maxTotal <= 0) maxTotal = Integer.MAX_VALUE;
 
         // Format date for Gmail's after: query (YYYY/MM/DD)
         var dateFormatter = new java.text.SimpleDateFormat("yyyy/MM/dd");
         var sinceDate = dateFormatter.format(java.util.Date.from(since));
 
         // Fetch BOTH inbox and spam (spam was previously never queried in incremental sync)
-        var inbox = fetchIncrementalByQuery(gmail, "in:inbox after:" + sinceDate, existingIds, accessToken);
-        var spam = fetchIncrementalByQuery(gmail, "in:spam after:" + sinceDate, existingIds, accessToken);
+        var inbox = fetchIncrementalByQuery(gmail, "in:inbox after:" + sinceDate, existingIds, accessToken, maxTotal);
+        var spam = inbox.size() >= maxTotal
+                ? List.<com.emailfilter.model.EmailMessage>of()
+                : fetchIncrementalByQuery(gmail, "in:spam after:" + sinceDate, existingIds,
+                        accessToken, maxTotal - inbox.size());
 
         // Merge with dedup by providerEmailId (a message can appear in both inbox and spam)
         var all = new java.util.LinkedHashMap<String, com.emailfilter.model.EmailMessage>();
@@ -155,7 +164,7 @@ public class GmailService {
     }
 
     private List<com.emailfilter.model.EmailMessage> fetchIncrementalByQuery(
-            Gmail gmail, String query, java.util.Set<String> existingIds, String throttleKey) {
+            Gmail gmail, String query, java.util.Set<String> existingIds, String throttleKey, int maxNew) {
         var newEmails = new java.util.ArrayList<com.emailfilter.model.EmailMessage>();
 
         String pageToken = null;
@@ -174,6 +183,7 @@ public class GmailService {
             if (messages == null || messages.isEmpty()) break;
 
             for (var msg : messages) {
+                if (newEmails.size() >= maxNew) break;
                 // Skip messages we already have in the DB
                 if (existingIds.contains(msg.getId())) continue;
                 // Fetch full details only for new messages
@@ -181,7 +191,7 @@ public class GmailService {
             }
 
             pageToken = response.getNextPageToken();
-        } while (pageToken != null && !pageToken.isBlank());
+        } while (pageToken != null && !pageToken.isBlank() && newEmails.size() < maxNew);
 
         return newEmails;
     }
@@ -711,10 +721,25 @@ public class GmailService {
     private String decodePart(MessagePart part) {
         var bytes = Base64.getUrlDecoder().decode(part.getBody().getData());
         var headers = part.getHeaders() != null ? part.getHeaders() : List.<MessagePartHeader>of();
+        var charset = charsetOf(getHeader(headers, "Content-Type"));
         var transferEncoding = getHeader(headers, "Content-Transfer-Encoding");
         if ("quoted-printable".equalsIgnoreCase(transferEncoding.trim())) {
-            return QuotedPrintable.decode(bytes);
+            return QuotedPrintable.decode(bytes, charset);
         }
-        return new String(bytes, StandardCharsets.UTF_8);
+        return new String(bytes, charset);
+    }
+
+    private static final java.util.regex.Pattern CHARSET = java.util.regex.Pattern.compile(
+            "charset=\"?([^\";\\s]+)", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /** Charset declarado en el Content-Type de la parte; UTF-8 si falta o no se reconoce. */
+    private static java.nio.charset.Charset charsetOf(String contentType) {
+        var m = CHARSET.matcher(contentType);
+        if (!m.find()) return StandardCharsets.UTF_8;
+        try {
+            return java.nio.charset.Charset.forName(m.group(1));
+        } catch (Exception e) {
+            return StandardCharsets.UTF_8;
+        }
     }
 }

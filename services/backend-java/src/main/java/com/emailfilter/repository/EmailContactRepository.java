@@ -15,6 +15,8 @@ public interface EmailContactRepository extends JpaRepository<EmailContact, UUID
 
     long countByUserId(UUID userId);
 
+    List<EmailContact> findByUserId(UUID userId);
+
     @Query("""
             SELECT c FROM EmailContact c
             WHERE c.user.id = :userId

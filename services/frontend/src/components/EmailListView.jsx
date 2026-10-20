@@ -30,17 +30,26 @@ export default function EmailListView({
   // depender de la identidad de fetchEmails (si no, se re-suscribe en cada render).
   const pageRef = useRef(0);
 
-  // Keep filters in a ref so the fetch effect only re-runs on date changes.
+  // Keep filters in a ref so the fetch effect only re-runs on date or filter changes.
   const filtersRef = useRef(filters);
   useEffect(() => {
     filtersRef.current = filters;
   }, [filters]);
 
+  // Stable key: the parent may pass a new object with the same content on every render.
+  const filtersKey = JSON.stringify(filters);
+
   const buildFilters = useCallback((overrides = {}) => {
     const merged = { ...filtersRef.current };
     // Sin la hora, "2026-10-20" se parsea como UTC y en Argentina cae el día anterior.
     if (dateFrom) merged.dateFrom = new Date(dateFrom + 'T00:00:00').toISOString();
-    if (dateTo) merged.dateTo = new Date(dateTo + 'T23:59:59').toISOString();
+    if (dateTo) {
+      // El backend usa un límite superior exclusivo: el día completo termina a las
+      // 00:00 del día siguiente, no en 23:59:59 (eso pierde el último segundo).
+      const end = new Date(dateTo + 'T00:00:00');
+      end.setDate(end.getDate() + 1);
+      merged.dateTo = end.toISOString();
+    }
     return { ...merged, ...overrides };
   }, [dateFrom, dateTo]);
 
@@ -66,7 +75,7 @@ export default function EmailListView({
 
   useEffect(() => {
     fetchEmails(0);
-  }, [fetchEmails]);
+  }, [fetchEmails, filtersKey]);
 
   // Un sync de fondo (o una acción sobre un email) llega por WebSocket: refrescar
   // sin pasar por el estado de loading, que si no la lista parpadea sola.

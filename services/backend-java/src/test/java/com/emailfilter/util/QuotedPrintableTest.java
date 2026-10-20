@@ -21,6 +21,12 @@ class QuotedPrintableTest {
     }
 
     @Test
+    void decode_usesTheCharsetThePartDeclares() {
+        var latin1 = "Caf=E9 y m=E1s".getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+        assertEquals("Café y más", QuotedPrintable.decode(latin1, java.nio.charset.StandardCharsets.ISO_8859_1));
+    }
+
+    @Test
     void decodeIfEncoded_decodesTextWithQuotedPrintableMarkers() {
         assertEquals("Café = listo", QuotedPrintable.decodeIfEncoded("Caf=C3=A9 =3D listo"));
     }

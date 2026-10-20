@@ -201,7 +201,10 @@ _DATE_ALT = (
     r"|\d{1,2}[/-]\d{1,2}"
     r"|\d{1,2} de (?:" + _MONTH_RE + r")(?: de \d{4})?"
     r"|(?:" + _MONTH_RE + r")(?: de \d{4})?"
+    r"|\d{1,2}"
 )
+# "del 1 al 15 de octubre": one side borrows the month written on the other side.
+_RE_BARE_DAY = re.compile(r"^\d{1,2}$")
 _RE_ISO = re.compile(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b")
 # A range is checked before any single date, because it contains two of them.
 _RE_RANGE = re.compile(
@@ -218,7 +221,9 @@ _RE_MONTH = re.compile(r"\b(?:en |de |del )(" + _MONTH_FULL_RE + r")\b")
 _RE_YEAR = re.compile(r"\b(?:de|del|en)\s+(\d{4})\b")
 # Weekdays need their article: "de Domingo" is a surname, "del domingo" is a day.
 _RE_WEEKDAY = re.compile(
-    r"\b(?:el |del |desde el )(" + _WEEKDAY_RE + r")\b"
+    r"\b(?:el |del |desde el )"
+    r"(?:(pasado|anterior|que viene|proximo|proxima|entrante) )?"
+    r"(" + _WEEKDAY_RE + r")\b"
     r"(?: (pasado|anterior|que viene|proximo|proxima|entrante))?"
 )
 _RE_LAST_DAYS = re.compile(r"\bultimos (\d{1,2}) dias?\b")
@@ -301,10 +306,28 @@ def _plus_year(rng: dict) -> dict:
 
 def _range_from_fragments(left_frag: str, right_frag: str, moment: datetime) -> dict:
     """Two dates joined by "al"/"hasta"/"y": the left one's start and the right one's end."""
-    left = parse_date_from_text("del " + left_frag, moment)
-    right = parse_date_from_text("del " + right_frag, moment)
-    if not left or not right:
+    left_bare = _RE_BARE_DAY.fullmatch(left_frag)
+    right_bare = _RE_BARE_DAY.fullmatch(right_frag)
+    if left_bare and right_bare:
+        return {}  # "de 2 a 3 dias" is a duration, not a range
+    left = None if left_bare else parse_date_from_text("del " + left_frag, moment)
+    right = None if right_bare else parse_date_from_text("del " + right_frag, moment)
+    if (left is None and not left_bare) or (right is None and not right_bare):
         return {}
+    if left_bare:
+        anchor = right["dateFrom"]
+        day = _valid_day(int(anchor[:4]), int(anchor[5:7]), int(left_frag))
+        if day is None:
+            return {}
+        left = _day_range(day)
+        if left["dateFrom"] > right["dateFrom"]:
+            return {}  # a backwards day in the same month is a typo, not a year wrap
+    if right_bare:
+        anchor = left["dateFrom"]
+        day = _valid_day(int(anchor[:4]), int(anchor[5:7]), int(right_frag))
+        if day is None:
+            return {}
+        right = _day_range(day)
     if not _RE_4DIGIT.search(right_frag) and right["dateFrom"] < left["dateFrom"]:
         right = _plus_year(right)  # "de diciembre a enero" wraps into the next year
     if left["dateFrom"] >= right["dateTo"]:
@@ -372,8 +395,8 @@ def parse_date_from_text(message: str, now: Optional[datetime] = None) -> dict:
 
         m = _RE_WEEKDAY.search(text)
         if m:
-            target = _WEEKDAYS[m.group(1)]
-            modifier = m.group(2)
+            target = _WEEKDAYS[m.group(2)]
+            modifier = m.group(1) or m.group(3)
             if modifier in ("que viene", "proximo", "proxima", "entrante"):
                 forward = (target - today.weekday()) % 7 or 7
                 return _day_range(today + timedelta(days=forward))

@@ -136,7 +136,7 @@ class GmailServiceTest {
         when(listRequest.execute()).thenReturn(inboxResp).thenReturn(spamResp);
         stubMessageDetails();
 
-        var result = gmailService.fetchIncrementalEmails("token", since, existingIds);
+        var result = gmailService.fetchIncrementalEmails("token", since, existingIds, 1000);
 
         assertEquals(2, result.size());
         assertTrue(result.stream().anyMatch(e -> e.getProviderEmailId().equals("inbox-new")));
@@ -147,6 +147,20 @@ class GmailServiceTest {
         verify(listRequest, times(2)).setQ(captor.capture());
         assertTrue(captor.getAllValues().get(0).startsWith("in:inbox after:"));
         assertTrue(captor.getAllValues().get(1).startsWith("in:spam after:"));
+    }
+
+    @Test
+    void fetchIncrementalEmails_stopsAtTheCapAndSkipsSpam() throws Exception {
+        var inboxResp = new ListMessagesResponse()
+                .setMessages(List.of(new Message().setId("a"), new Message().setId("b")))
+                .setNextPageToken(null);
+        when(listRequest.execute()).thenReturn(inboxResp);
+        stubMessageDetails();
+
+        var result = gmailService.fetchIncrementalEmails("token", Instant.now(), Set.of(), 1);
+
+        assertEquals(1, result.size());
+        verify(listRequest, times(1)).setQ(anyString());
     }
 
     private void stubMessageDetails() throws Exception {
@@ -190,6 +204,39 @@ class GmailServiceTest {
         var result = gmailService.fetchMessagesByIds(gmail, List.of("qp-1"));
 
         assertEquals("Hola Café y mástexto sin cortar", result.get(0).getBodyHtml());
+    }
+
+    @Test
+    void fetchMessagesByIds_decodesBase64BodyWithItsDeclaredCharset() throws Exception {
+        var part = new MessagePart()
+                .setMimeType("text/html")
+                .setHeaders(List.of(new MessagePartHeader()
+                        .setName("Content-Type").setValue("text/html; charset=iso-8859-1")))
+                .setBody(new MessagePartBody().setData(Base64.getUrlEncoder()
+                        .encodeToString("<p>Café</p>".getBytes(StandardCharsets.ISO_8859_1))));
+        stubSingleMessage("latin1-1", baseMessage("latin1-1").setPayload(part));
+
+        var result = gmailService.fetchMessagesByIds(gmail, List.of("latin1-1"));
+
+        assertEquals("<p>Café</p>", result.get(0).getBodyHtml());
+    }
+
+    @Test
+    void fetchMessagesByIds_decodesQuotedPrintableBodyWithItsDeclaredCharset() throws Exception {
+        var part = new MessagePart()
+                .setMimeType("text/plain")
+                .setHeaders(List.of(
+                        new MessagePartHeader()
+                                .setName("Content-Transfer-Encoding").setValue("quoted-printable"),
+                        new MessagePartHeader()
+                                .setName("Content-Type").setValue("text/plain; charset=\"ISO-8859-1\"")))
+                .setBody(new MessagePartBody().setData(Base64.getUrlEncoder()
+                        .encodeToString("Caf=E9".getBytes(StandardCharsets.ISO_8859_1))));
+        stubSingleMessage("latin1-2", baseMessage("latin1-2").setPayload(part));
+
+        var result = gmailService.fetchMessagesByIds(gmail, List.of("latin1-2"));
+
+        assertEquals("Café", result.get(0).getBodyHtml());
     }
 
     @Test

@@ -129,6 +129,30 @@ def test_parse_date_range(message, from_day, to_day):
     assert parse_date_from_text(message, NOW) == {"dateFrom": _d(from_day), "dateTo": _d(to_day)}
 
 
+@pytest.mark.parametrize("message,from_day,to_day", [
+    ("mails del 1 al 15 de octubre", "2026-10-01", "2026-10-16"),
+    ("mails del 1 de octubre al 15", "2026-10-01", "2026-10-16"),
+    ("mails del 1 al 15/10", "2026-10-01", "2026-10-16"),
+    ("mails entre el 1 y el 15 de octubre", "2026-10-01", "2026-10-16"),
+])
+def test_parse_range_with_a_bare_day(message, from_day, to_day):
+    assert parse_date_from_text(message, NOW) == {"dateFrom": _d(from_day), "dateTo": _d(to_day)}
+
+
+def test_parse_range_of_two_bare_days_is_not_a_date():
+    # "de 2 a 3 dias" is a duration, not a date range.
+    assert parse_date_from_text("mails de 2 a 3 dias", NOW) == {}
+
+
+@pytest.mark.parametrize("message,from_day,to_day", [
+    ("el próximo lunes", "2026-10-19", "2026-10-20"),
+    ("el proximo lunes", "2026-10-19", "2026-10-20"),
+    ("el pasado lunes", "2026-10-05", "2026-10-06"),
+])
+def test_parse_weekday_with_the_modifier_in_front(message, from_day, to_day):
+    assert parse_date_from_text(message, NOW) == {"dateFrom": _d(from_day), "dateTo": _d(to_day)}
+
+
 def test_parse_inverted_range_with_years_keeps_the_first_date():
     # 20 October to 10 October is a typo, not a range that wraps a year.
     assert parse_date_from_text("mails del 20/10/2026 al 10/10/2026", NOW) == {

@@ -74,6 +74,35 @@ describe('EmailListView', () => {
     });
   });
 
+  it('refetches when the filters prop changes', async () => {
+    api.emails.filter.mockResolvedValue({ content: [], totalPages: 0 });
+    const { rerender } = renderList();
+    await waitFor(() => expect(api.emails.filter).toHaveBeenCalledWith({ isStarred: true }, 0));
+
+    rerender(
+      <AuthContext.Provider value={mockAuth}>
+        <EmailListView title="Destacados" filters={{ isStarred: true, label: 'SPAM' }} />
+      </AuthContext.Provider>
+    );
+
+    await waitFor(() => {
+      expect(api.emails.filter).toHaveBeenLastCalledWith({ isStarred: true, label: 'SPAM' }, 0);
+    });
+  });
+
+  it('sends dateTo as the start of the next day so the whole day is included', async () => {
+    api.emails.filter.mockResolvedValue({ content: [], totalPages: 0 });
+    const { container } = renderList();
+    await waitFor(() => expect(api.emails.filter).toHaveBeenCalled());
+
+    fireEvent.change(container.querySelectorAll('input[type="date"]')[1], { target: { value: '2026-10-20' } });
+
+    await waitFor(() => {
+      const lastCall = api.emails.filter.mock.calls.at(-1);
+      expect(lastCall[0].dateTo).toBe(new Date('2026-10-21T00:00:00').toISOString());
+    });
+  });
+
   it('renders the section title', async () => {
     api.emails.filter.mockResolvedValue({ content: [], totalPages: 0 });
     renderList();

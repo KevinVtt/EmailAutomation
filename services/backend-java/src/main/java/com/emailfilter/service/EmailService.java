@@ -138,7 +138,9 @@ public class EmailService {
                     : buildContainsPredicate(cb, root.get("subject"), subjectRaw);
             Predicate bodyPredicate = (bodyRaw == null || bodyRaw.isBlank())
                     ? null
-                    : buildContainsPredicate(cb, root.get("bodyPreview"), bodyRaw);
+                    : cb.or(
+                            buildContainsPredicate(cb, root.get("bodyPreview"), bodyRaw),
+                            buildContainsPredicate(cb, root.get("bodyHtml"), bodyRaw));
 
             for (var entry : filters.entrySet()) {
                 var key = entry.getKey();
@@ -152,8 +154,16 @@ public class EmailService {
                     }
                     case "isRead" -> predicates.add(cb.equal(root.get("isRead"), Boolean.parseBoolean(value)));
                     case "isStarred" -> predicates.add(cb.equal(root.get("isStarred"), Boolean.parseBoolean(value)));
-                    case "important" ->
-                        predicates.add(cb.like(root.get("labels"), "%IMPORTANT%"));
+                    case "important" -> {
+                        if (Boolean.parseBoolean(value)) {
+                            predicates.add(cb.like(root.get("labels"), "%IMPORTANT%"));
+                        } else {
+                            // notLike is NULL-unsafe: rows without labels need the OR.
+                            predicates.add(cb.or(
+                                    cb.notLike(root.get("labels"), "%IMPORTANT%"),
+                                    cb.isNull(root.get("labels"))));
+                        }
+                    }
                     case "destacados" ->
                         predicates.add(cb.or(
                                 cb.equal(root.get("isStarred"), true),
@@ -628,7 +638,7 @@ public class EmailService {
                     case "unstar" -> toggleStar(user, provider, emailId, false);
                     case "read" -> markAsRead(user, provider, emailId);
                     case "unread" -> markAsUnread(user, provider, emailId);
-                    case "trash" -> moveToTrash(user, provider, emailId);
+                    case "trash" -> trashOnly(user, provider, emailId);
                     default -> throw new IllegalArgumentException("Unknown action: " + request.getAction());
                 }
                 applied++;
@@ -639,6 +649,9 @@ public class EmailService {
         }
 
         // Un solo aviso para todo el lote: el dashboard refresca una vez, no 100.
+        if ("trash".equals(request.getAction()) && applied > 0) {
+            refreshContacts(user);  // una sola reconstrucción para todo el lote
+        }
         webSocketService.sendNotification(userId.toString(), "emails_changed");
         return Map.of("applied", applied, "failed", failed);
     }
@@ -690,7 +703,7 @@ public class EmailService {
         if (lastEmailOpt.isPresent()) {
             var lastReceivedAt = lastEmailOpt.get().getReceivedAt();
             log.info("Incremental sync for user={}, fetching emails after {}", userId, lastReceivedAt);
-            emails = gmailService.fetchIncrementalEmails(accessToken, lastReceivedAt, fetchAllProviderEmailIds(userId));
+            emails = gmailService.fetchIncrementalEmails(accessToken, lastReceivedAt, fetchAllProviderEmailIds(userId), maxEmailsPerSync);
         } else {
             log.info("First sync for user={}, fetching all emails", userId);
             emails = gmailService.fetchAllEmails(accessToken, 100, maxEmailsPerSync);
@@ -948,6 +961,12 @@ public class EmailService {
     }
 
     public void moveToTrash(User user, String provider, String emailId) {
+        trashOnly(user, provider, emailId);
+        // El conteo de recibidos del remitente dependía de este mail.
+        refreshContacts(user);
+    }
+
+    private void trashOnly(User user, String provider, String emailId) {
         var token = getToken(user, provider);
         try {
             if ("google".equals(provider)) gmailService.moveToTrash(token, emailId);
@@ -994,6 +1013,7 @@ public class EmailService {
 
         log.info("Reply sent: userId={}, provider={}, messageId={}",
                 user.getId(), provider, messageId);
+        contactService.upsertSent(user.getId(), to);
         return Map.of("status", "sent", "messageId", messageId);
     }
 

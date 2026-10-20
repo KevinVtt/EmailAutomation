@@ -1,6 +1,7 @@
 package com.emailfilter.util;
 
 import java.io.ByteArrayOutputStream;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -21,6 +22,11 @@ public final class QuotedPrintable {
     }
 
     public static String decode(byte[] input) {
+        return decode(input, StandardCharsets.UTF_8);
+    }
+
+    /** El charset lo declara el Content-Type de la parte; los escapes QP son siempre ASCII. */
+    public static String decode(byte[] input, Charset charset) {
         var out = new ByteArrayOutputStream(input.length);
         for (int i = 0; i < input.length; i++) {
             int b = input[i] & 0xFF;
@@ -41,7 +47,7 @@ public final class QuotedPrintable {
             }
             out.write(b);
         }
-        return out.toString(StandardCharsets.UTF_8);
+        return out.toString(charset);
     }
 
     /**
