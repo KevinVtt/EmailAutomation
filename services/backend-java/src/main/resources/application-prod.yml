@@ -1,0 +1,4 @@
+# Producción: sin DEBUG para no volcar correos ni datos de usuario en los logs.
+logging:
+  level:
+    com.emailfilter: INFO

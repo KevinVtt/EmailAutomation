@@ -78,6 +78,10 @@ playwright-report/
 *.md
 !/README.md
 !/AGENTS.md
+!/DEPLOY.md
+
+# Backups de la base (scripts/backup-db.sh)
+backups/
 
 # graphify: only the graph artifact is committed; cache and views are regenerable
 graphify-out/*
