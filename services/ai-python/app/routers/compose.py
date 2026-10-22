@@ -8,7 +8,7 @@ from app.models.schemas import (
     ContactProfileRequest,
     ContactProfileResponse,
 )
-from app.services.compose_agent import compose_email, contact_profile
+from app.services.compose_agent import EmptyComposeError, compose_email, contact_profile
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,9 @@ async def compose(request: ComposeRequest):
         return ComposeResponse(subject=result["subject"], body=result["body"])
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except EmptyComposeError as e:
+        logger.warning("=== COMPOSE SIN CUERPO === %s", str(e))
+        raise HTTPException(status_code=502, detail="El modelo no devolvió un correo")
     except Exception as e:
         logger.error("=== COMPOSE ERROR === %s", str(e), exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")

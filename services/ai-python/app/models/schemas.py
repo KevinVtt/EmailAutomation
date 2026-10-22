@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 from typing import Optional
 from datetime import datetime
@@ -27,13 +27,13 @@ class EmailItem(BaseModel):
 
 
 class AnalyzeRequest(BaseModel):
-    emails: list[EmailItem]
+    emails: list[EmailItem] = Field(max_length=50)
 
 
 class ChatRequest(BaseModel):
-    message: str
-    conversation_id: str = ""
-    context: list[dict] | None = None
+    message: str = Field(max_length=2000)
+    conversation_id: str = Field(default="", max_length=100)
+    context: list[dict] | None = Field(default=None, max_length=50)
     scope: Optional[dict] = None
 
 
@@ -49,7 +49,7 @@ class AnalyzeResponse(BaseModel):
 
 
 class SummarizeRequest(BaseModel):
-    emails: list[EmailItem]
+    emails: list[EmailItem] = Field(max_length=50)
 
 
 class SummarizeResponse(BaseModel):
@@ -57,14 +57,14 @@ class SummarizeResponse(BaseModel):
 
 
 class RewriteRequest(BaseModel):
-    draft: str
-    original_subject: str = ""
-    original_from: str = ""
-    original_body: str = ""
-    tone: str = "formal"
-    language: str = "auto"
-    custom_rules: str = ""
-    user_name: str = ""
+    draft: str = Field(max_length=4000)
+    original_subject: str = Field(default="", max_length=300)
+    original_from: str = Field(default="", max_length=300)
+    original_body: str = Field(default="", max_length=20000)
+    tone: str = Field(default="formal", max_length=20)
+    language: str = Field(default="auto", max_length=20)
+    custom_rules: str = Field(default="", max_length=2000)
+    user_name: str = Field(default="", max_length=300)
 
 
 class RewriteResponse(BaseModel):
@@ -73,16 +73,16 @@ class RewriteResponse(BaseModel):
 
 
 class ComposeRequest(BaseModel):
-    instruction: str
-    contact_name: str = ""
-    contact_company: str = ""
-    contact_topic: str = ""
-    contact_notes: str = ""
-    recent_subjects: list[str] = []
-    subject_hint: str = ""
-    tone: str = "formal"
-    language: str = "auto"
-    user_name: str = ""
+    instruction: str = Field(max_length=1000)
+    contact_name: str = Field(default="", max_length=300)
+    contact_company: str = Field(default="", max_length=300)
+    contact_topic: str = Field(default="", max_length=300)
+    contact_notes: str = Field(default="", max_length=2000)
+    recent_subjects: list[str] = Field(default=[], max_length=50)
+    subject_hint: str = Field(default="", max_length=300)
+    tone: str = Field(default="formal", max_length=20)
+    language: str = Field(default="auto", max_length=20)
+    user_name: str = Field(default="", max_length=300)
 
 
 class ComposeResponse(BaseModel):
@@ -91,9 +91,9 @@ class ComposeResponse(BaseModel):
 
 
 class ContactProfileRequest(BaseModel):
-    address: str
-    display_name: str = ""
-    subjects: list[str] = []
+    address: str = Field(max_length=320)
+    display_name: str = Field(default="", max_length=300)
+    subjects: list[str] = Field(default=[], max_length=50)
 
 
 class ContactProfileResponse(BaseModel):

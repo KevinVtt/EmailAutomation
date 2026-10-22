@@ -1,11 +1,23 @@
+import hmac
 import logging
 import os
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.config import settings
 from app.routers import health, analyze, chat, rewrite, compose
 
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+
+
+def require_internal_token(x_internal_token: str | None = Header(default=None)):
+    expected = settings.ai_internal_token
+    if not expected:
+        raise HTTPException(status_code=503, detail="AI_INTERNAL_TOKEN no configurado")
+    if not x_internal_token or not hmac.compare_digest(x_internal_token.encode(), expected.encode()):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
 
 app = FastAPI(
     title="Email Filter AI Service",
@@ -23,8 +35,9 @@ app.add_middleware(
 )
 
 app.include_router(health.router, tags=["health"])
-app.include_router(analyze.router, prefix="/analyze", tags=["analyze"])
-app.include_router(chat.router, prefix="/chat", tags=["chat"])
-app.include_router(rewrite.router, prefix="/rewrite", tags=["rewrite"])
-app.include_router(compose.compose_router, prefix="/compose", tags=["compose"])
-app.include_router(compose.profile_router, prefix="/contact-profile", tags=["contact-profile"])
+auth = [Depends(require_internal_token)]
+app.include_router(analyze.router, prefix="/analyze", tags=["analyze"], dependencies=auth)
+app.include_router(chat.router, prefix="/chat", tags=["chat"], dependencies=auth)
+app.include_router(rewrite.router, prefix="/rewrite", tags=["rewrite"], dependencies=auth)
+app.include_router(compose.compose_router, prefix="/compose", tags=["compose"], dependencies=auth)
+app.include_router(compose.profile_router, prefix="/contact-profile", tags=["contact-profile"], dependencies=auth)

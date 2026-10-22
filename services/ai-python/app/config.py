@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     ai_api_key: str = ""
     ai_api_url: str = "https://api.groq.com/openai/v1"
     ai_model: str = "openai/gpt-oss-120b"
+    ai_internal_token: str = ""
 
     class Config:
         env_file = os.environ.get("ENV_FILE", str(Path(__file__).resolve().parent.parent.parent.parent / ".env"))

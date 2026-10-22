@@ -265,7 +265,7 @@ async def test_scope_booleans_become_strings_the_backend_can_parse(httpx_mock):
 
     result = await process_chat_message(
         "cuáles tengo",
-        scope={"folder": "starred", "criteria": {"destacados": True}, "description": "Destacados"},
+        scope={"folder": "starred", "criteria": {"isStarred": True}, "description": "Destacados"},
     )
 
-    assert result["criteria"] == {"destacados": "true"}
+    assert result["criteria"] == {"isStarred": "true"}

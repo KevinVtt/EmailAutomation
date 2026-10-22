@@ -1,5 +1,6 @@
 import pytest
 from app.main import app
+from app.services.compose_agent import EmptyComposeError
 
 
 @pytest.mark.asyncio
@@ -64,6 +65,12 @@ async def test_chat_endpoint(client, httpx_mock):
 @pytest.mark.asyncio
 async def test_chat_endpoint_invalid_request(client):
     response = await client.post("/chat", json={})
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_chat_endpoint_rejects_oversized_message(client):
+    response = await client.post("/chat", json={"message": "a" * 2001, "conversation_id": ""})
     assert response.status_code == 422
 
 
@@ -166,6 +173,18 @@ async def test_compose_endpoint(client, monkeypatch):
 async def test_compose_endpoint_without_instruction_is_422(client):
     response = await client.post("/compose", json={"user_name": "Lucía"})
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_compose_endpoint_empty_model_body_is_502(client, monkeypatch):
+    async def empty(**kwargs):
+        raise EmptyComposeError("vacío")
+
+    monkeypatch.setattr("app.routers.compose.compose_email", empty)
+
+    response = await client.post("/compose", json={"instruction": "hola"})
+
+    assert response.status_code == 502
 
 
 @pytest.mark.asyncio

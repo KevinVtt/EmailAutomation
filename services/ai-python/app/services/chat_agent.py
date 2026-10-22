@@ -57,8 +57,6 @@ CRITERIA_KEYS_WHITELIST = {
     "important",
     "label",
     "size",
-    "dateFrom",
-    "dateTo",
 }
 
 
@@ -390,7 +388,8 @@ def parse_date_from_text(message: str, now: Optional[datetime] = None) -> dict:
         m = _RE_YEAR.search(text)
         if m:
             year = int(m.group(1))
-            if _MIN_YEAR <= year <= _MAX_YEAR:
+            # shortcut: "de 2000 pesos" is still read as the year 2000, upgrade with an amount-aware check
+            if _MIN_YEAR <= year <= today.year + 1:
                 return _year_range(year)
 
         m = _RE_WEEKDAY.search(text)
@@ -557,14 +556,6 @@ def sanitize_criteria(criteria: dict) -> dict:
                 if s:
                     cleaned[k] = s
             continue
-        if k in ("dateFrom", "dateTo"):
-            if isinstance(v, str):
-                s = v.strip()
-                if len(s) > 200:
-                    s = s[:200]
-                if s:
-                    cleaned[k] = s
-            continue
     return cleaned
 
 
@@ -638,24 +629,14 @@ async def process_chat_message(
     else:
         logger.warning("Non-string dateRange from AI, ignoring it: %r", date_range)
         date_criteria = {}
-    criteria.update(date_criteria)
-
     criteria = sanitize_criteria(criteria)
+    criteria.update(date_criteria)
 
     # La lista que el usuario ve manda: se aplica al final y no se puede pisar.
     # El backend la vuelve a mergear; acá queda para que la respuesta la nombre bien.
     if isinstance(scope, dict):
-        scoped = scope.get("criteria")
-        if isinstance(scoped, dict):
-            for key, value in scoped.items():
-                if key is None or value is None:
-                    continue
-                if isinstance(value, bool):
-                    value = "true" if value else "false"
-                elif not isinstance(value, str):
-                    value = str(value)
-                if value.strip():
-                    criteria[str(key)] = value
+        scoped = sanitize_criteria(scope.get("criteria"))
+        criteria.update({k: str(v) for k, v in scoped.items()})
 
     result["criteria"] = criteria
     result["conversation_id"] = conversation_id or uuid.uuid4().hex[:12]

@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from app.services.compose_agent import compose_email, contact_profile
+from app.services.compose_agent import EmptyComposeError, compose_email, contact_profile
 
 URL = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -33,10 +33,11 @@ async def test_compose_signs_with_the_user_and_sweeps_placeholders(httpx_mock):
 
 
 @pytest.mark.asyncio
-async def test_compose_returns_empty_on_non_json(httpx_mock):
+async def test_compose_without_body_raises_instead_of_empty_mail(httpx_mock):
     _mock(httpx_mock, "Claro, acá tenés el mail redactado.")
 
-    assert await compose_email(instruction="saludalo", user_name="Lucía") == {"subject": "", "body": ""}
+    with pytest.raises(EmptyComposeError):
+        await compose_email(instruction="saludalo", user_name="Lucía")
 
 
 @pytest.mark.asyncio

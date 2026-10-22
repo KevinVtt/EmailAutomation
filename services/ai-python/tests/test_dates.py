@@ -84,6 +84,7 @@ def test_parse_rejects_absurd_last_days_count():
     "correos de Mar",
     "mails del mar",
     "emails de 1000",
+    "mails de 2030",
 ])
 def test_parse_does_not_invent_a_date(message):
     assert parse_date_from_text(message, NOW) == {}

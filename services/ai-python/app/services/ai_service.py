@@ -17,7 +17,8 @@ class AIService:
         self.api_key = settings.ai_api_key
         self.api_url = settings.ai_api_url.rstrip("/")
         self.model = settings.ai_model
-        self.client = httpx.AsyncClient(timeout=120.0)
+        self.client = httpx.AsyncClient(timeout=25.0)
+        self._sem = asyncio.Semaphore(4)
 
     @classmethod
     def get_instance(cls) -> "AIService":
@@ -58,21 +59,22 @@ class AIService:
             logger.info("AI REQUEST: url=%s, model=%s, messages_count=%s, attempt=%d", url, self.model, len(messages), attempt + 1)
             try:
                 t0 = time.perf_counter()
-                response = await self.client.post(url, headers=headers, json=payload)
+                async with self._sem:
+                    response = await self.client.post(url, headers=headers, json=payload)
                 t1 = time.perf_counter()
                 logger.info("AI RESPONSE status=%s, tiempo=%.0fms", response.status_code, (t1 - t0) * 1000)
 
-                # Retry only on 429, >=500, and network/timeout errors
+                # Retry only on 429, >=500, and network/timeout errors. 429 gets a single retry.
                 if response.status_code == 429 or response.status_code >= 500:
-                    if attempt < max_retries - 1:
+                    if attempt < max_retries - 1 and (response.status_code != 429 or attempt == 0):
                         delay = (2 ** attempt) * 1.0
-                        # Respect Retry-After if numeric (max 30s)
+                        # Respect Retry-After if numeric (max 10s)
                         retry_after = response.headers.get("Retry-After")
                         if retry_after:
                             try:
                                 ra_val = int(retry_after)
                                 if ra_val > 0:
-                                    delay = min(ra_val, 30.0)
+                                    delay = min(ra_val, 10.0)
                             except (ValueError, TypeError):
                                 pass
                         logger.warning("AI response status %d, retrying in %.1fs", response.status_code, delay)
@@ -107,15 +109,7 @@ class AIService:
                     logger.error("AI request failed after %d attempts: %s", max_retries, e)
             except httpx.HTTPStatusError as e:
                 # Do not retry 4xx except 429 (already handled). Raise immediately.
-                status = e.response.status_code if e.response else 0
-                if status == 429:
-                    # Should have been retried above
-                    last_error = e
-                    if attempt < max_retries - 1:
-                        delay = (2 ** attempt) * 1.0
-                        await asyncio.sleep(delay)
-                        continue
-                # Non-retryable 4xx (400/401/403/404 etc)
+                # Non-retryable 4xx (400/401/403/404 etc) and 429 after its single retry
                 logger.error("AI request non-retryable HTTPStatusError: %s", e)
                 raise
             except httpx.HTTPError as e:
