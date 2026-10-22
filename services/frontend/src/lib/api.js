@@ -52,7 +52,10 @@ async function request(endpoint, options = {}) {
     headers,
   });
 
-  if (response.status === 401 && endpoint !== '/api/auth/refresh') {
+  // Un 401 del callback es un state o código inválido, no una sesión vencida.
+  const isCallback = endpoint.startsWith('/api/auth/callback/');
+
+  if (response.status === 401 && endpoint !== '/api/auth/refresh' && !isCallback) {
     const newToken = await refreshToken();
     if (newToken) {
       headers['Authorization'] = `Bearer ${newToken}`;
@@ -63,7 +66,7 @@ async function request(endpoint, options = {}) {
     }
   }
 
-  if (response.status === 401) {
+  if (response.status === 401 && !isCallback) {
     clearAuth();
     window.dispatchEvent(new CustomEvent('auth:unauthorized'));
     window.history.pushState({}, '', '/login');
@@ -105,15 +108,6 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ authorizationCode: code, provider, state }),
       }),
-    refresh: async (refreshToken) => {
-      const res = await fetch(`${API_URL}/api/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
-      });
-      if (!res.ok) throw new Error('Refresh failed');
-      return res.json();
-    },
   },
   emails: {
     list: (page = 0, size = 20) =>

@@ -76,6 +76,8 @@ export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsum
       return;
     }
 
+    // El dedup vale solo dentro de un turno: un texto corto repetido en otro turno debe mostrarse.
+    processedResponses.current.clear();
     const userMessage = input.trim();
     setInput('');
     setMessages((prev) => [...prev, { role: 'user', content: userMessage }]);
@@ -91,6 +93,7 @@ export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsum
       const key = responseKey(response);
       const alreadyProcessed = processedResponses.current.has(key);
       if (!alreadyProcessed) processedResponses.current.add(key);
+      setLoading(false);
       if (alreadyProcessed) return;
       if (Array.isArray(response.emails)) onResults?.(response.emails);
       if (response.response) {
@@ -98,7 +101,6 @@ export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsum
           ...prev,
           { role: 'assistant', content: response.response },
         ]);
-        setLoading(false);
       }
       if (response.criteria && Object.keys(response.criteria).length > 0) {
         onFiltersApplied?.(response.criteria);

@@ -13,6 +13,8 @@ import { ScreenScopeProvider } from '../context/ScreenScopeContext';
 
 // Cada cuánto se busca correo nuevo en segundo plano mientras la app está abierta.
 const SYNC_INTERVAL_MS = 120000;
+// Intervalo y foco pueden coincidir: sin esto salían dos POST /api/emails/sync.
+let syncInFlight = false;
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -32,11 +34,15 @@ export default function Layout() {
     if (!user?.provider) return;
 
     const syncNow = async () => {
+      if (syncInFlight) return;
+      syncInFlight = true;
       try {
         const { syncing } = await api.emails.syncStatus();
         if (!syncing) await api.emails.sync(user.provider);
       } catch {
         // Poll de fondo: si falla, el próximo intento lo resuelve.
+      } finally {
+        syncInFlight = false;
       }
     };
 

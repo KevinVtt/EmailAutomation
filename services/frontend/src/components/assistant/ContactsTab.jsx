@@ -35,7 +35,7 @@ export default function ContactsTab() {
 
     try {
       const full = await api.contacts.enrich(contact.id);
-      setSelected(full);
+      setSelected((prev) => (prev?.id === full.id ? full : prev));
       setContacts((prev) => prev.map((c) => (c.id === full.id ? full : c)));
     } catch {
       // La ficha queda como vino; el usuario puede escribir igual.

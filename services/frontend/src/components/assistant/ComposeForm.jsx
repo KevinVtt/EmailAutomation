@@ -95,6 +95,7 @@ export default function ComposeForm({ contact, onBack }) {
         <input
           type="text"
           value={instruction}
+          maxLength={1000}
           onChange={(e) => setInstruction(e.target.value)}
           aria-label="Qué le querés decir"
           placeholder="Ej: mandale la factura de octubre"

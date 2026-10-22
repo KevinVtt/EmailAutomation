@@ -181,4 +181,23 @@ describe('api lib', () => {
     expect(window.location.pathname).toBe('/login');
     window.removeEventListener('auth:unauthorized', unauthorizedSpy);
   });
+
+  it('keeps the session when the OAuth callback is rejected with 401', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      text: () => Promise.resolve(JSON.stringify({ error: 'state inválido' })),
+    });
+
+    const unauthorizedSpy = vi.fn();
+    window.addEventListener('auth:unauthorized', unauthorizedSpy);
+
+    await expect(api.auth.callback('google', 'code123', 'used-state')).rejects.toThrow('state inválido');
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem('accessToken')).toBe('test-token');
+    expect(unauthorizedSpy).not.toHaveBeenCalled();
+    window.removeEventListener('auth:unauthorized', unauthorizedSpy);
+  });
 });

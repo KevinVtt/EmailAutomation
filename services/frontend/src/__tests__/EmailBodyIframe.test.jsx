@@ -1,5 +1,5 @@
-﻿import { describe, it, expect, afterEach } from 'vitest';
-import { render } from '@testing-library/react';
+﻿import { describe, it, expect, afterEach, vi } from 'vitest';
+import { render, fireEvent } from '@testing-library/react';
 import { ThemeProvider } from '../context/ThemeContext';
 import EmailBodyIframe from '../components/EmailBodyIframe';
 
@@ -46,5 +46,20 @@ describe('EmailBodyIframe', () => {
       </ThemeProvider>
     );
     expect(doc).toContain('color: #e5e7eb');
+  });
+
+  it('observes the loaded document body so late-growing mails are not cut off', () => {
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+    vi.stubGlobal('ResizeObserver', vi.fn(function ResizeObserverStub() {
+      return { observe, disconnect };
+    }));
+
+    const { container } = render(<EmailBodyIframe html="<p>Hola</p>" />);
+    const frame = container.querySelector('iframe');
+    fireEvent.load(frame);
+
+    expect(observe).toHaveBeenCalledWith(frame.contentDocument.body);
+    vi.unstubAllGlobals();
   });
 });

@@ -14,6 +14,9 @@ server {
     listen 80;
     server_name localhost;
 
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options SAMEORIGIN always;
+
     # API proxy
     location /api/ {
         proxy_pass http://backend:8080/api/;

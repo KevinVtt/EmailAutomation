@@ -36,4 +36,21 @@ describe('EmailDetail star action', () => {
 
     await waitFor(() => expect(api.emails.get).toHaveBeenCalledTimes(2));
   });
+
+  it('does not mark as read the email from a stale response after another one opened', async () => {
+    let resolveFirst;
+    api.emails.get
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockResolvedValueOnce({ id: 'e2', provider: 'google', providerEmailId: 'm2', visto: true, bodyHtml: '<p>B</p>' });
+    api.emails.action.mockResolvedValue({ status: 'ok' });
+    const onRead = vi.fn();
+
+    const { rerender } = render(<EmailDetail email={mockEmail} onClose={() => {}} onRead={onRead} />);
+    rerender(<EmailDetail email={{ id: 'e2', provider: 'google', providerEmailId: 'm2' }} onClose={() => {}} onRead={onRead} />);
+    await waitFor(() => expect(api.emails.get).toHaveBeenCalledTimes(2));
+
+    resolveFirst({ id: 'e1', provider: 'google', providerEmailId: 'm1', visto: false, bodyHtml: '<p>A</p>' });
+    await waitFor(() => expect(api.emails.action).toHaveBeenCalledWith('google', 'm1', 'read'));
+    expect(onRead).not.toHaveBeenCalled();
+  });
 });

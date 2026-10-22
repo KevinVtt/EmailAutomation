@@ -63,7 +63,9 @@ export default function AssistantPanel() {
     setError('');
     try {
       await api.emails.bulkAction(email.provider || 'google', [email.providerEmailId], action);
-      setResults((prev) => prev.filter((e) => e.providerEmailId !== email.providerEmailId));
+      if (action === 'trash') {
+        setResults((prev) => prev.filter((e) => e.providerEmailId !== email.providerEmailId));
+      }
     } catch {
       setError('No se pudo aplicar la acción.');
     }

@@ -13,11 +13,14 @@ const errorListeners = new Set();
 
 function attach(handle) {
   handle.stomp = client.subscribe(handle.topic, (message) => {
+    let body;
     try {
-      handle.callback(JSON.parse(message.body));
-    } catch (e) {
-      handle.callback(message.body);
+      body = JSON.parse(message.body);
+    } catch {
+      body = message.body;
     }
+    // Fuera del try: si el handler falla no debe volver a llamarse con el texto crudo.
+    handle.callback(body);
   });
 }
 

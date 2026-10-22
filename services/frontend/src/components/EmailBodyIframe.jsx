@@ -81,6 +81,7 @@ function buildDoc(html, dark) {
 export function EmailBodyIframe({ html }) {
   const theme = useContext(ThemeContext)?.theme;
   const ref = useRef(null);
+  const observer = useRef(null);
 
   const fit = () => {
     const frame = ref.current;
@@ -88,15 +89,18 @@ export function EmailBodyIframe({ html }) {
     if (body) frame.style.height = `${body.scrollHeight}px`;
   };
 
-  useEffect(() => {
+  // srcDoc carga async: el body existe recién en onLoad, y un cambio de html o tema recarga el iframe.
+  const onLoad = () => {
     fit();
-    // Las imágenes y tablas crecen después del load: se vuelve a medir.
+    observer.current?.disconnect();
     const body = ref.current?.contentDocument?.body;
     if (!body || typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(fit);
-    observer.observe(body);
-    return () => observer.disconnect();
-  }, [html, theme]);
+    // Las imágenes y tablas crecen después del load: se vuelve a medir.
+    observer.current = new ResizeObserver(fit);
+    observer.current.observe(body);
+  };
+
+  useEffect(() => () => observer.current?.disconnect(), []);
 
   return (
     <iframe
@@ -105,7 +109,7 @@ export function EmailBodyIframe({ html }) {
       sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
       srcDoc={buildDoc(html, theme === 'dark')}
       style={{ width: '100%', border: 'none' }}
-      onLoad={fit}
+      onLoad={onLoad}
     />
   );
 }

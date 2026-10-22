@@ -35,15 +35,17 @@ export default function EmailDetail({ email, onClose, onAction, onRead }) {
 
   useEffect(() => {
     if (!email) return;
+    let alive = true;
     setLoading(true);
     setShowReply(false);
     api.emails.get(email.id)
       .then((data) => {
-        setDetail(data);
+        if (alive) setDetail(data);
         // Auto-mark as read when opened (via visto table)
         if (!data.visto && email.provider && email.providerEmailId) {
           api.emails.action(email.provider, email.providerEmailId, 'read')
             .then(() => {
+              if (!alive) return;
               setDetail(prev => prev ? { ...prev, visto: true } : prev);
               onRead?.(email.id);
             })
@@ -51,7 +53,12 @@ export default function EmailDetail({ email, onClose, onAction, onRead }) {
         }
       })
       .catch(console.error)
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
   }, [email?.id]);
 
   const handleAction = useCallback(async (actionType) => {

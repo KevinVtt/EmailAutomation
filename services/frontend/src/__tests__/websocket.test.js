@@ -117,4 +117,18 @@ describe('websocket.js', () => {
     onWebSocketConnect(listener);
     expect(listener).toHaveBeenCalledTimes(2);
   });
+
+  it('calls the handler once with the parsed body even when it throws', () => {
+    connectWebSocket('test-access-token');
+    mockClientInstance.connected = true;
+    const callback = vi.fn(() => {
+      throw new Error('boom');
+    });
+    subscribeToTopic('/user/queue/chat', callback);
+
+    const onMessage = mockClientInstance.subscribe.mock.calls[0][1];
+    expect(() => onMessage({ body: '{"response":"hola"}' })).toThrow('boom');
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(callback).toHaveBeenCalledWith({ response: 'hola' });
+  });
 });

@@ -79,4 +79,23 @@ describe('ChatPanel component', () => {
     // El REST no la agrega de nuevo.
     expect(screen.getAllByText('Misma respuesta')).toHaveLength(1);
   });
+
+  it('shows a repeated short answer from a later turn of the same thread', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      text: () => Promise.resolve(JSON.stringify({ response: 'Ok', conversationId: 'c1' })),
+    });
+
+    render(<ChatPanel />);
+    const input = screen.getByPlaceholderText(/Escribe un filtro/i);
+    fireEvent.change(input, { target: { value: 'uno' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
+    await waitFor(() => expect(screen.getAllByText('Ok')).toHaveLength(1));
+
+    fireEvent.change(input, { target: { value: 'dos' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
+    await waitFor(() => expect(screen.getAllByText('Ok')).toHaveLength(2));
+  });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { Sparkles } from 'lucide-react';
@@ -8,8 +8,12 @@ export default function Callback() {
   const navigate = useNavigate();
   const { login } = useAuth();
   const [error, setError] = useState(null);
+  // StrictMode ejecuta el efecto dos veces: la segunda enviaría un state ya consumido.
+  const started = useRef(false);
 
   useEffect(() => {
+    if (started.current) return;
+    started.current = true;
     const code = searchParams.get('code');
     const state = sessionStorage.getItem('oauthState');
     sessionStorage.removeItem('oauthState');

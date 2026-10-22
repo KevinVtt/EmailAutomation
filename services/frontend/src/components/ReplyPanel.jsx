@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '../lib/api';
 import { useUndoableSend } from '../hooks/useUndoableSend';
 import { Wand2, Copy, Check, RotateCcw, Settings, X, ChevronDown, Send } from 'lucide-react';
@@ -37,6 +37,7 @@ export default function ReplyPanel({ email, onClose }) {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef(null);
   const [error, setError] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState(getStoredSettings);
@@ -59,6 +60,8 @@ export default function ReplyPanel({ email, onClose }) {
   useEffect(() => {
     storeSettings(settings);
   }, [settings]);
+
+  useEffect(() => () => clearTimeout(copiedTimer.current), []);
 
   const handleImprove = async () => {
     if (!draft.trim() || loading) return;
@@ -88,7 +91,8 @@ export default function ReplyPanel({ email, onClose }) {
     try {
       await navigator.clipboard.writeText(rewritten);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      clearTimeout(copiedTimer.current);
+      copiedTimer.current = setTimeout(() => setCopied(false), 2000);
     } catch {
       // Fallback
       const ta = document.createElement('textarea');
@@ -98,7 +102,8 @@ export default function ReplyPanel({ email, onClose }) {
       document.execCommand('copy');
       document.body.removeChild(ta);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      clearTimeout(copiedTimer.current);
+      copiedTimer.current = setTimeout(() => setCopied(false), 2000);
     }
   };
 
@@ -216,10 +221,11 @@ export default function ReplyPanel({ email, onClose }) {
         </label>
         <textarea
           value={draft}
-          onChange={(e) => { setDraft(e.target.value); setSent(false); }}
+          onChange={(e) => { setDraft(e.target.value); setRewritten(''); setSent(false); }}
           placeholder="Escribí tu respuesta acá... la IA la va a mejorar."
           className="w-full text-sm border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-primary-400 placeholder-slate-500 dark:placeholder-gray-500"
           rows={5}
+          maxLength={4000}
         />
       </div>
 
