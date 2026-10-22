@@ -87,6 +87,38 @@ class ChatControllerTest {
     }
 
     @Test
+    void handleWebSocketChat_aiFailure_sendsErrorSoTheSpinnerStops() {
+        var userId = UUID.randomUUID();
+        var auth = mock(Authentication.class);
+        when(auth.getName()).thenReturn(userId.toString());
+        when(aiServiceClient.chat(eq("hola"), eq("c1"), any())).thenThrow(new RuntimeException("AI caída"));
+
+        chatController.handleWebSocketChat(auth, request("hola", "c1"));
+
+        verify(webSocketService).sendChatResponse(eq(userId.toString()), any());
+    }
+
+    @Test
+    void chat_invalidDate_dropsOnlyThatCriterion() {
+        var userId = UUID.randomUUID();
+        var auth = mock(Authentication.class);
+        when(auth.getName()).thenReturn(userId.toString());
+        var aiResponse = new HashMap<String, Object>();
+        aiResponse.put("response", "ok");
+        aiResponse.put("criteria", Map.of("dateFrom", "ayer", "label", "IMPORTANT"));
+        when(aiServiceClient.chat(eq("hola"), eq("c1"), any())).thenReturn(aiResponse);
+        when(filterService.applyAiFilters(eq(userId), anyMap(), eq(0), eq(20)))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
+
+        chatController.chat(auth, request("hola", "c1"));
+
+        @SuppressWarnings("unchecked")
+        var captor = org.mockito.ArgumentCaptor.forClass(Map.class);
+        verify(filterService).applyAiFilters(eq(userId), captor.capture(), eq(0), eq(20));
+        assertEquals(Map.of("label", "IMPORTANT"), captor.getValue());
+    }
+
+    @Test
     void chat_putsEmailsAsListAndPushesBothMessages() {
         var userId = UUID.randomUUID();
         var auth = mock(Authentication.class);

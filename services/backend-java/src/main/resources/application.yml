@@ -26,6 +26,7 @@ jwt:
 ai:
   service:
     url: ${AI_SERVICE_URL:http://localhost:8000}
+    token: ${AI_INTERNAL_TOKEN:}
 
 # Aliases used by AuthController (@Value("${google.client-id}") etc.), resolved
 # directly from the environment so the backend does not depend on relaxed binding.

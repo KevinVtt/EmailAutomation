@@ -25,7 +25,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.time.Instant;
 import java.util.Base64;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -62,8 +61,6 @@ public class GmailService {
     @Value("${email.sync.fetch-concurrency:6}")
     private int fetchConcurrency;
 
-    private final java.util.concurrent.ConcurrentHashMap<String, Object> throttleLocks =
-            new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.concurrent.ConcurrentHashMap<String, Long> nextRequestAtByKey =
             new java.util.concurrent.ConcurrentHashMap<>();
     private volatile ExecutorService detailExecutor;
@@ -81,38 +78,6 @@ public class GmailService {
         } catch (GeneralSecurityException | IOException e) {
             throw new RuntimeException("Failed to build Gmail client", e);
         }
-    }
-
-    public Map<String, Object> fetchEmails(String accessToken, int maxResults, String pageToken) {
-        var gmail = buildGmailClient(accessToken);
-
-        // Request creation (List) also declares IOException, so build it inside the
-        // retry lambda where IOException is already handled/classified.
-        var response = retryTemplateExecute(() -> {
-            var request = gmail.users().messages().list("me")
-                    .setMaxResults((long) maxResults);
-            if (pageToken != null && !pageToken.isBlank()) {
-                request.setPageToken(pageToken);
-            }
-            return request.execute();
-        });
-
-        var messages = response.getMessages();
-        var result = new HashMap<String, Object>();
-
-        if (messages == null || messages.isEmpty()) {
-            result.put("emails", Collections.emptyList());
-            result.put("nextPageToken", null);
-            return result;
-        }
-
-        var emails = messages.stream()
-                .map(msg -> fetchMessageDetail(gmail, msg, accessToken))
-                .collect(Collectors.toList());
-
-        result.put("emails", emails);
-        result.put("nextPageToken", response.getNextPageToken());
-        return result;
     }
 
     public List<com.emailfilter.model.EmailMessage> fetchAllEmails(String accessToken, int maxResultsPerPage, int maxTotal) {
@@ -261,6 +226,16 @@ public class GmailService {
                             return gmail.users().messages().get("me", id).setFormat("full").execute();
                         });
                         return mapToEmail(full);
+                    } catch (PermanentApiException e) {
+                        // 404/410: el mail ya no existe; cualquier otro 4xx (token, permisos) corta el sync.
+                        if (e.getStatusCode() == 404 || e.getStatusCode() == 410) {
+                            log.warn("Message {} is gone (HTTP {}), skipped", id, e.getStatusCode());
+                            return null;
+                        }
+                        throw e;
+                    } catch (TransientApiException e) {
+                        // Un fallo de red no puede dejar el mail afuera en silencio: el cursor no debe avanzar.
+                        throw e;
                     } catch (Exception e) {
                         log.warn("Failed to fetch message {}: {}", id, e.getMessage());
                         return null;
@@ -469,7 +444,7 @@ public class GmailService {
                 var response = retryTemplateExecute(() -> {
                     var request = gmail.users().history().list("me")
                             .setStartHistoryId(new BigInteger(startHistoryId))
-                            .setHistoryTypes(List.of("messageAdded", "messageDeleted", "labelAdded"))
+                            .setHistoryTypes(List.of("messageAdded", "messageDeleted", "labelAdded", "labelRemoved"))
                             .setMaxResults(500L);
                     if (currentToken != null && !currentToken.isBlank()) {
                         request.setPageToken(currentToken);
@@ -481,7 +456,19 @@ public class GmailService {
                     for (var history : response.getHistory()) {
                         if (history.getMessagesAdded() != null) {
                             for (var item : history.getMessagesAdded()) {
-                                if (item.getMessage() != null) added.add(item.getMessage().getId());
+                                if (item.getMessage() != null && isInboxOrSpam(item.getMessage())) {
+                                    added.add(item.getMessage().getId());
+                                }
+                            }
+                        }
+                        // Restaurado desde la papelera: vuelve a entrar si falta localmente.
+                        if (history.getLabelsRemoved() != null) {
+                            for (var item : history.getLabelsRemoved()) {
+                                if (item.getMessage() != null && item.getLabelIds() != null
+                                        && item.getLabelIds().contains("TRASH") && isInboxOrSpam(item.getMessage())) {
+                                    deleted.remove(item.getMessage().getId());
+                                    added.add(item.getMessage().getId());
+                                }
                             }
                         }
                         if (history.getMessagesDeleted() != null) {
@@ -513,6 +500,12 @@ public class GmailService {
         log.info("history.list since {}: {} added, {} removed, new cursor {}",
                 startHistoryId, added.size(), deleted.size(), latestHistoryId);
         return new GmailHistoryChanges(added, deleted, latestHistoryId);
+    }
+
+    /** Enviados y borradores no van en email_messages: sólo bandeja y spam. */
+    private static boolean isInboxOrSpam(Message message) {
+        var labels = message.getLabelIds();
+        return labels == null || labels.contains("INBOX") || labels.contains("SPAM");
     }
 
     public String sendEmail(String accessToken, String to, String subject, String body) {
@@ -641,16 +634,16 @@ public class GmailService {
     private void throttleRequests(String key) {
         if (requestDelayMs <= 0) return;
         var lockKey = key != null ? key : "global";
-        var lock = throttleLocks.computeIfAbsent(lockKey, ignored -> new Object());
-        synchronized (lock) {
+        long wait;
+        synchronized (nextRequestAtByKey) {
             long now = System.currentTimeMillis();
-            long next = nextRequestAtByKey.getOrDefault(lockKey, 0L);
-            if (next > now) {
-                sleepQuietly(next - now);
-                now = System.currentTimeMillis();
-            }
-            nextRequestAtByKey.put(lockKey, Math.max(now, next) + requestDelayMs);
+            long slot = Math.max(now, nextRequestAtByKey.getOrDefault(lockKey, 0L));
+            nextRequestAtByKey.put(lockKey, slot + requestDelayMs);
+            // Los slots vencidos no aportan espaciado: se descartan para que el mapa no crezca.
+            nextRequestAtByKey.values().removeIf(v -> v < now);
+            wait = slot - now;
         }
+        if (wait > 0) sleepQuietly(wait);
     }
 
     private void sleepQuietly(long millis) {

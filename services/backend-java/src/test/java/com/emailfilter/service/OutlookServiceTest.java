@@ -38,7 +38,7 @@ class OutlookServiceTest {
 
     @BeforeEach
     void setUp() {
-        outlookService = new OutlookService(new RetryTemplate());
+        outlookService = new OutlookService(new RestTemplate(), new RetryTemplate());
         ReflectionTestUtils.setField(outlookService, "tokenUri", TOKEN_URI);
         var restTemplate = (RestTemplate) ReflectionTestUtils.getField(outlookService, "restTemplate");
         server = MockRestServiceServer.createServer(restTemplate);

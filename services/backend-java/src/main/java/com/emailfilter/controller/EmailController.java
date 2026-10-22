@@ -130,7 +130,12 @@ public class EmailController {
             return ResponseEntity.badRequest().body(Map.of("error", "provider is required"));
         }
         var user = userDetailsService.loadUserEntityById(userId);
-        emailService.syncAllEmailsAsync(user, provider);
+        // Sólo Google tiene full sync; Outlook cae al incremental, llamado directo para que el @Async aplique.
+        if ("google".equals(provider)) {
+            emailService.syncAllEmailsAsync(user, provider);
+        } else {
+            emailService.syncEmailsAsync(user, provider);
+        }
         return ResponseEntity.accepted().body(Map.of("status", "syncing", "mode", "full"));
     }
 

@@ -33,9 +33,18 @@ public class AIServiceClient {
     @Value("${ai.service.url}")
     private String aiServiceUrl;
 
-    public Map<String, Object> analyzeEmails(List<EmailDTO> emails) {
+    @Value("${ai.service.token:}")
+    private String aiServiceToken;
+
+    private HttpHeaders jsonHeaders() {
         var headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("X-Internal-Token", aiServiceToken);
+        return headers;
+    }
+
+    public Map<String, Object> analyzeEmails(List<EmailDTO> emails) {
+        var headers = jsonHeaders();
         var entity = new HttpEntity<>(Map.of("emails", emails), headers);
 
         log.info("AIServiceClient llamando a {}/analyze con {} emails", aiServiceUrl, emails.size());
@@ -50,8 +59,7 @@ public class AIServiceClient {
     }
 
     public Map<String, Object> chat(String message, String conversationId, Map<String, Object> scope) {
-        var headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
+        var headers = jsonHeaders();
         var body = new java.util.HashMap<String, Object>();
         body.put("message", message);
         body.put("conversation_id", conversationId != null ? conversationId : "");
@@ -83,8 +91,7 @@ public class AIServiceClient {
             return "No hay correos para resumir.";
         }
 
-        var headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
+        var headers = jsonHeaders();
         var entity = new HttpEntity<>(Map.of("emails", emails), headers);
 
         log.info("AIServiceClient llamando a {}/chat/summarize con {} emails", aiServiceUrl, emails.size());
@@ -103,8 +110,7 @@ public class AIServiceClient {
     public Map<String, Object> rewrite(String draft, String originalSubject, String originalFrom,
                                         String originalBody, String tone, String language, String customRules,
                                         String userName) {
-        var headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
+        var headers = jsonHeaders();
         var body = Map.of(
                 "draft", draft,
                 "original_subject", originalSubject != null ? originalSubject : "",
@@ -134,8 +140,7 @@ public class AIServiceClient {
     public Map<String, Object> compose(String instruction, String contactName, String contactCompany,
                                        String contactTopic, String contactNotes, List<String> recentSubjects,
                                        String subjectHint, String tone, String language, String userName) {
-        var headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
+        var headers = jsonHeaders();
         var body = new java.util.HashMap<String, Object>();
         body.put("instruction", instruction);
         body.put("contact_name", contactName != null ? contactName : "");
@@ -160,8 +165,7 @@ public class AIServiceClient {
     }
 
     public Map<String, Object> contactProfile(String address, String displayName, List<String> subjects) {
-        var headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
+        var headers = jsonHeaders();
         var body = new java.util.HashMap<String, Object>();
         body.put("address", address);
         body.put("display_name", displayName != null ? displayName : "");

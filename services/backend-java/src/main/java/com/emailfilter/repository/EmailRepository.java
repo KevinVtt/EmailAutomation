@@ -68,11 +68,6 @@ public interface EmailRepository extends JpaRepository<EmailMessage, UUID>,
 
     @Modifying
     @Transactional
-    @Query("UPDATE EmailMessage e SET e.isStarred = false WHERE e.user.id = :userId")
-    int unstarAllByUserId(@Param("userId") UUID userId);
-
-    @Modifying
-    @Transactional
     @Query("UPDATE EmailMessage e SET e.isStarred = true WHERE e.user.id = :userId AND e.providerEmailId IN :starredIds")
     int starByProviderEmailIds(@Param("userId") UUID userId, @Param("starredIds") Collection<String> starredIds);
 
@@ -87,6 +82,8 @@ public interface EmailRepository extends JpaRepository<EmailMessage, UUID>,
     @Query("SELECT e.providerEmailId FROM EmailMessage e WHERE e.user.id = :userId AND e.labels LIKE '%SPAM%'")
     List<String> findSpamProviderEmailIds(@Param("userId") UUID userId);
 
+    // Quita el token exacto SPAM de labels (posiciones inicial/media/final). Los
+    // demás labels válidos no contienen "SPAM" como substring, así que REPLACE es seguro.
     @Modifying
     @Transactional
     @Query("UPDATE EmailMessage e SET e.labels = " +
@@ -98,15 +95,6 @@ public interface EmailRepository extends JpaRepository<EmailMessage, UUID>,
     @Transactional
     @Query("UPDATE EmailMessage e SET e.labels = CASE WHEN e.labels IS NULL OR e.labels = '' THEN 'SPAM' ELSE CONCAT(e.labels, ',SPAM') END WHERE e.user.id = :userId AND e.providerEmailId IN :spamIds AND (e.labels IS NULL OR e.labels NOT LIKE '%SPAM%')")
     int addSpamLabelByProviderEmailIds(@Param("userId") UUID userId, @Param("spamIds") Collection<String> spamIds);
-
-    // Quita el token exacto SPAM de labels (posiciones inicial/media/final). Los
-    // demás labels válidos no contienen "SPAM" como substring, así que REPLACE es seguro.
-    @Modifying
-    @Transactional
-    @Query("UPDATE EmailMessage e SET e.labels = " +
-            "REPLACE(REPLACE(REPLACE(e.labels, ',SPAM', ''), 'SPAM,', ''), 'SPAM', '') " +
-            "WHERE e.user.id = :userId AND e.labels LIKE '%SPAM%'")
-    int removeSpamLabelByUserId(@Param("userId") UUID userId);
 
     // --- Stats endpoint (`GET /api/emails/stats`) ---
     // "No leído" = el proveedor sigue diciendo UNREAD *y* el usuario nunca lo abrió acá.

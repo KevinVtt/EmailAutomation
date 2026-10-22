@@ -52,6 +52,7 @@ services:
       # dev se guardan en texto plano; en prod debe estar definida.
       TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY}
       AI_SERVICE_URL: http://ai-python:8000
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?define AI_INTERNAL_TOKEN en .env}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3001}
     ports:
       - "8080:8080"
@@ -70,6 +71,7 @@ services:
     cpus: '1.0'
     environment:
       AI_API_KEY: ${AI_API_KEY}
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?define AI_INTERNAL_TOKEN en .env}
       AI_API_URL: ${AI_API_URL:-https://api.groq.com/openai/v1}
       AI_MODEL: ${AI_MODEL:-openai/gpt-oss-120b}
       AI_PROVIDER: ${AI_PROVIDER:-openai}

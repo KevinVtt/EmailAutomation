@@ -74,6 +74,7 @@ public class EmailService {
     private final TokenCryptoService tokenCryptoService;
     private final ContactService contactService;
     private final TransactionTemplate transactionTemplate;
+    private final RestTemplate restTemplate;
 
     @Value("${email.sync.max-emails:1000}")
     int maxEmailsPerSync = 1000;
@@ -94,6 +95,8 @@ public class EmailService {
     int contactsSentWindowDays;
     @Value("${email.contacts.sent-max:2000}")
     int contactsSentMax;
+
+    private final Object tokenRefreshLock = new Object();
 
     private final ConcurrentHashMap<UUID, Boolean> syncingStatus = new ConcurrentHashMap<>();
     private static final long SYNC_STATUS_TTL_MS = 15 * 60 * 1000L; // 15 minutes, con heartbeat en cada progreso
@@ -152,7 +155,20 @@ public class EmailService {
                     case "subjectContains", "bodyContains" -> {
                         // Handled together below to apply OR semantics.
                     }
-                    case "isRead" -> predicates.add(cb.equal(root.get("isRead"), Boolean.parseBoolean(value)));
+                    case "isRead" -> {
+                    if (Boolean.parseBoolean(value)) {
+                        predicates.add(cb.equal(root.get("isRead"), true));
+                    } else {
+                        // Igual que NOT_SEEN del dashboard: el proveedor dice no leído y el usuario no lo abrió.
+                        var seen = query.subquery(Integer.class);
+                        var visto = seen.from(Visto.class);
+                        seen.select(cb.literal(1)).where(
+                                cb.equal(visto.get("user").get("id"), userId),
+                                cb.equal(visto.get("providerEmailId"), root.get("providerEmailId")),
+                                cb.equal(visto.get("visto"), true));
+                        predicates.add(cb.and(cb.equal(root.get("isRead"), false), cb.not(cb.exists(seen))));
+                    }
+                }
                     case "isStarred" -> predicates.add(cb.equal(root.get("isStarred"), Boolean.parseBoolean(value)));
                     case "important" -> {
                         if (Boolean.parseBoolean(value)) {
@@ -240,7 +256,6 @@ public class EmailService {
         }
     }
 
-    @Transactional(readOnly = true)
     public Map<String, Object> getDailySummary(UUID userId, String date) {
         var zone = getSummaryZone();
         LocalDate targetDate;
@@ -257,7 +272,8 @@ public class EmailService {
         var dayEnd = targetDate.plusDays(1).atStartOfDay(zone).toInstant();
 
         var filters = Map.of("dateFrom", dayStart.toString(), "dateTo", dayEnd.minusNanos(1).toString());
-        var emailPage = filterEmails(userId, filters, 0, 20);
+        // Solo la lectura va en transacción: la llamada HTTP a la IA queda fuera (no pinea conexión).
+        var emailPage = transactionTemplate.execute(status -> filterEmails(userId, filters, 0, 20));
         // DTOs livianos: el resumen no necesita el HTML de 100 correos (era el payload
         // más pesado hacia el servicio de IA).
         var dtos = emailPage.getContent().stream()
@@ -415,6 +431,7 @@ public class EmailService {
         }
         syncingTimestamps.put(userId, System.currentTimeMillis());
         SyncJob job = null;
+        boolean contactsChanged = false;
         try {
             job = syncJobService.start(userId, provider, "incremental");
             log.info("Fetching OAuth token for user={}, provider={}", userId, provider);
@@ -422,11 +439,10 @@ public class EmailService {
             log.info("OAuth token obtained for user={}, provider={}", userId, provider);
 
             List<EmailMessage> emails;
-            boolean deleted = false;
+            GoogleSyncResult google = null;
             if ("google".equals(provider)) {
-                var result = syncGoogle(user, accessToken);
-                emails = result.emails();
-                deleted = result.deleted();
+                google = syncGoogle(user, accessToken);
+                emails = google.emails();
             } else if ("outlook".equals(provider)) {
                 log.info("Fetching emails from Outlook for user={}", userId);
                 var rawEmails = outlookService.fetchEmails(accessToken, 100);
@@ -440,6 +456,10 @@ public class EmailService {
 
             var newEmails = new ArrayList<EmailMessage>();
             int syncedCount = saveEmails(emails, user, provider, newEmails);
+            // El cursor de Gmail sólo avanza cuando los mails ya están guardados.
+            if (google != null) {
+                persistHistoryId(google.oauthToken(), google.historyCursor());
+            }
             syncingTimestamps.put(userId, System.currentTimeMillis());
             syncJobService.updateProgress(job.getId(), emails.size(), emails.size());
             if ("google".equals(provider)) {
@@ -451,9 +471,7 @@ public class EmailService {
             syncJobService.complete(job.getId());
             log.info("Sync complete: {} new emails saved for user={}, provider={} ({} total fetched)", syncedCount, userId, provider, emails.size());
             // Sin altas ni bajas no hay nada que recalcular en contactos (antes corría cada 2 min).
-            if (syncedCount > 0 || deleted) {
-                refreshContacts(user);
-            }
+            contactsChanged = syncedCount > 0 || (google != null && google.deleted());
             webSocketService.sendNotification(userId.toString(), "sync_complete");
         } catch (RuntimeException e) {
             if (job != null) {
@@ -464,6 +482,10 @@ public class EmailService {
         } finally {
             syncingStatus.remove(userId);
             syncingTimestamps.remove(userId);
+            // Fuera del lock: el primer barrido de enviados puede tardar minutos.
+            if (contactsChanged) {
+                refreshContacts(user);
+            }
         }
         return CompletableFuture.completedFuture(null);
     }
@@ -473,11 +495,9 @@ public class EmailService {
         var userId = user.getId();
         log.info("Starting FULL email sync for user={}, provider={}", userId, provider);
 
-        // Delegar ANTES de tomar el lock: syncEmailsAsync toma ese mismo lock y, si ya
-        // estuviera tomado, volvería "already in progress" sin sincronizar nada.
+        // Sólo Google tiene full sync paginado; el controller llama a syncEmailsAsync para el resto.
         if (!"google".equals(provider)) {
-            // Providers sin full sync paginado: caen al sync incremental.
-            syncEmailsAsync(user, provider);
+            log.warn("Full sync not supported for provider={}, user={}", provider, userId);
             return CompletableFuture.completedFuture(null);
         }
 
@@ -487,6 +507,7 @@ public class EmailService {
         }
         syncingTimestamps.put(userId, System.currentTimeMillis());
         SyncJob job = null;
+        boolean contactsChanged = false;
         try {
             var accessToken = getToken(user, provider);
 
@@ -533,7 +554,7 @@ public class EmailService {
                 // Still refresh starred/spam state for existing emails
                 refreshLabelsAndStars(user, accessToken);
                 syncJobService.complete(job.getId());
-                refreshContacts(user);
+                contactsChanged = true;
                 webSocketService.sendNotification(userId.toString(), "sync_complete");
                 return CompletableFuture.completedFuture(null);
             }
@@ -581,7 +602,7 @@ public class EmailService {
 
             log.info("Full sync complete: {} new emails saved for user={} ({} total in Gmail)",
                     fetched, userId, totalInGmail);
-            refreshContacts(user);
+            contactsChanged = true;
             webSocketService.sendNotification(userId.toString(), "sync_complete");
 
         } catch (RuntimeException e) {
@@ -593,6 +614,9 @@ public class EmailService {
         } finally {
             syncingStatus.remove(userId);
             syncingTimestamps.remove(userId);
+            if (contactsChanged) {
+                refreshContacts(user);
+            }
         }
         return CompletableFuture.completedFuture(null);
     }
@@ -678,7 +702,9 @@ public class EmailService {
      * borrado en Gmail deja de aparecer. Sin cursor (o vencido) cae al fetch por
      * fecha y guarda el cursor para la próxima.
      */
-    private record GoogleSyncResult(List<EmailMessage> emails, boolean deleted) {}
+    /** El cursor ({@code historyCursor}) se guarda en {@code syncEmailsAsync} recién después de persistir los mails. */
+    private record GoogleSyncResult(List<EmailMessage> emails, boolean deleted, OAuthToken oauthToken,
+                                    String historyCursor) {}
 
     private GoogleSyncResult syncGoogle(User user, String accessToken) {
         var userId = user.getId();
@@ -690,8 +716,8 @@ public class EmailService {
             var changes = gmailService.listHistory(accessToken, oauthToken.getHistoryId());
             if (changes != null) {
                 var emails = applyHistoryChanges(user, accessToken, changes);
-                persistHistoryId(oauthToken, changes.latestHistoryId());
-                return new GoogleSyncResult(emails, !changes.deletedIds().isEmpty());
+                return new GoogleSyncResult(emails, !changes.deletedIds().isEmpty(), oauthToken,
+                        changes.latestHistoryId());
             }
             log.warn("Stale historyId for user={}, falling back to date-based sync", userId);
         }
@@ -709,8 +735,7 @@ public class EmailService {
             emails = gmailService.fetchAllEmails(accessToken, 100, maxEmailsPerSync);
         }
         log.info("Incremental fetch: {} new emails for user={}", emails.size(), userId);
-        persistHistoryId(oauthToken, cursor);
-        return new GoogleSyncResult(emails, false);
+        return new GoogleSyncResult(emails, false, oauthToken, cursor);
     }
 
     /** Aplica altas/bajas del history de Gmail sobre la base local y devuelve los mails nuevos. */
@@ -737,23 +762,12 @@ public class EmailService {
 
     private void persistHistoryId(OAuthToken oauthToken, String historyId) {
         if (historyId == null) return;
-        oauthToken.setHistoryId(historyId);
-        oauthTokenRepository.save(oauthToken);
+        // Solo historyId: la entidad pudo quedar vieja si otro hilo refrescó el token.
+        oauthTokenRepository.updateHistoryId(oauthToken.getId(), historyId);
     }
 
     protected com.google.api.services.gmail.Gmail buildGmailClient(String accessToken) {
-        try {
-            com.google.api.client.http.HttpRequestInitializer requestInitializer =
-                    request -> request.getHeaders().setAuthorization("Bearer " + accessToken);
-            return new com.google.api.services.gmail.Gmail.Builder(
-                    com.google.api.client.googleapis.javanet.GoogleNetHttpTransport.newTrustedTransport(),
-                    com.google.api.client.json.gson.GsonFactory.getDefaultInstance(),
-                    requestInitializer)
-                    .setApplicationName("Email Filter AI")
-                    .build();
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to build Gmail client", e);
-        }
+        return gmailService.buildGmailClient(accessToken);
     }
 
     public int saveEmails(List<EmailMessage> emails, User user, String provider) {
@@ -1023,30 +1037,41 @@ public class EmailService {
 
         if (oauthToken.getExpiresAt() != null && Instant.now().isAfter(oauthToken.getExpiresAt())) {
             log.info("OAuth token expired for user={}, provider={}. Attempting refresh.", user.getId(), provider);
-            var refreshed = refreshToken(oauthToken);
-            var newAccessToken = (String) refreshed.get("access_token");
-
-            // Azure AD (Outlook) rota el refresh_token en cada refresh e invalida el
-            // anterior; Google también puede. Si viene uno nuevo hay que persistirlo,
-            // si no el siguiente refresh falla con 401 para siempre.
-            var newRefreshToken = refreshed.get("refresh_token");
-            if (newRefreshToken instanceof String s && !s.isBlank()) {
-                oauthToken.setRefreshToken(tokenCryptoService.encrypt(s));
+            // Serializado: dos hilos no pueden refrescar con el mismo refresh token (rotado por el proveedor).
+            synchronized (tokenRefreshLock) {
+                return refreshStoredToken(oauthTokenRepository.findById(oauthToken.getId()).orElse(oauthToken));
             }
-
-            oauthToken.setAccessToken(tokenCryptoService.encrypt(newAccessToken));
-            var expiresIn = refreshed.get("expires_in");
-            if (expiresIn instanceof Number n) {
-                oauthToken.setExpiresAt(Instant.now().plusSeconds(n.longValue()));
-            } else {
-                oauthToken.setExpiresAt(Instant.now().plusSeconds(3600));
-            }
-            oauthTokenRepository.save(oauthToken);
-            return newAccessToken;
         }
 
         log.debug("Using stored OAuth token for user={}, provider={}", user.getId(), provider);
         return tokenCryptoService.decrypt(oauthToken.getAccessToken());
+    }
+
+    private String refreshStoredToken(OAuthToken oauthToken) {
+        // Otro hilo pudo refrescar mientras esperábamos el lock: usar la fila nueva.
+        if (oauthToken.getExpiresAt() == null || Instant.now().isBefore(oauthToken.getExpiresAt())) {
+            return tokenCryptoService.decrypt(oauthToken.getAccessToken());
+        }
+        var refreshed = refreshToken(oauthToken);
+        var newAccessToken = (String) refreshed.get("access_token");
+
+        // Azure AD (Outlook) rota el refresh_token en cada refresh e invalida el
+        // anterior; Google también puede. Si viene uno nuevo hay que persistirlo,
+        // si no el siguiente refresh falla con 401 para siempre.
+        var newRefreshToken = refreshed.get("refresh_token");
+        if (newRefreshToken instanceof String s && !s.isBlank()) {
+            oauthToken.setRefreshToken(tokenCryptoService.encrypt(s));
+        }
+
+        oauthToken.setAccessToken(tokenCryptoService.encrypt(newAccessToken));
+        var expiresIn = refreshed.get("expires_in");
+        if (expiresIn instanceof Number n) {
+            oauthToken.setExpiresAt(Instant.now().plusSeconds(n.longValue()));
+        } else {
+            oauthToken.setExpiresAt(Instant.now().plusSeconds(3600));
+        }
+        oauthTokenRepository.save(oauthToken);
+        return newAccessToken;
     }
 
     private Map<String, Object> refreshToken(OAuthToken oauthToken) {
@@ -1083,7 +1108,7 @@ public class EmailService {
         var headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
 
-        var response = new RestTemplate().exchange(
+        var response = restTemplate.exchange(
                 "https://oauth2.googleapis.com/token",
                 HttpMethod.POST,
                 new HttpEntity<>(body, headers),

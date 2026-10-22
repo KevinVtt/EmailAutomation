@@ -9,7 +9,6 @@ import com.emailfilter.security.JwtTokenProvider;
 import com.emailfilter.security.TokenCryptoService;
 import com.emailfilter.security.UserDetailsServiceImpl;
 import com.emailfilter.service.AuthService;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -36,7 +35,6 @@ import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -74,13 +72,8 @@ class AuthControllerTest {
     @MockBean
     private UserDetailsServiceImpl userDetailsService;
 
+    @MockBean
     private RestTemplate restTemplate;
-
-    @BeforeEach
-    void setUp() {
-        restTemplate = mock(RestTemplate.class);
-        ReflectionTestUtils.setField(authController, "restTemplate", restTemplate);
-    }
 
     private String issueState(String provider) throws Exception {
         var result = mockMvc.perform(get("/api/auth/oauth2/" + provider)).andReturn();
@@ -315,6 +308,59 @@ class AuthControllerTest {
                         .content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.email").value("test@outlook.com"));
+    }
+
+    /** Graph puede devolver "mail": null; antes Map.of reventaba y el login salía 401. */
+    @Test
+    void handleCallback_outlookMailNull_fallsBackToUserPrincipalName() throws Exception {
+        var response = AuthResponse.builder()
+                .userId(UUID.randomUUID())
+                .email("upn@outlook.com")
+                .name("Test User")
+                .accessToken("token")
+                .refreshToken("refresh")
+                .build();
+
+        var user = User.builder()
+                .id(UUID.randomUUID())
+                .email("upn@outlook.com")
+                .build();
+
+        Map<String, Object> tokenResponse = Map.of(
+                "access_token", "outlook-access-token",
+                "refresh_token", "outlook-refresh-token",
+                "token_type", "Bearer",
+                "scope", "email profile Mail.Read",
+                "expires_in", 3600
+        );
+        var userInfo = new java.util.HashMap<String, Object>();
+        userInfo.put("id", "outlook-user-1");
+        userInfo.put("mail", null);
+        userInfo.put("userPrincipalName", "upn@outlook.com");
+        userInfo.put("displayName", null);
+
+        when(restTemplate.exchange(
+                eq("https://login.microsoftonline.com/common/oauth2/v2.0/token"),
+                eq(HttpMethod.POST), any(), eq(Map.class)))
+                .thenReturn(ResponseEntity.ok(tokenResponse));
+        when(restTemplate.exchange(
+                eq("https://graph.microsoft.com/v1.0/me"),
+                eq(HttpMethod.GET), any(), eq(Map.class)))
+                .thenReturn(ResponseEntity.ok(userInfo));
+
+        when(authService.authenticateOAuth2User(eq("outlook"), eq("upn@outlook.com"), anyString(), anyString(), anyString()))
+                .thenReturn(response);
+        when(authService.findByEmail("upn@outlook.com")).thenReturn(user);
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(any(), anyString()))
+                .thenReturn(Optional.empty());
+
+        var body = "{\"authorizationCode\":\"code123\",\"state\":\"" + issueState("outlook") + "\"}";
+
+        mockMvc.perform(post("/api/auth/callback/outlook")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value("upn@outlook.com"));
     }
 
     @Test

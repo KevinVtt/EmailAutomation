@@ -246,6 +246,20 @@ class EmailControllerTest {
 
     @Test
     @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
+    void syncFull_outlook_runsIncrementalSyncDirectly() throws Exception {
+        mockMvc.perform(post("/api/emails/sync/full")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"provider": "outlook"}
+                                """))
+                .andExpect(status().isAccepted());
+
+        verify(emailService).syncEmailsAsync(any(), eq("outlook"));
+        verify(emailService, never()).syncAllEmailsAsync(any(), any());
+    }
+
+    @Test
+    @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
     void rewriteEmail_injectsAuthenticatedUserName() throws Exception {
         when(userDetailsService.loadUserEntityById(any()))
                 .thenReturn(com.emailfilter.model.User.builder().name("Juan Pérez").build());

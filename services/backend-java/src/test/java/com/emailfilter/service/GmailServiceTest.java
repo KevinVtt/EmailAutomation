@@ -12,6 +12,7 @@ import com.google.api.services.gmail.model.MessagePartBody;
 import com.google.api.services.gmail.model.MessagePartHeader;
 import com.google.api.services.gmail.model.History;
 import com.google.api.services.gmail.model.HistoryLabelAdded;
+import com.google.api.services.gmail.model.HistoryLabelRemoved;
 import com.google.api.services.gmail.model.HistoryMessageAdded;
 import com.google.api.services.gmail.model.HistoryMessageDeleted;
 import com.google.api.services.gmail.model.Profile;
@@ -403,6 +404,44 @@ class GmailServiceTest {
         assertEquals(Set.of("added-1"), changes.addedIds());
         assertEquals(Set.of("perm-1", "trashed-1"), changes.deletedIds());
         assertEquals("2000", changes.latestHistoryId());
+    }
+
+    @Test
+    void listHistory_skipsSentMailAndRestoresTrashedInboxMail() throws Exception {
+        var historyRequest = mock(Gmail.Users.History.List.class);
+        var history = mock(Gmail.Users.History.class);
+        when(gmail.users().history()).thenReturn(history);
+        when(history.list("me")).thenReturn(historyRequest);
+        when(historyRequest.setStartHistoryId(any())).thenReturn(historyRequest);
+        when(historyRequest.setHistoryTypes(any())).thenReturn(historyRequest);
+        when(historyRequest.setMaxResults(anyLong())).thenReturn(historyRequest);
+
+        var response = new ListHistoryResponse()
+                .setHistory(List.of(
+                        new History().setMessagesAdded(List.of(new HistoryMessageAdded()
+                                .setMessage(new Message().setId("sent-1").setLabelIds(List.of("SENT"))))),
+                        new History().setLabelsRemoved(List.of(new HistoryLabelRemoved()
+                                .setMessage(new Message().setId("restored-1").setLabelIds(List.of("INBOX")))
+                                .setLabelIds(List.of("TRASH"))))))
+                .setHistoryId(new BigInteger("2000"))
+                .setNextPageToken(null);
+        when(historyRequest.execute()).thenReturn(response);
+
+        var changes = gmailService.listHistory("token", "1000");
+
+        assertEquals(Set.of("restored-1"), changes.addedIds());
+        assertEquals(Set.of(), changes.deletedIds());
+    }
+
+    @Test
+    void fetchMessagesByIds_transientFailure_propagatesSoTheCursorStays() throws Exception {
+        var getRequest = mock(Gmail.Users.Messages.Get.class);
+        var serverError = mockGjre(500);
+        when(getRequest.setFormat("full")).thenReturn(getRequest);
+        when(getRequest.execute()).thenThrow(serverError);
+        when(gmail.users().messages().get(eq("me"), eq("down-1"))).thenReturn(getRequest);
+
+        assertThrows(RuntimeException.class, () -> gmailService.fetchMessagesByIds(gmail, List.of("down-1")));
     }
 
     /** Un cursor vencido devuelve 404: se devuelve null para forzar el resync por fecha. */

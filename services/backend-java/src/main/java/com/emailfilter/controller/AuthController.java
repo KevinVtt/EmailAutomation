@@ -20,6 +20,7 @@ import org.springframework.web.client.RestTemplate;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -32,7 +33,7 @@ public class AuthController {
     private final AuthService authService;
     private final OAuthTokenRepository oauthTokenRepository;
     private final TokenCryptoService tokenCryptoService;
-    private RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
 
     // Store de un solo uso y proceso-local: en despliegue multi-instancia haría falta
     // un store compartido o un state firmado.
@@ -102,6 +103,7 @@ public class AuthController {
     public ResponseEntity<?> handleCallback(
             @PathVariable String provider,
             @Valid @RequestBody AuthRequest request) {
+        pendingStates.entrySet().removeIf(e -> e.getValue().isBefore(Instant.now()));
         var state = request.getState();
         var expiry = (state == null || state.isBlank()) ? null : pendingStates.remove(state);
         if (expiry == null || expiry.isBefore(Instant.now())) {
@@ -127,8 +129,8 @@ public class AuthController {
             );
             log.info("User authenticated successfully, userId={}", response.getUserId());
 
-            log.info("Looking up user for OAuth token storage...");
-            var user = authService.findByEmail(userInfo.get("email").toString());
+            // El email de la respuesta es el del usuario ya encontrado: el del proveedor puede haber cambiado.
+            var user = authService.findByEmail(response.getEmail());
             log.info("Saving OAuth token...");
             saveOAuthToken(user, provider, tokenData);
             log.info("OAuth token saved successfully");
@@ -296,11 +298,13 @@ public class AuthController {
             log.warn("Could not fetch Outlook user photo: {}", e.getMessage());
         }
 
+        // Graph puede mandar "mail": null; Map.of no admite nulls y el login moría con 401.
         return Map.of(
                 "user", Map.of(
-                        "id", userInfo.getOrDefault("id", ""),
-                        "email", userInfo.getOrDefault("mail", userInfo.getOrDefault("userPrincipalName", "")),
-                        "name", userInfo.getOrDefault("displayName", ""),
+                        "id", Objects.toString(userInfo.get("id"), ""),
+                        "email", Objects.toString(userInfo.get("mail"),
+                                Objects.toString(userInfo.get("userPrincipalName"), "")),
+                        "name", Objects.toString(userInfo.get("displayName"), ""),
                         "avatarUrl", avatarUrl
                 ),
                 "token", tokenResponse

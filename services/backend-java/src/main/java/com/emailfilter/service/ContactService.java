@@ -12,6 +12,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -28,6 +29,7 @@ public class ContactService {
     private final EmailContactRepository contactRepository;
     private final EmailRepository emailRepository;
     private final UserRepository userRepository;
+    private final TransactionTemplate transactionTemplate;
 
     public List<EmailContactDTO> list(UUID userId, int limit) {
         var page = PageRequest.of(0, Math.max(1, Math.min(limit, 100)));
@@ -125,15 +127,20 @@ public class ContactService {
         });
     }
 
-    /** Un envío concreto: suma uno a los enviados de ese contacto. */
-    @Transactional
+    /** Un envío concreto: suma uno a los enviados de ese contacto. Nunca lanza: el mail ya se envió. */
     public void upsertSent(UUID userId, String address) {
-        var normalized = normalizeAddress(address);
-        if (normalized == null) return;
-        var contact = findOrCreate(userId, normalized);
-        contact.setSentCount(contact.getSentCount() + 1);
-        touch(contact, Instant.now());
-        contactRepository.save(contact);
+        try {
+            transactionTemplate.executeWithoutResult(status -> {
+                var normalized = normalizeAddress(address);
+                if (normalized == null) return;
+                var contact = findOrCreate(userId, normalized);
+                contact.setSentCount(contact.getSentCount() + 1);
+                touch(contact, Instant.now());
+                contactRepository.save(contact);
+            });
+        } catch (RuntimeException e) {
+            log.warn("No se pudo registrar el envío a {} en contactos", address, e);
+        }
     }
 
     /** Una fila por remitente con el último nombre que usó: una sola consulta, sin N+1. */

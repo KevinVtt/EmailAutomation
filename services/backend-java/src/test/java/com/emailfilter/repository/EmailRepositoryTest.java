@@ -5,6 +5,7 @@ import com.emailfilter.model.User;
 import com.emailfilter.model.Visto;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import java.util.List;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
@@ -13,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
- * Prueba a nivel SQL que {@code removeSpamLabelByUserId} borra el token exacto
+ * Prueba a nivel SQL que {@code removeSpamLabelByProviderEmailIds} borra el token exacto
  * {@code SPAM} de labels en cualquier posición. H2 en modo PostgreSQL porque el
  * esquema usa {@code JSONB} en otra entidad.
  */
@@ -33,7 +34,7 @@ class EmailRepositoryTest {
     private TestEntityManager entityManager;
 
     @Test
-    void removeSpamLabelByUserId_stripsSpamTokenInAnyPosition() {
+    void removeSpamLabelByProviderEmailIds_stripsSpamTokenInAnyPosition() {
         var user = entityManager.persist(User.builder()
                 .email("spam-labels@example.com")
                 .provider("google")
@@ -48,7 +49,8 @@ class EmailRepositoryTest {
         entityManager.flush();
         entityManager.clear();
 
-        emailRepository.removeSpamLabelByUserId(user.getId());
+        emailRepository.removeSpamLabelByProviderEmailIds(user.getId(), List.of("only", "leading", "trailing",
+                "middle", "clean", "null-labels"));
         entityManager.flush();
         entityManager.clear();
 

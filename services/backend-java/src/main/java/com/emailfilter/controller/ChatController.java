@@ -13,8 +13,12 @@ import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 @Slf4j
@@ -58,14 +62,25 @@ public class ChatController {
         log.info("=== CHAT WEBSOCKET INICIO === userId={}, message_len={}, conversationId={}",
                 userId, request.getMessage() != null ? request.getMessage().length() : 0, request.getConversationId());
 
-        var aiResponse = aiServiceClient.chat(request.getMessage(), request.getConversationId(), request.getScope());
-        log.info("AI service respondió (WebSocket, response_len={})",
-                aiResponse.get("response") instanceof String s ? s.length() : 0);
+        try {
+            var aiResponse = aiServiceClient.chat(request.getMessage(), request.getConversationId(), request.getScope());
+            log.info("AI service respondió (WebSocket, response_len={})",
+                    aiResponse.get("response") instanceof String s ? s.length() : 0);
 
-        var found = processChat(userId, aiResponse, request.getScope());
-        log.info("emails encontrados: {}", found);
+            var found = processChat(userId, aiResponse, request.getScope());
+            log.info("emails encontrados: {}", found);
 
-        log.info("=== CHAT WEBSOCKET FIN === userId={}", userId);
+            log.info("=== CHAT WEBSOCKET FIN === userId={}", userId);
+        } catch (Exception e) {
+            // Sin esta respuesta la UI se queda con el spinner para siempre.
+            log.error("Chat WebSocket falló para userId={}", userId, e);
+            webSocketService.sendChatResponse(userId.toString(), Map.of(
+                    "type", "chat_response",
+                    "data", Map.of(
+                            "response", "No pude procesar tu mensaje. Probá de nuevo en unos segundos.",
+                            "criteria", Map.of(),
+                            "conversation_id", Objects.toString(request.getConversationId(), ""))));
+        }
     }
 
     /**
@@ -76,6 +91,7 @@ public class ChatController {
     private long processChat(UUID userId, Map<String, Object> aiResponse, Map<String, Object> scope) {
         var criteria = extractCriteria(aiResponse);
         applyScope(criteria, scope);
+        dropInvalidDates(criteria);
         log.info("Criteria extraídos: {}", criteria.keySet());
         if (criteria.isEmpty()) {
             log.info("Enviando chat_response por WebSocket a usuario {}", userId);
@@ -139,6 +155,20 @@ public class ChatController {
         for (var entry : scoped.entrySet()) {
             if (entry.getKey() == null || entry.getValue() == null) continue;
             criteria.put(entry.getKey().toString(), String.valueOf(entry.getValue()));
+        }
+    }
+
+    /** Una fecha que no es ISO no tira la búsqueda: se descarta ese criterio y quedan los demás. */
+    private void dropInvalidDates(Map<String, String> criteria) {
+        for (var key : List.of("dateFrom", "dateTo")) {
+            var value = criteria.get(key);
+            if (value == null) continue;
+            try {
+                Instant.parse(value);
+            } catch (DateTimeParseException e) {
+                log.warn("Criterio {} inválido, se descarta: {}", key, value);
+                criteria.remove(key);
+            }
         }
     }
 

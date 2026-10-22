@@ -5,23 +5,28 @@ import com.emailfilter.model.User;
 import com.emailfilter.repository.EmailContactRepository;
 import com.emailfilter.repository.EmailRepository;
 import com.emailfilter.repository.UserRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -34,9 +39,20 @@ class ContactServiceTest {
     private EmailRepository emailRepository;
     @Mock
     private UserRepository userRepository;
+    @Mock
+    private TransactionTemplate transactionTemplate;
 
     @InjectMocks
     private ContactService contactService;
+
+    @BeforeEach
+    void runTransactionCallbacks() {
+        lenient().doAnswer(inv -> {
+            Consumer<TransactionStatus> callback = inv.getArgument(0);
+            callback.accept(null);
+            return null;
+        }).when(transactionTemplate).executeWithoutResult(any());
+    }
 
     @Test
     void update_ofAContactOwnedByAnotherUser_is404() {
@@ -192,5 +208,14 @@ class ContactServiceTest {
 
         assertEquals(3, existing.getSentCount());
         assertEquals(7, existing.getReceivedCount());
+    }
+
+    @Test
+    void upsertSent_neverThrows_becauseTheMailAlreadyWentOut() {
+        var userId = UUID.randomUUID();
+        when(contactRepository.findByUserIdAndAddress(userId, "a@x.com"))
+                .thenThrow(new org.springframework.dao.DataIntegrityViolationException("unique conflict"));
+
+        contactService.upsertSent(userId, "a@x.com");
     }
 }

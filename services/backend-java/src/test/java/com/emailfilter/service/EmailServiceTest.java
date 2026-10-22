@@ -35,6 +35,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.client.RestTemplate;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -106,7 +107,7 @@ class EmailServiceTest {
     @BeforeEach
     void setUp() throws Exception {
         emailService = new TestableEmailService(emailRepository, oauthTokenRepository, vistoRepository,
-                gmailService, outlookService, webSocketService, aiServiceClient, htmlSanitizerService, syncJobService, userRepository, tokenCryptoService, contactService, transactionTemplate, gmail);
+                gmailService, outlookService, webSocketService, aiServiceClient, htmlSanitizerService, syncJobService, userRepository, tokenCryptoService, contactService, transactionTemplate, new RestTemplate(), gmail);
         emailService.maxEmailsPerSync = 1000;
         // TransactionTemplate real detrás de un mock: ejecuta el callback (sin DB).
         lenient().when(transactionTemplate.execute(any())).thenAnswer(inv -> {
@@ -139,10 +140,10 @@ class EmailServiceTest {
                              AIServiceClient aiServiceClient, HtmlSanitizerService htmlSanitizerService,
                              SyncJobService syncJobService, UserRepository userRepository,
                              TokenCryptoService tokenCryptoService, ContactService contactService,
-                             TransactionTemplate transactionTemplate, Gmail gmail) {
+                             TransactionTemplate transactionTemplate, RestTemplate restTemplate, Gmail gmail) {
             super(emailRepository, oauthTokenRepository, vistoRepository, gmailService, outlookService,
                     webSocketService, aiServiceClient, htmlSanitizerService, syncJobService, userRepository,
-                    tokenCryptoService, contactService, transactionTemplate);
+                    tokenCryptoService, contactService, transactionTemplate, restTemplate);
             this.gmail = gmail;
         }
 
@@ -1059,7 +1060,7 @@ class EmailServiceTest {
         verify(emailRepository).deleteByUserIdAndProviderEmailIdIn(eq(userId), argThat(ids -> ids.contains("gone-1")));
         verify(vistoRepository).deleteByUserIdAndProviderEmailIdIn(eq(userId), argThat(ids -> ids.contains("gone-1")));
         verify(emailRepository).saveAll(anyList());
-        verify(oauthTokenRepository).save(argThat(t -> "2000".equals(t.getHistoryId())));
+        verify(oauthTokenRepository).updateHistoryId(any(), eq("2000"));
     }
 
     @Test
@@ -1090,13 +1091,13 @@ class EmailServiceTest {
         emailService.syncEmailsAsync(user, "google").join();
 
         verify(gmailService).fetchIncrementalEmails(anyString(), any(Instant.class), anySet(), anyInt());
-        verify(oauthTokenRepository).save(argThat(t -> "5555".equals(t.getHistoryId())));
+        verify(oauthTokenRepository).updateHistoryId(any(), eq("5555"));
     }
 
     // --- Finding 1: full sync de no-Google debe delegar SIN tomar el lock ---
 
     @Test
-    void syncAllEmailsAsync_outlookProvider_delegatesToIncrementalSync() {
+    void syncEmailsAsync_outlookProvider_runsIncrementalSync() {
         var userId = UUID.randomUUID();
         var user = User.builder().id(userId).build();
         var token = OAuthToken.builder()
@@ -1108,7 +1109,7 @@ class EmailServiceTest {
                 .thenReturn(Optional.of(token));
         when(outlookService.fetchEmails("test-access-token", 100)).thenReturn(List.of());
 
-        emailService.syncAllEmailsAsync(user, "outlook").join();
+        emailService.syncEmailsAsync(user, "outlook").join();
 
         verify(syncJobService).start(eq(userId), eq("outlook"), eq("incremental"));
         verify(outlookService).fetchEmails("test-access-token", 100);
@@ -1140,7 +1141,7 @@ class EmailServiceTest {
                 .thenReturn(Optional.of(token));
         when(outlookService.fetchEmails("test-access-token", 100)).thenReturn(List.of(raw));
 
-        emailService.syncAllEmailsAsync(user, "outlook").join();
+        emailService.syncEmailsAsync(user, "outlook").join();
 
         ArgumentCaptor<List<EmailMessage>> captor = ArgumentCaptor.forClass(List.class);
         verify(emailRepository).saveAll(captor.capture());
