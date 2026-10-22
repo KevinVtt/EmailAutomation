@@ -82,7 +82,7 @@ public class AuthController {
                     "client_id=" + googleClientId +
                     "&redirect_uri=" + googleRedirectUri +
                     "&response_type=code" +
-                    "&scope=email+profile+https://www.googleapis.com/auth/gmail.readonly+https://www.googleapis.com/auth/gmail.modify" +
+                    "&scope=email+profile+https://www.googleapis.com/auth/gmail.readonly+https://www.googleapis.com/auth/gmail.modify+https://www.googleapis.com/auth/gmail.send" +
                     "&access_type=offline" +
                     "&prompt=consent" +
                     "&state=" + state;

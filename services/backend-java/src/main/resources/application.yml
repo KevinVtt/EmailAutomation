@@ -3,7 +3,7 @@ server:
 
 spring:
   datasource:
-    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:emailfilter}
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:emailfilter}?sslmode=${POSTGRES_SSLMODE:prefer}
     username: ${POSTGRES_USER:emailfilter_user}
     password: ${POSTGRES_PASSWORD:changeme_in_prod}
     hikari:
