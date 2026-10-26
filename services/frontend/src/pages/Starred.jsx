@@ -16,6 +16,7 @@ export default function Starred() {
     <EmailListView
       title="Destacados"
       filters={STARRED_FILTERS}
+      folder="starred"
       emptyMessage="No tienes emails destacados"
     />
   );

@@ -16,6 +16,7 @@ export default function Trash() {
     <EmailListView
       title="Papelera"
       filters={TRASH_FILTERS}
+      folder="trash"
       emptyMessage="La papelera está vacía"
     />
   );

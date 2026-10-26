@@ -828,6 +828,27 @@ class EmailServiceTest {
     }
 
     @Test
+    void searchEmails_matchesSubjectSenderOrSnippetAndKeepsSpamOutOfTheInbox() {
+        var userId = UUID.randomUUID();
+        var page = new PageImpl<>(List.<EmailMessage>of(), PageRequest.of(0, 20), 0);
+        when(emailRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(page);
+
+        emailService.searchEmails(userId, "  factura ", "inbox", 0, 20);
+
+        var cb = mock(CriteriaBuilder.class);
+        var root = mock(Root.class);
+        var userPath = mock(Path.class);
+        when(root.get("user")).thenReturn(userPath);
+        when(userPath.get("id")).thenReturn(mock(Path.class));
+        var captor = ArgumentCaptor.forClass(Specification.class);
+        verify(emailRepository).findAll(captor.capture(), any(Pageable.class));
+        captor.getValue().toPredicate(root, mock(CriteriaQuery.class), cb);
+
+        verify(cb, atLeastOnce()).like(any(), eq("%factura%"));
+        verify(cb, atLeastOnce()).notLike(any(), eq("%SPAM%"));
+    }
+
+    @Test
     void filterEmails_attachmentContains_searchesFileNameAndExtractedText() {
         var userId = UUID.randomUUID();
         var page = new PageImpl<>(List.<EmailMessage>of(), PageRequest.of(0, 20), 0);

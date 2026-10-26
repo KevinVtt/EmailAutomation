@@ -25,6 +25,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -449,6 +450,46 @@ public class EmailService {
         var emailPage = emailRepository.findAll(spec, pageable);
         var vistoEmailIds = fetchVistoEmailIds(userId, emailPage.getContent());
         return emailPage.map(email -> toDTO(email, vistoEmailIds));
+    }
+
+    /**
+     * Búsqueda de texto dentro de una carpeta, sin IA: ILIKE sobre asunto, remitente y snippet.
+     * {@code folder}: inbox (sin spam ni papelera), starred, important, spam, trash.
+     */
+    @Transactional(readOnly = true)
+    public Page<EmailDTO> searchEmails(UUID userId, String query, String folder, int page, int size) {
+        var term = query == null ? "" : query.trim();
+        if (term.length() > 200) term = term.substring(0, 200);
+        var text = term;
+        Specification<EmailMessage> spec = (root, q, cb) -> {
+            var predicates = new ArrayList<Predicate>();
+            predicates.add(cb.equal(root.get("user").get("id"), userId));
+            predicates.add(folderPredicate(cb, root, folder));
+            if (!text.isEmpty()) {
+                predicates.add(cb.or(
+                        buildContainsPredicate(cb, root.get("subject"), text),
+                        buildContainsPredicate(cb, root.get("fromAddress"), text),
+                        buildContainsPredicate(cb, root.get("bodyPreview"), text)));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        var pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "receivedAt"));
+        var emailPage = emailRepository.findAll(spec, pageable);
+        var vistoEmailIds = fetchVistoEmailIds(userId, emailPage.getContent());
+        return emailPage.map(email -> toDTO(email, vistoEmailIds));
+    }
+
+    private static Predicate folderPredicate(CriteriaBuilder cb, Root<EmailMessage> root, String folder) {
+        Path<String> labels = root.get("labels");
+        var notTrash = cb.or(cb.isNull(labels), cb.notLike(labels, "%TRASH%"));
+        return switch (folder == null ? "inbox" : folder) {
+            case "trash" -> cb.like(labels, "%TRASH%");
+            case "spam" -> cb.and(notTrash, cb.like(labels, "%SPAM%"));
+            case "starred" -> cb.and(notTrash, cb.isTrue(root.get("isStarred")));
+            case "important" -> cb.and(notTrash, cb.or(cb.like(labels, "%IMPORTANT%"),
+                    cb.isTrue(root.get("isImportant"))));
+            default -> cb.and(notTrash, cb.or(cb.isNull(labels), cb.notLike(labels, "%SPAM%")));
+        };
     }
 
     /**

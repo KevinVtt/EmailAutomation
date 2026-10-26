@@ -16,6 +16,7 @@ export default function Important() {
     <EmailListView
       title="Importantes"
       filters={IMPORTANT_FILTERS}
+      folder="important"
       emptyMessage="No hay mails importantes"
     />
   );

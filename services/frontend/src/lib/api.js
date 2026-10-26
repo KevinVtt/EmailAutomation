@@ -141,6 +141,10 @@ export const api = {
       const params = new URLSearchParams({ page, size, ...filters });
       return request(`/api/emails/filter?${params}`);
     },
+    search: (q, folder, page = 0, size = 20) => {
+      const params = new URLSearchParams({ q, folder, page, size });
+      return request(`/api/emails/search?${params}`);
+    },
     action: (provider, emailId, action) =>
       request('/api/emails/action', {
         method: 'POST',

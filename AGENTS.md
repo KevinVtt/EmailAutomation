@@ -68,6 +68,8 @@ Browser (React) ── REST /api/** + WebSocket /ws ──► Java Backend (8080
 - Importantes: `email_messages.is_important` (sql 09) lo pone `notifyUrgentEmails` cuando la IA da urgencia `high`
   (solo mails nuevos del sync incremental). El filtro `important` = label `IMPORTANT` OR `is_important`.
   `GET /api/emails/stats` agrega `importantUnread`, `spamUnread`, `trashUnread` (contadores de la barra lateral).
+- Buscador de carpeta: `GET /api/emails/search?q=&folder=&page=` (folder: inbox|starred|important|spam|trash) hace ILIKE
+  sobre asunto, remitente y snippet (`bodyPreview`), sin IA. Con texto de búsqueda los filtros de la vista no se aplican.
 - Provider HTTP calls (`markAsRead`, `toggleStar`, `moveToTrash`, `sendReply`, ...) must stay OUTSIDE a DB
   transaction: they can sleep on retry/backoff and would otherwise pin a pooled connection (pool size 10).
 - CORS is controlled by `FRONTEND_URL` (`CorsConfig`).

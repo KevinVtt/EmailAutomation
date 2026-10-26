@@ -85,6 +85,17 @@ public class EmailController {
         return ResponseEntity.ok(emailService.filterEmails(userId, filters, clampPage(page), clampSize(size)));
     }
 
+    @GetMapping("/search")
+    public ResponseEntity<Page<EmailDTO>> searchEmails(
+            Authentication auth,
+            @RequestParam(defaultValue = "") String q,
+            @RequestParam(defaultValue = "inbox") String folder,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        var userId = getUserId(auth);
+        return ResponseEntity.ok(emailService.searchEmails(userId, q, folder, clampPage(page), clampSize(size)));
+    }
+
     @PostMapping("/action")
     public ResponseEntity<Void> performAction(
             Authentication auth,
