@@ -13,6 +13,7 @@ const Spam = lazy(() => import('./pages/Spam'));
 const Sent = lazy(() => import('./pages/Sent'));
 const EmailDetailPage = lazy(() => import('./pages/EmailDetailPage'));
 const Settings = lazy(() => import('./pages/Settings'));
+const Contacts = lazy(() => import('./pages/Contacts'));
 
 function PageFallback() {
   return (
@@ -50,6 +51,7 @@ export default function App() {
           <Route path="spam" element={<Spam />} />
           <Route path="sent" element={<Sent />} />
           <Route path="email/:id" element={<EmailDetailPage />} />
+          <Route path="contacts" element={<Contacts />} />
           <Route path="settings" element={<Settings />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

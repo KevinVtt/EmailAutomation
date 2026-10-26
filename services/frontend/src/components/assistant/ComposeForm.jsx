@@ -1,10 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowLeft, Bot, Send } from 'lucide-react';
 import { api } from '../../lib/api';
 import { TONES, DEFAULT_TONE } from '../../lib/tones';
 
 export default function ComposeForm({ contact, onBack }) {
   const [toField, setToField] = useState('');
+  const [contactOptions, setContactOptions] = useState([]);
+
+  useEffect(() => {
+    if (contact) return;
+    api.contacts.list(100).then(setContactOptions).catch(() => {});
+  }, [contact]);
+
   const [cc, setCc] = useState('');
   const [bcc, setBcc] = useState('');
   const [subject, setSubject] = useState('');
@@ -113,11 +120,17 @@ export default function ComposeForm({ contact, onBack }) {
           <input
             id="compose-to"
             type="text"
+            list="compose-contacts"
             value={toField}
             onChange={(e) => setToField(e.target.value)}
             placeholder="correo@ejemplo.com"
             className="input w-full text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100"
           />
+          <datalist id="compose-contacts">
+            {contactOptions.map((c) => (
+              <option key={c.id} value={c.address}>{c.displayName || ''}</option>
+            ))}
+          </datalist>
           <label htmlFor="compose-cc" className="text-xs text-gray-600 dark:text-gray-300">Cc</label>
           <input
             id="compose-cc"

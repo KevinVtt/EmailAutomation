@@ -204,6 +204,18 @@ export const api = {
   contacts: {
     list: (limit = 20) =>
       request(`/api/contacts?limit=${limit}`),
+    create: (address, fields) =>
+      request(`/api/contacts?address=${encodeURIComponent(address)}`, {
+        method: 'POST',
+        body: JSON.stringify(fields),
+      }),
+    update: (id, fields) =>
+      request(`/api/contacts/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(fields),
+      }),
+    remove: (id) =>
+      request(`/api/contacts/${id}`, { method: 'DELETE' }),
     draft: (id, instruction, tone) =>
       request(`/api/contacts/${id}/draft`, {
         method: 'POST',
