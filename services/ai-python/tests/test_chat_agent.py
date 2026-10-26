@@ -21,6 +21,28 @@ async def test_process_chat_message_valid_json(httpx_mock):
 
 
 @pytest.mark.asyncio
+async def test_process_chat_message_sends_recent_context(httpx_mock):
+    httpx_mock.add_response(
+        url="https://api.groq.com/openai/v1/chat/completions",
+        method="POST",
+        json={"choices": [{"message": {"content": '{"response":"ok","criteria":{}}'}}]},
+    )
+
+    await process_chat_message(
+        "¿y los de ayer?",
+        context=[
+            {"role": "user", "content": "mails de factura"},
+            {"role": "assistant", "content": "Encontré 3 facturas."},
+        ],
+    )
+
+    body = json.loads(httpx_mock.get_requests()[0].content)
+    prompt = next(m["content"] for m in body["messages"] if m["role"] == "user")
+    assert "HISTORIAL RECIENTE" in prompt
+    assert "assistant: Encontré 3 facturas." in prompt
+
+
+@pytest.mark.asyncio
 async def test_process_chat_message_invalid_json(httpx_mock):
     httpx_mock.add_response(
         url="https://api.groq.com/openai/v1/chat/completions",
