@@ -7,7 +7,7 @@ PostgreSQL y los deja buscar, filtrar, responder y redactar en lenguaje natural 
 
 ## Qué hace
 
-- **Sincronización de Gmail**: primera corrida completa (inbox + spam), después incremental con
+- **Sincronización de Gmail**: primera corrida completa (todo el buzón: archivados, promociones y etiquetas; sin enviados, borradores ni papelera), después incremental con
   `history.list` (solo lo nuevo y los borrados).
 - **Chat con IA global**: "muéstrame lo importante de esta semana", "sin leer de ayer",
   "facturas de octubre". La IA devuelve criterios que el backend aplica con JPA Specifications.
@@ -61,7 +61,11 @@ Browser (React)
 - **Maven** en el `PATH` (o una copia portable en `.tools/maven`).
 - **Python 3.10+** (el script usa `py` o `python`).
 - **Node.js 18+**.
-- **PostgreSQL 16+** corriendo en `localhost:5432`.
+- **PostgreSQL 16+** corriendo en `localhost:5432` **con la extensión pgvector** (el esquema usa
+  `vector(384)`). El proyecto oficial no publica binarios Windows: usá el ZIP precompilado que
+  coincida con tu versión mayor (p. ej. `vector.v0.8.6-pg18.zip` de
+  [pgvector_pgsql_windows](https://github.com/andreiramani/pgvector_pgsql_windows/releases)),
+  descomprimilo sobre `C:\Program Files\PostgreSQL\18\` y reiniciá el servicio.
 
 ### En ambos casos
 
@@ -138,9 +142,9 @@ Completá como mínimo `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `AI_API_KEY`,
   setup-db.bat MI_PASSWORD_DE_POSTGRES
   ```
 
-  Crea el rol `emailfilter_user`, la base `emailfilter` y aplica el esquema completo
-  (`01-init.sql`, `02-email-contacts.sql`, `02-sync-jobs.sql`, `03-gmail-history.sql`).
-  Es idempotente: podés correrlo de nuevo sin romper nada.
+  Crea el rol `emailfilter_user`, la base `emailfilter` y aplica todos los `.sql` de
+  `infrastructure/postgres/init/` (incluido `06-email-embeddings.sql`, que hace
+  `CREATE EXTENSION vector`). Es idempotente: podés correrlo de nuevo sin romper nada.
 
   Si no pasás la contraseña, `psql` la pide de forma interactiva (la del superusuario `postgres`).
 
@@ -166,6 +170,8 @@ docker compose logs -f
 docker ps
 ```
 
+En Windows, `.\logs.ps1` vuelca cada servicio a su archivo en `logs/` (`backend.log`, `frontend.log`, `ai-python.log`, `postgres.log`).
+
 #### Opción B — Local, todo junto
 
 ```bat
@@ -181,12 +187,7 @@ El script, en orden:
 5. Comprueba que 8000, 8080 y 3001 estén libres.
 6. Abre una consola por servicio.
 
-Después del primer arranque (ya compilado), usá la botonera:
-
-```bat
-servicios.bat            # iniciar / parar / reiniciar / estado
-servicios.bat status
-```
+Para parar todo, cerrá las consolas de cada servicio (o `Ctrl+C` dentro de cada una).
 
 #### Opción B2 — Local, uno por uno
 
@@ -256,7 +257,6 @@ EmailAutomation/
 ├── docker-compose.yml
 ├── setup-db.bat                      # Rol + base + esquema (sin Docker)
 ├── start-local.bat                   # Compila y levanta los 3 servicios
-├── servicios.bat                     # Botonera de start/stop/restart/status
 ├── run-backend.bat / run-ai.bat / run-frontend.bat
 ├── scripts/load-env.bat              # Carga .env en el entorno
 └── .env.example
@@ -289,9 +289,8 @@ EmailAutomation/
 
 | Variable | Descripción | Default |
 |----------|-------------|---------|
-| `EMAIL_SYNC_MAX_EMAILS` | Tope de correos por corrida (inicial e incremental) | `1000` |
-| `EMAIL_SYNC_REQUEST_DELAY_MS` | Pausa entre descargas para respetar la cuota de Gmail | `250` |
-| `EMAIL_SYNC_FETCH_CONCURRENCY` | Hilos de descarga de detalle en la sync completa | `6` |
+| `EMAIL_SYNC_REQUEST_DELAY_MS` | Pausa entre descargas para respetar la cuota de Gmail | `400` |
+| `EMAIL_SYNC_FETCH_CONCURRENCY` | Hilos de descarga de detalle en la sync completa | `3` |
 | `CONTACTS_SENT_WINDOW_DAYS` | Días de enviados que se leen al armar contactos | `365` |
 | `CONTACTS_SENT_MAX` | Tope de enviados en ese barrido | `2000` |
 
@@ -358,11 +357,16 @@ Configuración mínima para un deploy gratuito separado por servicio:
 |-------|------------|-----------|
 | Frontend | Vercel | `VITE_API_URL` y `VITE_WS_URL` = URL del backend |
 | Backend | Render (Docker) | `POSTGRES_*`, `JWT_SECRET`, `TOKEN_ENCRYPTION_KEY`, `GOOGLE_*`, `FRONTEND_URL`, `AI_SERVICE_URL` |
-| IA | Render (Docker) | `AI_API_KEY`, `AI_MODEL` |
+| IA | Render (Docker) | `AI_API_KEY`, `AI_MODEL`, **`AI_INTERNAL_TOKEN`** (= el mismo valor que en el backend; sin él toda ruta de IA responde 503) |
 | PostgreSQL | Neon | Aplicar los `.sql` de `infrastructure/postgres/init/` |
 
 En Google Cloud, el redirect pasa a `https://<frontend>/auth/callback`, y `FRONTEND_URL` debe ser
 `https://<frontend>` para que CORS y el WebSocket funcionen.
+
+> Sin `VITE_API_URL`/`VITE_WS_URL` en Vercel, el rewrite de `vercel.json` manda también `/api` a
+> `index.html`: el login queda en "Autenticando..." y las listas salen vacías. Además, una base ya
+> existente necesita `03-sent-messages.sql` y `04-attachments.sql` a mano (los `init` solo corren con
+> un volumen nuevo).
 
 Si preferís un solo servidor, el `docker-compose.yml` ya levanta todo junto y el nginx del frontend
 hace de proxy para `/api` y `/ws`.
@@ -381,7 +385,6 @@ docker compose down -v         # ⚠️ borra la base
 
 # Local
 start-local.bat                # compila y levanta todo
-servicios.bat                  # botonera de control
 setup-db.bat                   # rol + base + esquema (idempotente)
 ```
 
@@ -446,7 +449,7 @@ curl http://localhost:8000/health
 ### "El puerto 3001 ya está en uso"
 
 Hay otra instancia corriendo; `start-local.bat` se niega a abrir una segunda para no duplicar
-sesiones ni sincronizaciones. Cerrá la anterior o usá `servicios.bat stop`.
+sesiones ni sincronizaciones. Cerrá las consolas de los servicios que ya están corriendo.
 
 ### La app va lenta en Docker
 

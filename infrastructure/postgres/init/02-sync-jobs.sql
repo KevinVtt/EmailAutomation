@@ -12,3 +12,4 @@ CREATE TABLE IF NOT EXISTS sync_jobs (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_sync_jobs_user_status ON sync_jobs(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_sync_jobs_user_started ON sync_jobs(user_id, started_at DESC);

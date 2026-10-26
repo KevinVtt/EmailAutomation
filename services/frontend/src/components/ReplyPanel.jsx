@@ -1,14 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../lib/api';
+import { TONES, DEFAULT_TONE } from '../lib/tones';
 import { useUndoableSend } from '../hooks/useUndoableSend';
 import { Wand2, Copy, Check, RotateCcw, Settings, X, ChevronDown, Send } from 'lucide-react';
-
-const TONES = [
-  { id: 'formal', label: 'Formal', desc: 'Profesional y respetuoso' },
-  { id: 'casual', label: 'Casual', desc: 'Relajado e informal' },
-  { id: 'amigable', label: 'Amigable', desc: 'Cálido y cercano' },
-  { id: 'directo', label: 'Directo', desc: 'Conciso, al punto' },
-];
 
 const LANGUAGES = [
   { id: 'auto', label: 'Automático' },
@@ -23,7 +17,7 @@ function getStoredSettings() {
     const stored = localStorage.getItem('rewriteSettings');
     if (stored) return JSON.parse(stored);
   } catch {}
-  return { tone: 'formal', language: 'auto', customRules: '' };
+  return { tone: DEFAULT_TONE, language: 'auto', customRules: '' };
 }
 
 function storeSettings(settings) {

@@ -24,7 +24,7 @@ Browser (React) ── REST /api/** + WebSocket /ws ──► Java Backend (8080
 ```
 1. **OAuth login**: `/api/auth/oauth2/{provider}` (issues a CSRF `state`) → Google/Microsoft →
    frontend `/auth/callback` → `POST /api/auth/callback/{provider}` with `{authorizationCode, provider, state}` → JWT in localStorage.
-2. **Email sync**: `POST /api/emails/sync` → GmailService paginates inbox + spam → dedup by (userId, providerEmailId).
+2. **Email sync**: `POST /api/emails/sync` → GmailService paginates the whole mailbox (`in:anywhere` minus sent/drafts/trash) → dedup by (userId, providerEmailId).
 3. **AI chat filter**: message → `/api/chat` → Python `/chat` → `{response, criteria}` → JPA Specifications → WebSocket push of filtered emails.
 4. **Stats**: `GET /api/emails/stats` returns the dashboard counters + 7-day activity in one call.
 5. **Assistant (global panel)**: `/api/contacts` lists the people you actually exchange mail with (`email_contact`
@@ -56,8 +56,11 @@ Browser (React) ── REST /api/** + WebSocket /ws ──► Java Backend (8080
   with a `visto=true` row for that user (the app's own read state), because `saveEmails` overwrites `is_read`
   with the provider's flag on every sync.
 - Use the `application-dev.yml` profile locally (DDL auto-update + SQL logging).
-- Gmail: keep `GmailService.fetchAllEmails()` paginated (queries `in:inbox` + `in:spam`, 100 per page);
+- Gmail: keep `GmailService.fetchAllEmails()` paginated (query `GmailService.MAILBOX_QUERY`, 100 per page);
   do not replace it with one bulk call. `OutlookService` is less tested: test both providers when touching auth or sync.
+- Full sync prunes rows of that provider that Gmail no longer lists, except locally trashed (`TRASH`) rows; never prune
+  when the ID listing came back empty. Incremental sync refreshes starred/spam only when `history.list` reports label changes.
+  `sync_jobs` is purged daily by `SyncJobService.purgeOldJobs`.
 - Provider HTTP calls (`markAsRead`, `toggleStar`, `moveToTrash`, `sendReply`, ...) must stay OUTSIDE a DB
   transaction: they can sleep on retry/backoff and would otherwise pin a pooled connection (pool size 10).
 - CORS is controlled by `FRONTEND_URL` (`CorsConfig`).
@@ -150,8 +153,12 @@ JWT:       Authorization: Bearer <token>; access + refresh, HMAC-SHA; principal 
 WebSocket: connect /ws (SockJS)
            subscribe /user/queue/emails | chat | notifications
            publish   /app/chat.send
-           notifications: sync_complete | sync_progress:<n>:<total> | sync_error | urgent_emails:<n>:<subjects>
-                          | emails_changed (email action done → Dashboard refreshes counters)
+           notifications: sync_started:incremental|full | sync_complete | sync_progress:<n>:<total>
+                          | sync_error | urgent_emails:<n>:<subjects>
+                          | emails_changed (email action done, y cada 1000 correos de un full sync
+                            → Dashboard refreshes counters)
+           GET /api/emails/sync/status → {syncing, lastSync?: {status, mode, fetched, total, error, updatedAt}}
+                          (lastSync permite distinguir COMPLETED de FAILED; no confiar solo en syncing=false)
 Contacts:  Backend → UI   GET /api/contacts?limit=20 →
                           [{id, address, displayName, company, topic, notes, sentCount, receivedCount, lastActivityAt}]
                           PATCH /api/contacts/{id} {company, topic, notes}

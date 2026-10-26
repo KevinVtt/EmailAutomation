@@ -10,6 +10,7 @@ const Callback = lazy(() => import('./pages/Callback'));
 const Inbox = lazy(() => import('./pages/Inbox'));
 const Starred = lazy(() => import('./pages/Starred'));
 const Spam = lazy(() => import('./pages/Spam'));
+const Sent = lazy(() => import('./pages/Sent'));
 const EmailDetailPage = lazy(() => import('./pages/EmailDetailPage'));
 const Settings = lazy(() => import('./pages/Settings'));
 
@@ -47,6 +48,7 @@ export default function App() {
           <Route path="inbox" element={<Inbox />} />
           <Route path="starred" element={<Starred />} />
           <Route path="spam" element={<Spam />} />
+          <Route path="sent" element={<Sent />} />
           <Route path="email/:id" element={<EmailDetailPage />} />
           <Route path="settings" element={<Settings />} />
         </Route>

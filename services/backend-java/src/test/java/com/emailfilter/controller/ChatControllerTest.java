@@ -3,6 +3,7 @@ package com.emailfilter.controller;
 import com.emailfilter.dto.ChatRequest;
 import com.emailfilter.dto.EmailDTO;
 import com.emailfilter.service.AIServiceClient;
+import com.emailfilter.service.EmailService;
 import com.emailfilter.service.FilterService;
 import com.emailfilter.service.WebSocketService;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,12 +38,14 @@ class ChatControllerTest {
     private FilterService filterService;
     @Mock
     private WebSocketService webSocketService;
+    @Mock
+    private EmailService emailService;
 
     private ChatController chatController;
 
     @BeforeEach
     void setUp() {
-        chatController = new ChatController(aiServiceClient, filterService, webSocketService);
+        chatController = new ChatController(aiServiceClient, filterService, webSocketService, emailService);
     }
 
     private ChatRequest request(String message, String conversationId) {

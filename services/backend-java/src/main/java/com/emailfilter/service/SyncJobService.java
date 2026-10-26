@@ -6,6 +6,7 @@ import com.emailfilter.repository.SyncJobRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,7 +21,6 @@ import java.util.UUID;
 public class SyncJobService {
 
     private final SyncJobRepository repo;
-    private static final long STALE_JOB_MINUTES = 20;
 
     @Transactional
     public SyncJob start(UUID userId, String provider, String mode) {
@@ -52,12 +52,37 @@ public class SyncJobService {
         repo.updateStatus(jobId, "FAILED", error, Instant.now());
     }
 
+    /** Último job del usuario: la UI lo usa para no mostrar "listo" cuando en realidad falló. */
+    @Transactional(readOnly = true)
+    public java.util.Optional<SyncJob> lastForUser(UUID userId) {
+        return repo.findTopByUserIdOrderByStartedAtDesc(userId);
+    }
+
+    /** Job todavía RUNNING, aunque el flag en memoria haya vencido. */
+    @Transactional(readOnly = true)
+    public boolean hasActive(UUID userId) {
+        return repo.findActiveByUserId(userId).isPresent();
+    }
+
     @PostConstruct
     public void reconcileOrphanedJobs() {
-        Instant cutoff = Instant.now().minus(STALE_JOB_MINUTES, ChronoUnit.MINUTES);
-        int updated = repo.failStaleRunningJobs(cutoff);
+        // Al arrancar, ningún job puede seguir corriendo: los RUNNING son de la vida anterior del
+        // proceso (se murió a mitad de sync) y bloqueaban todo sync nuevo hasta 10 min con
+        // "Ya hay una sincronización en curso". El cutoff es ahora mismo, no una ventana.
+        // shortcut: con varias instancias del backend, una marcaría FAILED el job de la otra.
+        int updated = repo.failStaleRunningJobs(Instant.now());
         if (updated > 0) {
             log.warn("Se marcaron {} sync_jobs huérfanos como FAILED", updated);
+        }
+        purgeOldJobs();
+    }
+
+    /** Purga diaria: el auto-sync cada 2 min deja ~720 filas/día por usuario. */
+    @Scheduled(cron = "0 0 3 * * *")
+    public void purgeOldJobs() {
+        int purged = repo.deleteOlderThan(Instant.now().minus(7, ChronoUnit.DAYS));
+        if (purged > 0) {
+            log.info("Se purgaron {} sync_jobs de más de 7 días", purged);
         }
     }
 }

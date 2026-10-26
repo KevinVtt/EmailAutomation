@@ -49,7 +49,10 @@ export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsum
 
   useEffect(() => {
     if (!chatResponse || !pendingRequest.current) return;
-    const key = responseKey(chatResponse);
+    // El push del WebSocket llega envuelto: {type:'chat_response', data:{...}}.
+    // El REST responde plano, así que se aceptan las dos formas.
+    const payload = chatResponse.data ?? chatResponse;
+    const key = responseKey(payload);
     if (processedResponses.current.has(key)) {
       return;
     }
@@ -58,15 +61,15 @@ export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsum
     pendingRequest.current = false;
     setMessages((prev) => [
       ...prev,
-      { role: 'assistant', content: chatResponse.response },
+      { role: 'assistant', content: payload.response },
     ]);
     setLoading(false);
     onChatConsumed?.();
 
-    if (Array.isArray(chatResponse.emails)) onResults?.(chatResponse.emails);
+    if (Array.isArray(payload.emails)) onResults?.(payload.emails);
 
-    if (chatResponse.criteria && Object.keys(chatResponse.criteria).length > 0) {
-      onFiltersApplied?.(chatResponse.criteria);
+    if (payload.criteria && Object.keys(payload.criteria).length > 0) {
+      onFiltersApplied?.(payload.criteria);
     }
   }, [chatResponse, onFiltersApplied, onChatConsumed, onResults]);
 

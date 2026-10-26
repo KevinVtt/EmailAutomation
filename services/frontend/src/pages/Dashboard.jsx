@@ -55,6 +55,27 @@ function BarChart({ data }) {
   );
 }
 
+// Tiempo restante legible a partir de minutos (null = todavía no hay datos para estimar).
+function formatEta(minutes) {
+  if (minutes == null) return null;
+  if (minutes < 1) return 'menos de 1 min';
+  if (minutes < 60) return `~${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m ? `~${h} h ${m} min` : `~${h} h`;
+}
+
+// Traduce el mensaje técnico del backend (sync_error:...) a algo que se entienda.
+function describeSyncError(raw) {
+  if (/401/.test(raw)) {
+    return 'La sesión con Google venció durante la descarga. Si se repite, cerrá sesión y volvé a entrar.';
+  }
+  if (/rate ?limit|quota|\b403\b|\b429\b/i.test(raw)) {
+    return 'Gmail pidió esperar por exceso de pedidos.';
+  }
+  return 'La sincronización se interrumpió.';
+}
+
 export default function Dashboard() {
   const { user } = useAuth();
   const [stats, setStats] = useState(null);
@@ -62,9 +83,14 @@ export default function Dashboard() {
   const [error, setError] = useState(null);
   const [wsError, setWsError] = useState(null);
   const [syncStatus, setSyncStatus] = useState(null); // null | 'syncing' | 'success' | 'error'
+  const [syncNotice, setSyncNotice] = useState(null); // aviso cuando el backend descarta el pedido
   const [syncProgress, setSyncProgress] = useState({ current: 0, total: 0 });
   const [syncMode, setSyncMode] = useState(null); // null | 'incremental' | 'full'
   const [syncMenuOpen, setSyncMenuOpen] = useState(false);
+  const [syncError, setSyncError] = useState(null); // detalle del último sync que falló (queda hasta cerrarlo)
+  const [syncEtaMin, setSyncEtaMin] = useState(null); // minutos estimados que faltan (null = sin datos aún)
+  const [syncAttached, setSyncAttached] = useState(false); // true = la pantalla se enganchó a un sync que ya corría en el servidor
+  const [syncDone, setSyncDone] = useState(false); // banner "todos sincronizados" tras un sync exitoso
   const [dailySummary, setDailySummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(true);
   const [summaryError, setSummaryError] = useState(null);
@@ -74,9 +100,22 @@ export default function Dashboard() {
   const [urgentEmails, setUrgentEmails] = useState(null);
   const pollIntervalRef = useRef(null);
   const syncSafetyRef = useRef(null);
+  const resetTimerRef = useRef(null);
+  const doneTimerRef = useRef(null);
+  // Momento en que este panel pidió el sync: evita leer el resultado del job anterior
+  // mientras el nuevo todavía no arrancó (carrera de pocos milisegundos).
+  const syncRequestedAtRef = useRef(null);
+  // Durante un full sync los emails_changed son periódicos: no vale la pena pedir
+  // el resumen con IA en cada tanda, solo los contadores.
+  const fullSyncRef = useRef(false);
+  // Aviso final solo para syncs que el usuario pidió o para el full inicial:
+  // el incremental de fondo corre cada 2 min y el banner quedaría casi permanente.
+  const manualSyncRef = useRef(false);
   // Marca los sync que arrancó este panel: los de fondo (Layout) no deben mover
   // la barra de sincronización, solo refrescar los contadores.
   const dashboardSyncRef = useRef(false);
+  // Punto de partida para estimar el tiempo restante: primer progreso con total conocido.
+  const progressBaselineRef = useRef(null);
 
   const fetchStats = useCallback(async () => {
     setLoading(true);
@@ -151,89 +190,233 @@ export default function Dashboard() {
       clearTimeout(syncSafetyRef.current);
       syncSafetyRef.current = null;
     }
+    if (resetTimerRef.current) {
+      clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = null;
+    }
+    if (doneTimerRef.current) {
+      clearTimeout(doneTimerRef.current);
+      doneTimerRef.current = null;
+    }
   }, []);
 
   // Único punto de cierre del sync: siempre saca la UI de 'syncing' (antes el
   // timer de seguridad cortaba el poll pero dejaba el botón pegado para siempre).
   const finishSync = useCallback((status) => {
+    const showDone = manualSyncRef.current || fullSyncRef.current;
     stopSyncPoll();
     dashboardSyncRef.current = false;
+    progressBaselineRef.current = null;
+    setSyncAttached(false);
     setSyncStatus(status);
     setSyncMode(null);
-    if (status === 'success') fetchStats();
-    setTimeout(() => {
+    syncRequestedAtRef.current = null;
+    fullSyncRef.current = false;
+    manualSyncRef.current = false;
+    if (status === 'success') {
+      fetchStats();
+      // Los resúmenes se saltearon durante el full sync: se piden una vez al cerrar.
+      fetchSummary();
+      fetchPrioritySummary();
+      // El aviso de "listo" dura más que el check del botón y se puede cerrar.
+      setSyncDone(showDone);
+      if (showDone) doneTimerRef.current = setTimeout(() => setSyncDone(false), 8000);
+    } else {
+      setSyncDone(false);
+    }
+    resetTimerRef.current = setTimeout(() => {
       setSyncStatus(null);
       setSyncProgress({ current: 0, total: 0 });
+      setSyncEtaMin(null);
     }, status === 'error' ? 5000 : 3000);
-  }, [stopSyncPoll, fetchStats]);
+  }, [stopSyncPoll, fetchStats, fetchSummary, fetchPrioritySummary]);
 
   // Clear the sync-status poll if the dashboard unmounts mid-sync.
   useEffect(() => stopSyncPoll, [stopSyncPoll]);
 
+  // Poll de respaldo + timer de seguridad. Lo usan tanto un sync que arrancó este panel
+  // como uno al que la pantalla se engancha (ya corría en el servidor).
+  const startSyncPoll = useCallback((mode) => {
+    stopSyncPoll();
+    // Fallback: poll sync status in case WebSocket notification doesn't arrive
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const status = await api.emails.syncStatus();
+        const last = status?.lastSync;
+        if (status?.syncing) {
+          // Respaldo si se perdió un sync_progress (p. ej. la página se recargó):
+          // el full sync ya sabe cuántos lleva, así la barra no queda indeterminada.
+          if (last?.mode === 'full' && last.total > 0) {
+            fullSyncRef.current = true;
+            setSyncMode('full');
+            setSyncProgress({ current: last.fetched || 0, total: last.total });
+          }
+          return;
+        }
+        // El job anterior puede seguir en `lastSync` unos ms hasta que arranca el nuevo:
+        // no cerramos el sync que acabamos de pedir con el resultado viejo.
+        const requestedAt = syncRequestedAtRef.current;
+        if (requestedAt && last?.updatedAt
+          && new Date(last.updatedAt).getTime() < requestedAt - 5000) return;
+        if (last?.status === 'RUNNING') return;
+        if (last?.status === 'FAILED') {
+          setSyncError(last.error || 'La sincronización falló.');
+          finishSync('error');
+          return;
+        }
+        finishSync('success');
+      } catch {
+        // Ignore poll errors
+      }
+    }, 2000);
+    // Safety: si el poll no ve terminar la sync, liberamos la UI igual.
+    // Un full sync de ~17k mails tarda 2 h o más (400 ms entre pedidos): margen de 6 h.
+    const timeout = mode === 'full' ? 21600000 : 600000;
+    syncSafetyRef.current = setTimeout(() => {
+      if (pollIntervalRef.current) finishSync('error');
+    }, timeout);
+  }, [finishSync, stopSyncPoll]);
+
+  // Engancha la pantalla a un sync que ya está corriendo en el servidor: muestra el estado
+  // y se cierra sola cuando el backend termina, aunque esa etapa no mande porcentaje.
+  const attachToRunningSync = useCallback((mode = 'incremental', lastSync = null) => {
+    dashboardSyncRef.current = true;
+    syncRequestedAtRef.current = null;
+    setSyncAttached(true);
+    setSyncStatus('syncing');
+    setSyncMode(mode);
+    fullSyncRef.current = mode === 'full';
+    if (mode === 'full' && lastSync?.total > 0) {
+      setSyncProgress({ current: lastSync.fetched || 0, total: lastSync.total });
+    }
+    startSyncPoll(mode);
+  }, [startSyncPoll]);
+
+  // Página recargada (o abierta de nuevo) con un sync en curso: engancharse. Se confirma dos
+  // veces con 6 s de diferencia para no mostrar un destello con los syncs automáticos cortos.
+  useEffect(() => {
+    let cancelled = false;
+    let timer = null;
+    const check = (recheck) => api.emails.syncStatus()
+      .then((status) => {
+        if (cancelled || dashboardSyncRef.current || !status?.syncing) return;
+        if (recheck) attachToRunningSync(status.lastSync?.mode || 'incremental', status.lastSync);
+        else timer = setTimeout(() => check(true), 6000);
+      })
+      .catch(() => {});
+    check(false);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [attachToRunningSync]);
+
   const handleSync = useCallback(async (provider, mode = 'incremental') => {
     try {
       dashboardSyncRef.current = true;
+      manualSyncRef.current = true;
+      syncRequestedAtRef.current = Date.now();
+      progressBaselineRef.current = null;
+      setSyncEtaMin(null);
+      setSyncError(null);
+      setSyncNotice(null);
+      setSyncDone(false);
       setSyncStatus('syncing');
       setSyncMode(mode);
+      fullSyncRef.current = mode === 'full';
       setSyncProgress({ current: 0, total: 0 });
 
-      if (mode === 'full') {
-        await api.emails.syncFull(provider);
-      } else {
-        await api.emails.sync(provider);
+      // 200 con already_syncing: el backend descarta el pedido si ya hay un sync en curso
+      // (el automático de Layout corre cada 2 min), así que avisamos en vez de esperar en vano.
+      const response = mode === 'full'
+        ? await api.emails.syncFull(provider)
+        : await api.emails.sync(provider);
+      if (response?.status === 'already_syncing') {
+        setSyncNotice('Ya había una sincronización en curso. Te mostramos su estado acá y se actualiza sola cuando termine.');
+        // El modo importa para el timer de seguridad (un full de 2 h no cabe en 10 min).
+        try {
+          const running = await api.emails.syncStatus();
+          attachToRunningSync(running.lastSync?.mode || mode, running.lastSync);
+        } catch {
+          attachToRunningSync(mode);
+        }
+        return;
       }
 
-      // Fallback: poll sync status in case WebSocket notification doesn't arrive
-      stopSyncPoll();
-      pollIntervalRef.current = setInterval(async () => {
-        try {
-          const status = await api.emails.syncStatus();
-          if (!status.syncing) {
-            finishSync('success');
-          }
-        } catch {
-          // Ignore poll errors
-        }
-      }, 2000);
-      // Safety: si el poll no ve terminar la sync, liberamos la UI igual (antes
-      // solo se cortaba el interval y el botón quedaba en "Sincronizando...").
-      // 10 min para ambos modos: un full sync con tope de 1000 mails tarda ~4-5 min
-      // y un incremental grande puede pasar los 3 min que tenía antes.
-      const timeout = 600000;
-      syncSafetyRef.current = setTimeout(() => {
-        if (pollIntervalRef.current) finishSync('error');
-      }, timeout);
+      startSyncPoll(mode);
     } catch (err) {
       console.error('Failed to trigger sync', err);
+      setSyncError(err?.message || 'No se pudo iniciar la sincronización.');
       finishSync('error');
     }
-  }, [finishSync, stopSyncPoll]);
+  }, [finishSync, attachToRunningSync, startSyncPoll]);
 
   const onNotifications = useCallback((data) => {
     if (data.type !== 'notification') return;
 
     const msg = data.message;
-    if (msg === 'sync_complete') {
+    if (typeof msg === 'string' && msg.startsWith('sync_started:')) {
+      // Layout sincroniza en segundo plano cada 2 min: sin esto la barra no aparecía
+      // porque el incremental no manda sync_progress.
+      const mode = msg.endsWith('full') ? 'full' : 'incremental';
+      if (!dashboardSyncRef.current) {
+        setSyncDone(false);
+        setSyncError(null);
+        setSyncNotice(null);
+        progressBaselineRef.current = null;
+        dashboardSyncRef.current = true;
+        setSyncAttached(false);
+        setSyncMode(mode);
+        fullSyncRef.current = mode === 'full';
+        setSyncStatus('syncing');
+        if (mode === 'full') setSyncProgress({ current: 0, total: 0 });
+      }
+      startSyncPoll(mode);
+    } else if (msg === 'sync_complete') {
+      // El aviso de "ya hay un sync en curso" queda viejo apenas termina.
+      setSyncNotice(null);
       // Un sync de fondo (Layout) también mueve los contadores, pero no debe
       // mostrar el banner de éxito que queda pegado 3s sin que el usuario toque nada.
       if (dashboardSyncRef.current) finishSync('success');
       else fetchStats();
     } else if (typeof msg === 'string' && msg.startsWith('sync_progress:')) {
-      if (!dashboardSyncRef.current) return;
       // sync_progress:current:total
       const parts = msg.split(':');
       const current = parseInt(parts[1], 10) || 0;
       const total = parseInt(parts[2], 10) || 0;
+      // Solo el full sync emite sync_progress (el automático de Layout no), así que se acepta
+      // aunque lo haya arrancado otra pantalla o se haya recargado la página a mitad del sync.
+      dashboardSyncRef.current = true;
+      fullSyncRef.current = true;
+      setSyncMode('full');
+      if (total > 0 && !progressBaselineRef.current) {
+        progressBaselineRef.current = { time: Date.now(), current };
+      }
+      const base = progressBaselineRef.current;
+      let etaMin = null;
+      if (base && current > base.current) {
+        const elapsedMin = (Date.now() - base.time) / 60000;
+        if (elapsedMin >= 1) {
+          etaMin = Math.ceil(((total - current) * elapsedMin) / (current - base.current));
+        }
+      }
+      setSyncEtaMin(etaMin);
       setSyncProgress({ current, total });
       setSyncStatus('syncing');
     } else if (typeof msg === 'string' && msg.startsWith('sync_error')) {
       console.error('Sync error:', msg);
-      if (dashboardSyncRef.current) finishSync('error');
+      if (dashboardSyncRef.current) {
+        setSyncError(msg.replace(/^sync_error:?\s*/, '') || 'Error desconocido');
+        finishSync('error');
+      }
     } else if (msg === 'emails_changed') {
-      // Acción sobre un email (leído, borrado, estrella...): refrescar contadores.
+      // Acción sobre un email (leído, borrado, estrella...) o avance de un full sync.
       fetchStats();
-      fetchSummary();
-      fetchPrioritySummary();
+      // Los resúmenes usan IA: durante el full sync se piden recién al terminar.
+      if (!fullSyncRef.current) {
+        fetchSummary();
+        fetchPrioritySummary();
+      }
     } else if (typeof msg === 'string' && msg.startsWith('urgent_emails:')) {
       const rest = msg.slice('urgent_emails:'.length);
       const sepIdx = rest.indexOf(':');
@@ -241,7 +424,7 @@ export default function Dashboard() {
       const subjects = sepIdx >= 0 ? rest.slice(sepIdx + 1) : '';
       setUrgentEmails({ count, subjects });
     }
-  }, [finishSync, fetchStats, fetchSummary, fetchPrioritySummary]);
+  }, [finishSync, fetchStats, fetchSummary, fetchPrioritySummary, startSyncPoll]);
 
   useWebSocket(localStorage.getItem('accessToken'), {
     onNotifications,
@@ -273,6 +456,12 @@ export default function Dashboard() {
 
   const isSyncing = syncStatus === 'syncing';
   const provider = user?.provider || 'google';
+  const percent = syncProgress.total > 0
+    ? Math.min(Math.round((syncProgress.current / syncProgress.total) * 100), 100)
+    : 0;
+  const etaText = formatEta(syncEtaMin);
+  // También el incremental muestra tarjeta: sin total, con barra indeterminada.
+  const showProgressCard = isSyncing;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -280,6 +469,63 @@ export default function Dashboard() {
         <div className="mb-4 flex items-center gap-2 rounded-lg bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 px-4 py-2 text-sm text-amber-700 dark:text-amber-300">
           <WifiOff className="w-4 h-4 flex-shrink-0" />
           <span>{wsError}</span>
+        </div>
+      )}
+
+      {syncDone && (
+        <div
+          role="status"
+          className="mb-4 flex items-center gap-2 rounded-lg bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 px-4 py-2 text-sm text-green-700 dark:text-green-300"
+        >
+          <Check className="w-4 h-4 flex-shrink-0" />
+          <span className="flex-1 min-w-0">Todos los correos están sincronizados.</span>
+          <button
+            onClick={() => setSyncDone(false)}
+            className="p-1 rounded hover:bg-green-100 dark:hover:bg-green-800/50 transition-colors flex-shrink-0"
+            title="Descartar"
+            aria-label="Cerrar aviso de sincronización completada"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {syncNotice && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 px-4 py-2 text-sm text-amber-700 dark:text-amber-300">
+          <Loader2 className="w-4 h-4 flex-shrink-0 animate-spin" />
+          <span className="flex-1 min-w-0">{syncNotice}</span>
+          <button
+            onClick={() => setSyncNotice(null)}
+            className="p-1 rounded hover:bg-amber-100 dark:hover:bg-amber-800/50 transition-colors flex-shrink-0"
+            title="Descartar"
+            aria-label="Descartar aviso de sincronización"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {syncError && (
+        <div
+          role="alert"
+          className="mb-4 flex items-start gap-2 rounded-lg bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 px-4 py-3 text-sm text-red-700 dark:text-red-300"
+        >
+          <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="font-medium">{describeSyncError(syncError)}</p>
+            <p className="mt-0.5">
+              Los emails ya descargados se conservan. Volvé a sincronizar para continuar desde donde quedó.
+            </p>
+            <p className="mt-1 text-xs opacity-75 break-words">Detalle técnico: {syncError}</p>
+          </div>
+          <button
+            onClick={() => setSyncError(null)}
+            className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-800/50 transition-colors flex-shrink-0"
+            title="Descartar"
+            aria-label="Descartar error de sincronización"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
@@ -382,20 +628,60 @@ export default function Dashboard() {
           </div>
 
           {/* Sync progress */}
-          {isSyncing && syncProgress.total > 0 && (
-            <div className="card dark:bg-gray-800 dark:border-gray-700">
-              <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
-                <span>
-                  {syncMode === 'full' ? 'Descargando historial completo' : 'Sincronizando nuevos emails'}
+          {showProgressCard && (
+            <div className="card dark:bg-gray-800 dark:border-gray-700" role="status" aria-live="polite">
+              <div className="flex items-center justify-between text-sm text-gray-700 dark:text-gray-200 mb-2">
+                <span className="font-medium">
+                  {syncProgress.total > 0 && percent === 100
+                    ? 'Guardando y preparando el buscador…'
+                    : syncProgress.total > 0 || (syncMode === 'full' && !syncAttached)
+                    ? 'Descargando historial completo'
+                    : syncAttached
+                    ? 'Sincronización en curso'
+                    : 'Buscando correos nuevos'}
                 </span>
-                <span>{syncProgress.current.toLocaleString()} / {syncProgress.total.toLocaleString()}</span>
+                {syncProgress.total > 0 && <span className="tabular-nums">{percent}%</span>}
               </div>
-              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
-                <div
-                  className="h-full bg-primary-600 rounded-full transition-all duration-300"
-                  style={{ width: `${Math.min((syncProgress.current / syncProgress.total) * 100, 100)}%` }}
-                />
-              </div>
+              {syncProgress.total > 0 ? (
+                <>
+                  <div
+                    className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden"
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={percent}
+                  >
+                    <div
+                      className="h-full bg-primary-600 rounded-full transition-all duration-500"
+                      style={{ width: `${percent}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mt-2">
+                    <span className="tabular-nums">
+                      {syncProgress.current.toLocaleString()} de {syncProgress.total.toLocaleString()} emails
+                    </span>
+                    {percent < 100 && etaText && <span>Faltan {etaText}</span>}
+                  </div>
+                  {percent === 100 && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Ya están todos los correos. Estamos preparando el buscador; el aviso final aparece al terminar.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
+                    <div className="h-full w-1/3 bg-primary-600 rounded-full motion-safe:animate-pulse" />
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                    {syncAttached
+                      ? 'Hay una sincronización trabajando en el servidor. Algunas etapas (revisar adjuntos, preparar los emails para el buscador) no informan avance. El porcentaje aparece cuando empiece la descarga.'
+                      : syncMode === 'full'
+                      ? 'Preparando la descarga: revisando qué emails faltan en tu cuenta de Gmail. Puede tardar unos minutos.'
+                      : 'Buscando correos nuevos en tu cuenta. Puede tardar unos segundos.'}
+                  </p>
+                </>
+              )}
             </div>
           )}
 

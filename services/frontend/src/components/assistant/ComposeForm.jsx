@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { ArrowLeft, Bot, Send } from 'lucide-react';
 import { api } from '../../lib/api';
+import { TONES, DEFAULT_TONE } from '../../lib/tones';
 
 export default function ComposeForm({ contact, onBack }) {
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [instruction, setInstruction] = useState('');
+  const [tone, setTone] = useState(DEFAULT_TONE);
   const [drafting, setDrafting] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [sending, setSending] = useState(false);
@@ -18,7 +20,7 @@ export default function ComposeForm({ contact, onBack }) {
     setError('');
     setDrafting(true);
     try {
-      const result = await api.contacts.draft(contact.id, instruction);
+      const result = await api.contacts.draft(contact.id, instruction, tone);
       if (result?.subject) setSubject(result.subject);
       if (result?.body) setBody(result.body);
     } catch {
@@ -111,6 +113,20 @@ export default function ComposeForm({ contact, onBack }) {
           Redactar con IA
         </button>
       </div>
+
+      <label htmlFor="compose-tone" className="text-xs text-gray-600 dark:text-gray-300">
+        Tono
+      </label>
+      <select
+        id="compose-tone"
+        value={tone}
+        onChange={(e) => setTone(e.target.value)}
+        className="input text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100"
+      >
+        {TONES.map((t) => (
+          <option key={t.id} value={t.id}>{t.label}</option>
+        ))}
+      </select>
 
       <label htmlFor="compose-subject" className="text-xs text-gray-600 dark:text-gray-300">
         Asunto

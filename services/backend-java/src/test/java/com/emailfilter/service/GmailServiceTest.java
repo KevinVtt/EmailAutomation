@@ -102,25 +102,24 @@ class GmailServiceTest {
     }
 
     @Test
-    void fetchAllEmails_fetchesSpamWithOwnBudget() throws Exception {
-        // Inbox fills the entire budget (2), spam still gets its own budget (2)
-        var inboxResp = new ListMessagesResponse()
-                .setMessages(List.of(new Message().setId("inbox-1"), new Message().setId("inbox-2")))
+    void fetchAllEmails_usesSingleMailboxQueryThatIncludesSpam() throws Exception {
+        var resp = new ListMessagesResponse()
+                .setMessages(List.of(
+                        new Message().setId("inbox-1"),
+                        new Message().setId("inbox-2"),
+                        new Message().setId("spam-1")))
                 .setNextPageToken(null);
-        var spamResp = new ListMessagesResponse()
-                .setMessages(List.of(new Message().setId("spam-1")))
-                .setNextPageToken(null);
-        when(listRequest.execute()).thenReturn(inboxResp).thenReturn(spamResp);
+        when(listRequest.execute()).thenReturn(resp);
         stubMessageDetails();
 
-        var result = gmailService.fetchAllEmails("token", 100, 2);
+        var result = gmailService.fetchAllEmails("token", 100, 100);
 
         assertEquals(3, result.size());
         assertTrue(result.stream().anyMatch(e -> e.getProviderEmailId().equals("spam-1")));
 
         var captor = ArgumentCaptor.forClass(String.class);
-        verify(listRequest, times(2)).setQ(captor.capture());
-        assertEquals(List.of("in:inbox", "in:spam"), captor.getAllValues());
+        verify(listRequest, times(1)).setQ(captor.capture());
+        assertEquals(List.of(GmailService.MAILBOX_QUERY), captor.getAllValues());
     }
 
     @Test
@@ -128,13 +127,13 @@ class GmailServiceTest {
         var since = Instant.parse("2023-11-14T10:00:00Z");
         var existingIds = Set.of("inbox-existing");
 
-        var inboxResp = new ListMessagesResponse()
-                .setMessages(List.of(new Message().setId("inbox-existing"), new Message().setId("inbox-new")))
+        var resp = new ListMessagesResponse()
+                .setMessages(List.of(
+                        new Message().setId("inbox-existing"),
+                        new Message().setId("inbox-new"),
+                        new Message().setId("spam-new")))
                 .setNextPageToken(null);
-        var spamResp = new ListMessagesResponse()
-                .setMessages(List.of(new Message().setId("spam-new")))
-                .setNextPageToken(null);
-        when(listRequest.execute()).thenReturn(inboxResp).thenReturn(spamResp);
+        when(listRequest.execute()).thenReturn(resp);
         stubMessageDetails();
 
         var result = gmailService.fetchIncrementalEmails("token", since, existingIds, 1000);
@@ -145,9 +144,8 @@ class GmailServiceTest {
         assertTrue(result.stream().noneMatch(e -> e.getProviderEmailId().equals("inbox-existing")));
 
         var captor = ArgumentCaptor.forClass(String.class);
-        verify(listRequest, times(2)).setQ(captor.capture());
-        assertTrue(captor.getAllValues().get(0).startsWith("in:inbox after:"));
-        assertTrue(captor.getAllValues().get(1).startsWith("in:spam after:"));
+        verify(listRequest, times(1)).setQ(captor.capture());
+        assertTrue(captor.getAllValues().get(0).startsWith(GmailService.MAILBOX_QUERY + " after:"));
     }
 
     @Test
@@ -403,6 +401,7 @@ class GmailServiceTest {
         assertNotNull(changes);
         assertEquals(Set.of("added-1"), changes.addedIds());
         assertEquals(Set.of("perm-1", "trashed-1"), changes.deletedIds());
+        assertTrue(changes.labelsChanged());
         assertEquals("2000", changes.latestHistoryId());
     }
 
@@ -478,6 +477,16 @@ class GmailServiceTest {
         when(listRequest.execute()).thenThrow(new RuntimeException("boom"));
 
         assertTrue(gmailService.fetchSentRecipients("token", 365, 100).isEmpty());
+    }
+
+    /** Gmail puede mandar bytes NUL; PostgreSQL los rechaza y se perdería el lote entero del sync. */
+    @Test
+    void safe_dropsNulBytesAndKeepsNulls() {
+        // El NUL se descarta; el espacio que lo rodeaba queda (inofensivo y no se colapsa
+        // el texto: en HTML un doble espacio puede ser intencional).
+        assertEquals("Oferta  2026", GmailService.safe("Oferta \0 2026"));
+        assertEquals("hola", GmailService.safe("hola"));
+        assertNull(GmailService.safe(null));
     }
 
     private void stubSentMessage(String id, String to, String cc) throws Exception {

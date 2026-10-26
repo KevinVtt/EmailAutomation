@@ -5,7 +5,7 @@ import { useTheme } from '../context/ThemeContext';
 import { api } from '../lib/api';
 import {
   Sparkles, LogOut, Mail, Sun, Moon,
-  LayoutDashboard, Inbox, Star, ShieldAlert, Settings,
+  LayoutDashboard, Inbox, Star, ShieldAlert, Send, Settings,
 } from 'lucide-react';
 import clsx from 'clsx';
 import AssistantPanel from './assistant/AssistantPanel';
@@ -20,6 +20,7 @@ const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/inbox', label: 'Bandeja de entrada', icon: Inbox },
   { to: '/starred', label: 'Destacados', icon: Star },
+  { to: '/sent', label: 'Enviados', icon: Send },
   { to: '/spam', label: 'Spam', icon: ShieldAlert },
   { to: '/settings', label: 'Configuración', icon: Settings },
 ];

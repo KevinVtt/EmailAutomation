@@ -16,6 +16,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -112,10 +113,9 @@ class SyncJobServiceTest {
 
         var cutoffCaptor = ArgumentCaptor.forClass(Instant.class);
         verify(repo).failStaleRunningJobs(cutoffCaptor.capture());
-        // cutoff must be ~20 minutes in the past
+        // Al arrancar no puede seguir corriendo ningún job: el cutoff es ahora (margen de 5 s).
         var cutoff = cutoffCaptor.getValue();
-        var now = Instant.now();
-        assertEquals(20 * 60, now.getEpochSecond() - cutoff.getEpochSecond());
+        assertTrue(Math.abs(Instant.now().getEpochSecond() - cutoff.getEpochSecond()) <= 5);
     }
 
     @Test

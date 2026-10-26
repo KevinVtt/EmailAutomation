@@ -49,13 +49,15 @@ cors:
 
 email:
   sync:
-    max-emails: ${EMAIL_SYNC_MAX_EMAILS:1000}
     # Pausa entre cada messages.get (ms) para no superar la cuota por usuario de
-    # Gmail (totalQueryCostPerMinutePerUser=6000). 250ms ≈ 240 req/min.
+    # Gmail (totalQueryCostPerMinutePerUser=6000). 400ms ≈ 150 req/min.
     # Es un espaciado global: fija la tasa agregada aunque se descargue en paralelo.
-    request-delay-ms: ${EMAIL_SYNC_REQUEST_DELAY_MS:250}
+    # Con 250ms/6 hilos, el full sync de un buzón grande (17k mails) moría a los ~300
+    # mails con 403 rateLimitExceeded; 400ms/3 hilos pasó de 400 sin error.
+    request-delay-ms: ${EMAIL_SYNC_REQUEST_DELAY_MS:400}
     # Hilos de descarga de detalle del full sync (solo solapa la latencia de red).
-    fetch-concurrency: ${EMAIL_SYNC_FETCH_CONCURRENCY:6}
+    # Más de 3 concurrentes dispara el rateLimitExceeded de Gmail.
+    fetch-concurrency: ${EMAIL_SYNC_FETCH_CONCURRENCY:3}
   contacts:
     # Días de enviados que se leen la primera vez que se arma la lista de contactos.
     sent-window-days: ${CONTACTS_SENT_WINDOW_DAYS:365}

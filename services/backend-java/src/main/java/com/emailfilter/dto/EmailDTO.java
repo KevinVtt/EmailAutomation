@@ -22,6 +22,8 @@ public class EmailDTO {
     private String subject;
     private String bodyPreview;
     private String bodyHtml;
+    private boolean hasAttachment;
+    private String attachmentsJson;
     // Lombok generates isStarred(); without the annotation Jackson emits "starred".
     @JsonProperty("isStarred")
     private boolean isStarred;

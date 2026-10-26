@@ -19,6 +19,19 @@ import java.util.UUID;
 public interface EmailRepository extends JpaRepository<EmailMessage, UUID>,
                                          JpaSpecificationExecutor<EmailMessage> {
     Page<EmailMessage> findByUserIdOrderByReceivedAtDesc(UUID userId, Pageable pageable);
+
+    /**
+     * Bandeja de entrada: todo menos lo etiquetado SPAM. La lista genérica
+     * mostraba el spam dos veces (en Bandeja y en Spam a la vez).
+     */
+    @Query("""
+            SELECT e FROM EmailMessage e
+            WHERE e.user.id = :userId
+              AND (e.labels IS NULL OR e.labels NOT LIKE '%SPAM%')
+            ORDER BY e.receivedAt DESC
+            """)
+    Page<EmailMessage> findInboxByUserId(@Param("userId") UUID userId, Pageable pageable);
+
     Optional<EmailMessage> findTopByUserIdOrderByReceivedAtDesc(UUID userId);
 
     /** Recibidos agrupados por remitente, sin importar mayúsculas: [address, count, last]. */
@@ -56,9 +69,26 @@ public interface EmailRepository extends JpaRepository<EmailMessage, UUID>,
 
     Optional<EmailMessage> findByProviderEmailIdAndUserId(String providerEmailId, UUID userId);
 
+    Optional<EmailMessage> findByIdAndUserId(UUID id, UUID userId);
+
+    @Query("SELECT e FROM EmailMessage e WHERE e.user.id = :userId AND e.hasAttachment = true ORDER BY e.receivedAt DESC")
+    List<EmailMessage> findWithAttachments(@Param("userId") UUID userId);
+
+    /** Con adjuntos y sin texto extraído todavía (attachmentText NULL, no ""). */
+    @Query("SELECT e FROM EmailMessage e WHERE e.user.id = :userId AND e.provider = :provider " +
+           "AND e.hasAttachment = true AND e.attachmentText IS NULL")
+    List<EmailMessage> findPendingAttachmentExtraction(UUID userId, String provider, Pageable pageable);
+
     boolean existsByUserIdAndProviderEmailId(UUID userId, String providerEmailId);
 
     List<EmailMessage> findByUserIdAndProviderEmailIdIn(UUID userId, Collection<String> providerEmailIds);
+
+    @Query("SELECT e.providerEmailId FROM EmailMessage e WHERE e.user.id = :userId AND e.labels LIKE '%TRASH%'")
+    List<String> findTrashedProviderEmailIds(@Param("userId") UUID userId);
+
+    @Query("SELECT e.providerEmailId FROM EmailMessage e WHERE e.user.id = :userId AND e.provider = :provider")
+    List<String> findProviderEmailIdsByUserIdAndProvider(@Param("userId") UUID userId,
+                                                         @Param("provider") String provider);
 
     @Modifying
     @Transactional
@@ -100,19 +130,24 @@ public interface EmailRepository extends JpaRepository<EmailMessage, UUID>,
     // "No leído" = el proveedor sigue diciendo UNREAD *y* el usuario nunca lo abrió acá.
     // `is_read` solo no alcanza: el sync lo pisa con lo que diga el proveedor, así que los
     // mails ya abiertos (visto) volverían a contar.
+    String NOT_TRASH = " AND (e.labels IS NULL OR e.labels NOT LIKE '%TRASH%')";
+
     String NOT_SEEN = " AND NOT EXISTS (SELECT 1 FROM Visto v WHERE v.user.id = :userId" +
-            " AND v.providerEmailId = e.providerEmailId AND v.visto = true)";
+            " AND v.providerEmailId = e.providerEmailId AND v.visto = true)" + NOT_TRASH;
+
+    @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId" + NOT_TRASH)
+    long countActiveByUserId(@Param("userId") UUID userId);
 
     @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId AND e.isRead = false" + NOT_SEEN)
     long countUnreadByUserId(@Param("userId") UUID userId);
 
-    @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId AND e.isStarred = true")
+    @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId AND e.isStarred = true" + NOT_TRASH)
     long countStarredByUserId(@Param("userId") UUID userId);
 
-    @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId AND e.labels LIKE '%SPAM%'")
+    @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId AND e.labels LIKE '%SPAM%'" + NOT_TRASH)
     long countSpamByUserId(@Param("userId") UUID userId);
 
-    @Query("SELECT e.receivedAt FROM EmailMessage e WHERE e.user.id = :userId AND e.receivedAt >= :since")
+    @Query("SELECT e.receivedAt FROM EmailMessage e WHERE e.user.id = :userId AND e.receivedAt >= :since" + NOT_TRASH)
     List<Instant> findReceivedAtByUserIdSince(@Param("userId") UUID userId, @Param("since") Instant since);
 
     // --- Priority summary counts ---
@@ -122,9 +157,9 @@ public interface EmailRepository extends JpaRepository<EmailMessage, UUID>,
             " AND e.labels LIKE '%IMPORTANT%'")
     long countUrgentesByUserId(@Param("userId") UUID userId);
 
-    // PROXY: matches the existing "destacados" filter semantics (isStarred OR IMPORTANT) + unread.
+    // Same semantics as the "destacados" filter (starred only) + unread.
     @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId AND e.isRead = false" + NOT_SEEN +
-            " AND (e.isStarred = true OR e.labels LIKE '%IMPORTANT%')")
+            " AND e.isStarred = true")
     long countDestacadosSinLeerByUserId(@Param("userId") UUID userId);
 
     // PROXY: sent emails are NOT synced (inbox+spam only), so a thread-based "no reply"

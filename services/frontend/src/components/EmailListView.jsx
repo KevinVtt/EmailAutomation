@@ -15,6 +15,7 @@ export default function EmailListView({
   filters = {},
   emptyMessage,
   showDates = true,
+  sentMode = false,
 }) {
   const { user } = useAuth();
   const [emails, setEmails] = useState([]);
@@ -60,7 +61,9 @@ export default function EmailListView({
     pageRef.current = pageNum;
     try {
       const merged = buildFilters();
-      const data = Object.keys(merged).length > 0
+      const data = sentMode
+        ? await api.emails.sent(pageNum)
+        : Object.keys(merged).length > 0
         ? await api.emails.filter(merged, pageNum)
         : await api.emails.list(pageNum);
       setEmails(data.content || []);
@@ -71,7 +74,7 @@ export default function EmailListView({
     } finally {
       setLoading(false);
     }
-  }, [buildFilters]);
+  }, [buildFilters, sentMode]);
 
   useEffect(() => {
     fetchEmails(0);
@@ -154,11 +157,12 @@ export default function EmailListView({
             showDates={showDates}
             emptyMessage={emptyMessage}
             provider={user?.provider || 'google'}
+            showRecipient={sentMode}
           />
         </div>
         {selectedEmail && (
           <div className="flex-1 min-w-0">
-            <EmailDetail key={selectedEmail.id} email={selectedEmail} onClose={handleCloseDetail} onRead={handleEmailRead} onAction={handleEmailAction} />
+            <EmailDetail key={selectedEmail.id} email={selectedEmail} onClose={handleCloseDetail} onRead={handleEmailRead} onAction={handleEmailAction} readOnly={sentMode} />
           </div>
         )}
       </div>

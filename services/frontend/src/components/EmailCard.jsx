@@ -1,12 +1,13 @@
-import { Star, Mail, MailOpen } from 'lucide-react';
+import { Star, Mail, MailOpen, Paperclip } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 import clsx from 'clsx';
 
-export default function EmailCard({ email, selected, onSelect }) {
-  const initials = (email.fromName || email.fromAddress || '?')
-    .charAt(0)
-    .toUpperCase();
+export default function EmailCard({ email, selected, onSelect, showRecipient = false }) {
+  const who = showRecipient
+    ? (email.toAddresses || 'Sin destinatario')
+    : (email.fromName || email.fromAddress || 'Desconocido');
+  const initials = who.charAt(0).toUpperCase();
 
   // Leído = abierto acá (visto) o ya leído en el proveedor (isRead). Así la lista
   // coincide con el contador "No leídos" del dashboard.
@@ -43,9 +44,10 @@ export default function EmailCard({ email, selected, onSelect }) {
                 : 'text-gray-900 dark:text-gray-100 font-semibold'
             )}
           >
-            {email.fromName || email.fromAddress || 'Desconocido'}
+            {who}
           </span>
           <div className="flex items-center gap-1 flex-shrink-0">
+            {email.hasAttachment && <Paperclip className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />}
             {email.isStarred && <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />}
             {!leido ? (
               <Mail className="w-3.5 h-3.5 text-primary-600" />

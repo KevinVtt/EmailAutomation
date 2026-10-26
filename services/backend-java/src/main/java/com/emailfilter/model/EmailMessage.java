@@ -48,6 +48,18 @@ public class EmailMessage {
     @Column(name = "body_html", columnDefinition = "TEXT")
     private String bodyHtml;
 
+    @Column(name = "has_attachment", nullable = false)
+    @Builder.Default
+    private boolean hasAttachment = false;
+
+    /** JSON con [{filename, mimeType, size, attachmentId}]; el id sirve para descargarlo de Gmail. */
+    @Column(name = "attachments_json", columnDefinition = "TEXT")
+    private String attachmentsJson;
+
+    /** Texto extraído de los adjuntos ("" = ya se intentó y no tenía texto). */
+    @Column(name = "attachment_text", columnDefinition = "TEXT")
+    private String attachmentText;
+
     @Column(name = "is_read")
     private boolean isRead;
 

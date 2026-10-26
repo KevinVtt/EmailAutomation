@@ -93,15 +93,38 @@ public class OutlookService {
     }
 
     public void moveToTrash(String accessToken, String messageId) {
+        move(accessToken, messageId, "deleteditems");
+    }
+
+    public void untrash(String accessToken, String messageId) {
+        move(accessToken, messageId, "inbox");
+    }
+
+    /** DELETE en Graph = mover a Elementos eliminados; el mail sigue recuperable allá. */
+    public void deleteForever(String accessToken, String messageId) {
         var headers = new HttpHeaders();
         headers.setBearerAuth(accessToken);
-        var entity = new HttpEntity<>(headers);
+
+        retryTemplateExecute(() -> {
+            restTemplate.exchange(
+                    "https://graph.microsoft.com/v1.0/me/messages/" + messageId,
+                    HttpMethod.DELETE,
+                    new HttpEntity<>(headers),
+                    Void.class
+            );
+            return null;
+        });
+    }
+
+    private void move(String accessToken, String messageId, String destinationId) {
+        var headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken);
 
         retryTemplateExecute(() -> {
             restTemplate.exchange(
                     "https://graph.microsoft.com/v1.0/me/messages/" + messageId + "/move",
                     HttpMethod.POST,
-                    new HttpEntity<>(Map.of("destinationId", "deleteditems"), headers),
+                    new HttpEntity<>(Map.of("destinationId", destinationId), headers),
                     Map.class
             );
             return null;

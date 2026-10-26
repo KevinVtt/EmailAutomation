@@ -84,7 +84,7 @@ public class AuthController {
                     "&response_type=code" +
                     "&scope=email+profile+https://www.googleapis.com/auth/gmail.readonly+https://www.googleapis.com/auth/gmail.modify+https://www.googleapis.com/auth/gmail.send" +
                     "&access_type=offline" +
-                    "&prompt=consent" +
+                    "&prompt=select_account+consent" +
                     "&state=" + state;
             // User.Read es obligatorio para Graph /me: sin él el login moría en el callback.
             case "outlook" -> "https://login.microsoftonline.com/" + outlookTenant +

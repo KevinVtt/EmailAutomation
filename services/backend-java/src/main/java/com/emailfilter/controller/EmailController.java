@@ -8,10 +8,14 @@ import com.emailfilter.dto.RewriteRequest;
 import com.emailfilter.security.UserDetailsServiceImpl;
 import com.emailfilter.service.AIServiceClient;
 import com.emailfilter.service.EmailService;
+import com.emailfilter.service.SyncJobService;
 import com.emailfilter.service.WebSocketService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -29,6 +33,16 @@ public class EmailController {
     private final WebSocketService webSocketService;
     private final UserDetailsServiceImpl userDetailsService;
     private final AIServiceClient aiServiceClient;
+    private final SyncJobService syncJobService;
+
+    @GetMapping("/sent")
+    public ResponseEntity<Page<EmailDTO>> getSentEmails(
+            Authentication auth,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        var userId = getUserId(auth);
+        return ResponseEntity.ok(emailService.getSentEmails(userId, clampPage(page), clampSize(size)));
+    }
 
     @GetMapping
     public ResponseEntity<Page<EmailDTO>> getEmails(
@@ -45,6 +59,20 @@ public class EmailController {
             @PathVariable UUID id) {
         var userId = getUserId(auth);
         return ResponseEntity.ok(emailService.getEmailById(userId, id));
+    }
+
+    @GetMapping("/{id}/attachments/{index}")
+    public ResponseEntity<byte[]> downloadAttachment(
+            Authentication auth,
+            @PathVariable UUID id,
+            @PathVariable int index) {
+        var file = emailService.downloadAttachment(getUserId(auth), id, index);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                        .filename((String) file.get("filename"), java.nio.charset.StandardCharsets.UTF_8)
+                        .build().toString())
+                .contentType(MediaType.parseMediaType((String) file.get("mimeType")))
+                .body((byte[]) file.get("data"));
     }
 
     @GetMapping("/filter")
@@ -88,6 +116,8 @@ public class EmailController {
             case "star" -> emailService.toggleStar(user, provider, emailId, true);
             case "unstar" -> emailService.toggleStar(user, provider, emailId, false);
             case "trash" -> emailService.moveToTrash(user, provider, emailId);
+            case "restore" -> emailService.restoreEmail(user, provider, emailId);
+            case "delete" -> emailService.deleteForeverEmail(user, provider, emailId);
             default -> throw new IllegalArgumentException("Unknown action: " + actionType);
         }
 
@@ -106,6 +136,11 @@ public class EmailController {
             return ResponseEntity.badRequest().body(Map.of("error", "provider is required"));
         }
         var user = userDetailsService.loadUserEntityById(userId);
+        // Si ya hay un sync corriendo, el pedido se descartaría en silencio: decirlo en la respuesta
+        // en vez de devolver un 202 que miente (el usuario veía "Sincronizando..." y no pasaba nada).
+        if (emailService.isSyncing(userId)) {
+            return ResponseEntity.ok(Map.of("status", "already_syncing"));
+        }
         // Llamada directa al método @Async: si se pasara por un wrapper propio, la
         // auto-invocación saltearía el proxy de Spring y la sync correría sincrónica
         // en el hilo del request (el 202 no volvía hasta terminar).
@@ -116,8 +151,20 @@ public class EmailController {
     @GetMapping("/sync/status")
     public ResponseEntity<Map<String, Object>> syncStatus(Authentication auth) {
         var userId = getUserId(auth);
-        var syncing = emailService.isSyncing(userId);
-        return ResponseEntity.ok(Map.of("syncing", syncing));
+        var body = new java.util.LinkedHashMap<String, Object>();
+        body.put("syncing", emailService.isSyncing(userId));
+        // Último job: sin esto el poll de la UI no distingue "terminó bien" de "falló".
+        syncJobService.lastForUser(userId).ifPresent(job -> {
+            var last = new java.util.LinkedHashMap<String, Object>();
+            last.put("status", job.getStatus());
+            last.put("mode", job.getMode());
+            last.put("fetched", job.getFetched());
+            last.put("total", job.getTotal());
+            last.put("error", job.getErrorMessage());
+            last.put("updatedAt", job.getUpdatedAt() == null ? null : job.getUpdatedAt().toString());
+            body.put("lastSync", last);
+        });
+        return ResponseEntity.ok(body);
     }
 
     @PostMapping("/sync/full")
@@ -130,13 +177,17 @@ public class EmailController {
             return ResponseEntity.badRequest().body(Map.of("error", "provider is required"));
         }
         var user = userDetailsService.loadUserEntityById(userId);
+        if (emailService.isSyncing(userId)) {
+            return ResponseEntity.ok(Map.of("status", "already_syncing"));
+        }
         // Sólo Google tiene full sync; Outlook cae al incremental, llamado directo para que el @Async aplique.
         if ("google".equals(provider)) {
             emailService.syncAllEmailsAsync(user, provider);
-        } else {
-            emailService.syncEmailsAsync(user, provider);
+            return ResponseEntity.accepted().body(Map.of("status", "syncing", "mode", "full"));
         }
-        return ResponseEntity.accepted().body(Map.of("status", "syncing", "mode", "full"));
+        emailService.syncEmailsAsync(user, provider);
+        // Decir "full" acá hacía creer que se había bajado todo el historial.
+        return ResponseEntity.accepted().body(Map.of("status", "syncing", "mode", "incremental"));
     }
 
     @GetMapping("/summary")
@@ -207,6 +258,11 @@ public class EmailController {
         }
         if (replyBody == null || replyBody.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "body is required"));
+        }
+        // Mismo tope que ComposeRequest: sin esto se acepta y se guarda un body
+        // de decenas de MB en sent_messages y en el proveedor.
+        if (replyBody.length() > 50_000) {
+            return ResponseEntity.badRequest().body(Map.of("error", "body too long (max 50000)"));
         }
 
         var user = userDetailsService.loadUserEntityById(userId);

@@ -4,10 +4,12 @@ import com.emailfilter.config.CorsConfig;
 import com.emailfilter.config.SecurityConfig;
 import com.emailfilter.dto.EmailDTO;
 import com.emailfilter.dto.PrioritySummaryDTO;
+import com.emailfilter.model.SyncJob;
 import com.emailfilter.security.JwtTokenProvider;
 import com.emailfilter.security.UserDetailsServiceImpl;
 import com.emailfilter.service.AIServiceClient;
 import com.emailfilter.service.EmailService;
+import com.emailfilter.service.SyncJobService;
 import com.emailfilter.service.WebSocketService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,8 +22,10 @@ import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.*;
@@ -48,6 +52,8 @@ class EmailControllerTest {
     private AIServiceClient aiServiceClient;
     @MockBean
     private JwtTokenProvider jwtTokenProvider;
+    @MockBean
+    private SyncJobService syncJobService;
 
     @Test
     @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
@@ -256,6 +262,28 @@ class EmailControllerTest {
 
         verify(emailService).syncEmailsAsync(any(), eq("outlook"));
         verify(emailService, never()).syncAllEmailsAsync(any(), any());
+    }
+
+    @Test
+    @WithMockUser(username = "11111111-1111-1111-1111-111111111111")
+    void syncStatus_reportsLastJobSoTheUiDoesNotShowAFalseSuccess() throws Exception {
+        when(syncJobService.lastForUser(any())).thenReturn(Optional.of(SyncJob.builder()
+                .status("FAILED")
+                .mode("full")
+                .fetched(600)
+                .total(13691)
+                .errorMessage("401 Unauthorized")
+                .updatedAt(Instant.parse("2026-10-25T14:00:00Z"))
+                .build()));
+
+        mockMvc.perform(get("/api/emails/sync/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.syncing").value(false))
+                .andExpect(jsonPath("$.lastSync.status").value("FAILED"))
+                .andExpect(jsonPath("$.lastSync.mode").value("full"))
+                .andExpect(jsonPath("$.lastSync.fetched").value(600))
+                .andExpect(jsonPath("$.lastSync.total").value(13691))
+                .andExpect(jsonPath("$.lastSync.error").value("401 Unauthorized"));
     }
 
     @Test

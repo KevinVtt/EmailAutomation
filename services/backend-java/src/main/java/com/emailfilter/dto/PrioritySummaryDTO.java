@@ -12,7 +12,7 @@ import lombok.Data;
  * {@code urgency} en {@code email_messages}):
  * <ul>
  *   <li><b>urgentes</b> = sin leer + etiqueta IMPORTANT (Gmail la marca automáticamente)</li>
- *   <li><b>destacadosSinLeer</b> = (destacado OR IMPORTANT) sin leer — misma semántica que el filtro "destacados"</li>
+ *   <li><b>destacadosSinLeer</b> = destacados (estrella) sin leer — misma semántica que el filtro "destacados"</li>
  *   <li><b>pendientesRespuesta</b> = recibidos sin leer (los enviados NO se sincronizan:
  *       solo inbox+spam, así que un conteo por hilo "sin reply" contaría todo)</li>
  * </ul>

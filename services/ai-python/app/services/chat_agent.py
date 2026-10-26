@@ -52,6 +52,8 @@ CRITERIA_KEYS_WHITELIST = {
     "fromAddress",
     "subjectContains",
     "bodyContains",
+    "attachmentContains",
+    "hasAttachment",
     "isRead",
     "isStarred",
     "important",
@@ -447,6 +449,8 @@ Si el usuario menciona una fecha exacta o un mes por su nombre (ej: "12 de octub
 - fromAddress: remitente o dominio (string). Ej: "john@gmail.com", "colaborando.net"
 - subjectContains: palabra clave en el asunto (string). Podés poner múltiples palabras separadas por coma: "trabajo,empleo,job"
 - bodyContains: palabra clave en el contenido (string). Podés poner múltiples palabras separadas por coma: "trabajo,empleo,vacante"
+- attachmentContains: palabra clave dentro del texto del adjunto o en el nombre del archivo (string). Ej: "contrato,presupuesto"
+- hasAttachment: "true" cuando el usuario pide mails que tengan adjuntos
 - isRead: "true" o "false"
 - isStarred: "true" o "false"
 - important: "true" solo si el usuario dice explícitamente "importante(s)"
@@ -509,6 +513,9 @@ R: {"response": "Estos son los emails de ayer.", "criteria": {"dateRange": "yest
 U: "Emails destacados de programación"
 R: {"response": "Buscando emails destacados sobre programación.", "criteria": {"isStarred": "true", "bodyContains": "programación,código,desarrollo,software,developer", "subjectContains": "programación,código,desarrollo,software,developer"}}
 
+U: "El mail de Graciela con un adjunto sobre el presupuesto"
+R: {"response": "Buscando el mail de Graciela con el presupuesto adjunto.", "criteria": {"fromAddress": "graciela", "attachmentContains": "presupuesto", "hasAttachment": "true"}}
+
 U: "Muéstrame todo"
 R: {"response": "Mostrando todos tus emails.", "criteria": {}}
 
@@ -528,7 +535,7 @@ def sanitize_criteria(criteria: dict) -> dict:
                 if v2 in VALID_LABELS:
                     cleaned[k] = v2
             continue
-        if k in ("isRead", "isStarred", "important"):
+        if k in ("isRead", "isStarred", "important", "hasAttachment"):
             if isinstance(v, bool):
                 cleaned[k] = "true" if v else "false"
                 continue
@@ -548,7 +555,7 @@ def sanitize_criteria(criteria: dict) -> dict:
                 size_val = 100
             cleaned[k] = size_val
             continue
-        if k in ("fromAddress", "subjectContains", "bodyContains"):
+        if k in ("fromAddress", "subjectContains", "bodyContains", "attachmentContains"):
             if isinstance(v, str):
                 s = v.strip()
                 if len(s) > 200:

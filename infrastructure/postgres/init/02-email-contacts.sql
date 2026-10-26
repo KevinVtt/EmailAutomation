@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS email_contact (
     notes            TEXT,
     sent_count       INTEGER NOT NULL DEFAULT 0,
     received_count   INTEGER NOT NULL DEFAULT 0,
-    last_activity_at TIMESTAMP,
+    last_activity_at TIMESTAMPTZ,
     UNIQUE(user_id, address)
 );
 

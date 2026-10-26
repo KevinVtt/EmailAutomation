@@ -47,10 +47,26 @@ async function request(endpoint, options = {}) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  let response = await fetch(`${API_URL}${endpoint}`, {
-    ...options,
-    headers,
-  });
+  // Sin timeout, un backend que no responde (Render en cold start, IA colgada)
+  // dejaba el login/pensando girando para siempre.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+  let response;
+  try {
+    response = await fetch(`${API_URL}${endpoint}`, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error('La API no respondió en 60s. Probá de nuevo en un momento.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   // Un 401 del callback es un state o código inválido, no una sesión vencida.
   const isCallback = endpoint.startsWith('/api/auth/callback/');
@@ -96,6 +112,13 @@ async function request(endpoint, options = {}) {
     return JSON.parse(text);
   }
 
+  // Un 200 con HTML significa que un rewrite del hosting (vercel.json manda
+  // todo a index.html) se comió /api porque falta VITE_API_URL. Sin esto el
+  // login "funcionaba" con un token undefined y las listas quedaban vacías.
+  if (text.trimStart().startsWith('<')) {
+    throw new Error('La API no está configurada: VITE_API_URL falta o apunta a otro origen.');
+  }
+
   return text || null;
 }
 
@@ -112,6 +135,8 @@ export const api = {
   emails: {
     list: (page = 0, size = 20) =>
       request(`/api/emails?page=${page}&size=${size}`),
+    sent: (page = 0, size = 20) =>
+      request(`/api/emails/sent?page=${page}&size=${size}`),
     filter: (filters, page = 0, size = 20) => {
       const params = new URLSearchParams({ page, size, ...filters });
       return request(`/api/emails/filter?${params}`);
@@ -123,6 +148,23 @@ export const api = {
       }),
     get: (id) =>
       request(`/api/emails/${id}`),
+    // Blob aparte: request() devuelve texto y la API pide Bearer, no sirve un <a href>.
+    attachment: async (id, index) => {
+      const url = `${API_URL}/api/emails/${id}/attachments/${index}`;
+      let response = await fetch(url, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      if (response.status === 401) {
+        const newToken = await refreshToken();
+        if (newToken) {
+          response = await fetch(url, {
+            headers: { Authorization: `Bearer ${newToken}` },
+          });
+        }
+      }
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.blob();
+    },
     sync: (provider) =>
       request('/api/emails/sync', {
         method: 'POST',
@@ -134,9 +176,9 @@ export const api = {
         body: JSON.stringify({ provider }),
       }),
     syncStatus: () =>
-      request('/api/emails/sync/status').catch(() => ({ syncing: false })),
+      request('/api/emails/sync/status'),
     count: () =>
-      request('/api/emails/count').catch(() => ({ count: 0 })),
+      request('/api/emails/count'),
     stats: () =>
       request('/api/emails/stats'),
     summary: (date = 'today') =>
@@ -162,10 +204,10 @@ export const api = {
   contacts: {
     list: (limit = 20) =>
       request(`/api/contacts?limit=${limit}`),
-    draft: (id, instruction) =>
+    draft: (id, instruction, tone) =>
       request(`/api/contacts/${id}/draft`, {
         method: 'POST',
-        body: JSON.stringify({ instruction }),
+        body: JSON.stringify({ instruction, tone }),
       }),
     enrich: (id) =>
       request(`/api/contacts/${id}/enrich`, { method: 'POST' }),
