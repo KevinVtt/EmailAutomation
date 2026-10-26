@@ -141,6 +141,10 @@ Chat:      Backend → AI   POST /chat  { message, conversation_id, context: [..
                                         scope?: {folder, criteria, description} }
            AI → Backend   { response, criteria: {...}, conversation_id }
            Backend → UI   { response, criteria, conversation_id, emails: [...] }  (emails = list, not a Page)
+           Historial: la conversación vive en `chat_conversation` / `chat_message` (07-chat-conversations.sql).
+           `context` = resumen de lo viejo + últimos `chat.context-window` (env `CHAT_CONTEXT_WINDOW`, default 10) mensajes.
+           Solo `POST /api/chat/conversation/new` crea una conversación nueva; "Limpiar filtro" no toca el chat.
+           GET  /api/chat/conversation → { conversationId, messages: [{role, content, createdAt}] } (vacío si no hay)
 Rewrite:   Backend → AI   POST /rewrite { draft, original_subject, original_from, original_body,
                                           tone, language, custom_rules, user_name }
            user_name is the authenticated user's name, injected by the backend (never taken from the
