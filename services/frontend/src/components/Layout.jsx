@@ -1,14 +1,15 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../context/ThemeContext';
 import { api } from '../lib/api';
 import {
-  Sparkles, LogOut, Mail, Sun, Moon,
+  Sparkles, LogOut, Mail, Sun, Moon, Pencil,
   LayoutDashboard, Inbox, Star, ShieldAlert, Send, Settings,
 } from 'lucide-react';
 import clsx from 'clsx';
 import AssistantPanel from './assistant/AssistantPanel';
+import ComposeForm from './assistant/ComposeForm';
 import { ScreenScopeProvider } from '../context/ScreenScopeContext';
 
 // Cada cuánto se busca correo nuevo en segundo plano mientras la app está abierta.
@@ -28,6 +29,7 @@ const NAV_ITEMS = [
 export default function Layout() {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const [composing, setComposing] = useState(false);
 
   // El Dashboard sincroniza una vez por sesión; acá corre un sync de fondo en
   // todas las páginas para que el correo nuevo no dependa de apretar nada.
@@ -111,6 +113,14 @@ export default function Layout() {
       <div className="flex flex-1">
         <aside className="w-52 sm:w-56 flex-shrink-0 bg-white dark:bg-gray-800 border-r border-primary-200 dark:border-gray-700 transition-colors">
           <nav className="p-3 space-y-1 sticky top-16">
+            <button
+              type="button"
+              onClick={() => setComposing(true)}
+              className="btn-primary w-full flex items-center justify-center gap-2 text-sm mb-2"
+            >
+              <Pencil className="w-4 h-4" />
+              Redactar
+            </button>
             {NAV_ITEMS.map(({ to, label, icon: Icon, end }) => (
               <NavLink
                 key={to}
@@ -133,6 +143,19 @@ export default function Layout() {
         <main className="flex-1 min-w-0">
           <Outlet />
         </main>
+
+        {composing && (
+          <div role="dialog" aria-label="Nuevo mail" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="card w-full max-w-lg max-h-[90vh] flex flex-col p-4 dark:bg-gray-800">
+              <div className="flex justify-end">
+                <button type="button" onClick={() => setComposing(false)} className="text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400">
+                  Cerrar
+                </button>
+              </div>
+              <ComposeForm onBack={() => setComposing(false)} />
+            </div>
+          </div>
+        )}
       </div>
       </div>
 

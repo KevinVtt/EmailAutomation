@@ -168,7 +168,8 @@ Contacts:  Backend → UI   GET /api/contacts?limit=20 →
                           PATCH /api/contacts/{id} {company, topic, notes}
                           POST  /api/contacts/{id}/draft {instruction} → {subject, body}
                           POST  /api/contacts/{id}/enrich → {company, topic}
-Compose:   Backend → UI   POST /api/emails/compose {to, subject, body} → {status, messageId}
+Compose:   Backend → UI   POST /api/emails/compose {to, subject, body, cc?, bcc?} → {status, messageId}
+           cc/bcc: listas separadas por coma, opcionales, sin saltos de línea; 400 si alguna dirección es inválida.
 Bulk:      Backend → UI   POST /api/emails/bulk-action {provider, emailIds[], action} → {applied, failed: [ids]}
            action ∈ star|unstar|read|unread|trash   (max 100 ids)
 AI drafts: Backend → AI   POST /compose {instruction, contact_*, recent_subjects, tone, language, user_name}

@@ -195,10 +195,10 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ provider, emailIds, action }),
       }),
-    compose: ({ to, subject, body }) =>
+    compose: ({ to, cc, bcc, subject, body }) =>
       request('/api/emails/compose', {
         method: 'POST',
-        body: JSON.stringify({ to, subject, body }),
+        body: JSON.stringify({ to, cc, bcc, subject, body }),
       }),
   },
   contacts: {

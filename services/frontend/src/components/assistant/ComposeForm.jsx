@@ -4,6 +4,9 @@ import { api } from '../../lib/api';
 import { TONES, DEFAULT_TONE } from '../../lib/tones';
 
 export default function ComposeForm({ contact, onBack }) {
+  const [toField, setToField] = useState('');
+  const [cc, setCc] = useState('');
+  const [bcc, setBcc] = useState('');
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [instruction, setInstruction] = useState('');
@@ -14,7 +17,8 @@ export default function ComposeForm({ contact, onBack }) {
   const [error, setError] = useState('');
   const [sent, setSent] = useState(false);
 
-  const canSend = subject.trim() !== '' && body.trim() !== '' && !sending;
+  const recipient = contact ? contact.address : toField.trim();
+  const canSend = recipient !== '' && subject.trim() !== '' && body.trim() !== '' && !sending;
 
   const draft = async () => {
     setError('');
@@ -34,7 +38,13 @@ export default function ComposeForm({ contact, onBack }) {
     setError('');
     setSending(true);
     try {
-      await api.emails.compose({ to: contact.address, subject, body });
+      await api.emails.compose({
+        to: recipient,
+        cc: cc.trim() || undefined,
+        bcc: bcc.trim() || undefined,
+        subject,
+        body,
+      });
       setSent(true);
       setConfirming(false);
     } catch (e) {
@@ -49,7 +59,7 @@ export default function ComposeForm({ contact, onBack }) {
     return (
       <div className="flex flex-col gap-3 p-1">
         <p className="text-sm text-gray-800 dark:text-gray-200">
-          Mail enviado a {contact.address}.
+          Mail enviado a {recipient}.
         </p>
         <button
           type="button"
@@ -68,31 +78,68 @@ export default function ComposeForm({ contact, onBack }) {
 
   return (
     <div className="flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto p-1">
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          aria-label="Volver a contactos"
-          onClick={onBack}
-          className="p-1 text-gray-500 hover:text-gray-800 dark:text-gray-400"
-        >
-          <ArrowLeft className="w-4 h-4" />
-        </button>
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
-            {contact.displayName || 'Contacto'}
-          </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-            {[contact.company, contact.topic].filter(Boolean).join(' · ') || 'Sin ficha'}
-          </p>
-        </div>
-      </div>
+      {contact ? (
+        <>
+          <div className="flex items-center gap-2">
+            {onBack && (
+              <button
+                type="button"
+                aria-label="Volver a contactos"
+                onClick={onBack}
+                className="p-1 text-gray-500 hover:text-gray-800 dark:text-gray-400"
+              >
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+            )}
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+                {contact.displayName || 'Contacto'}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                {[contact.company, contact.topic].filter(Boolean).join(' · ') || 'Sin ficha'}
+              </p>
+            </div>
+          </div>
 
-      {contact.notes && (
-        <p className="text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-700 rounded px-2 py-1">
-          {contact.notes}
-        </p>
+          {contact.notes && (
+            <p className="text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-700 rounded px-2 py-1">
+              {contact.notes}
+            </p>
+          )}
+        </>
+      ) : (
+        <div>
+          <label htmlFor="compose-to" className="text-xs text-gray-600 dark:text-gray-300">Para</label>
+          <input
+            id="compose-to"
+            type="text"
+            value={toField}
+            onChange={(e) => setToField(e.target.value)}
+            placeholder="correo@ejemplo.com"
+            className="input w-full text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100"
+          />
+          <label htmlFor="compose-cc" className="text-xs text-gray-600 dark:text-gray-300">Cc</label>
+          <input
+            id="compose-cc"
+            type="text"
+            value={cc}
+            onChange={(e) => setCc(e.target.value)}
+            placeholder="Separadas por coma (opcional)"
+            className="input w-full text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100"
+          />
+          <label htmlFor="compose-bcc" className="text-xs text-gray-600 dark:text-gray-300">Cco</label>
+          <input
+            id="compose-bcc"
+            type="text"
+            value={bcc}
+            onChange={(e) => setBcc(e.target.value)}
+            placeholder="Separadas por coma (opcional)"
+            className="input w-full text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100"
+          />
+        </div>
       )}
 
+      {contact && (
       <div className="flex gap-1">
         <input
           type="text"
@@ -113,7 +160,10 @@ export default function ComposeForm({ contact, onBack }) {
           Redactar con IA
         </button>
       </div>
+      )}
 
+      {contact && (
+      <>
       <label htmlFor="compose-tone" className="text-xs text-gray-600 dark:text-gray-300">
         Tono
       </label>
@@ -127,6 +177,8 @@ export default function ComposeForm({ contact, onBack }) {
           <option key={t.id} value={t.id}>{t.label}</option>
         ))}
       </select>
+      </>
+      )}
 
       <label htmlFor="compose-subject" className="text-xs text-gray-600 dark:text-gray-300">
         Asunto
@@ -155,7 +207,9 @@ export default function ComposeForm({ contact, onBack }) {
       {confirming ? (
         <div className="rounded-lg border border-primary-200 dark:border-gray-600 p-2 space-y-1 text-sm">
           <p className="font-medium text-gray-800 dark:text-gray-200">Confirmá el envío</p>
-          <p className="text-gray-700 dark:text-gray-300 break-all">Para: {contact.address}</p>
+          <p className="text-gray-700 dark:text-gray-300 break-all">Para: {recipient}</p>
+          {cc.trim() && <p className="text-gray-700 dark:text-gray-300 break-all">Cc: {cc}</p>}
+          {bcc.trim() && <p className="text-gray-700 dark:text-gray-300 break-all">Cco: {bcc}</p>}
           <p className="text-gray-700 dark:text-gray-300 break-words">Asunto: {subject}</p>
           <div className="flex gap-2 pt-1">
             <button
