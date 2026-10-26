@@ -12,7 +12,7 @@ const GREETING = {
   content: '¡Hola! Puedes pedirme que filtre tus emails. Por ejemplo:\n\n• "Muéstrame los emails importantes de esta semana"\n• "Busca emails de facturación"\n• "¿Qué emails tengo sin leer de ayer?"',
 };
 
-export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsumed, scope, onResults, resetKey = 0, onExpand, embedded = false }) {
+export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsumed, scope, onResults, onExpand, embedded = false }) {
   const [messages, setMessages] = useState([GREETING]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -32,16 +32,33 @@ export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsum
     el.style.height = `${Math.min(Math.max(el.scrollHeight, 40), 120)}px`;
   }, [input]);
 
-  // "Limpiar filtro": vuelve al estado inicial para que la próxima consulta no
-  // arrastre el criterio anterior (el backend recuerda el hilo por conversation_id).
+  // La conversación vive en la base: al abrir la app se recarga la última.
   useEffect(() => {
-    if (!resetKey) return;
-    setMessages([GREETING]);
-    setConversationId('');
-    setInput('');
-    setLoading(false);
-    processedResponses.current.clear();
-  }, [resetKey]);
+    let alive = true;
+    api.chat.current()
+      .then((data) => {
+        if (!alive || !data.conversationId) return;
+        setConversationId(data.conversationId);
+        if (data.messages?.length) setMessages(data.messages.map(({ role, content }) => ({ role, content })));
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  // Solo "Nueva conversación" borra el hilo; limpiar filtros no lo toca.
+  const startNewConversation = async () => {
+    try {
+      const data = await api.chat.newConversation();
+      setConversationId(data.conversationId);
+      setMessages([GREETING]);
+      setInput('');
+      setLoading(false);
+      pendingRequest.current = false;
+      processedResponses.current.clear();
+    } catch {
+      setMessages((prev) => [...prev, { role: 'assistant', content: 'No pude crear una conversación nueva. Probá de nuevo.' }]);
+    }
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -129,6 +146,17 @@ export default function ChatPanel({ onFiltersApplied, chatResponse, onChatConsum
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Asistente IA</h2>
         </div>
       )}
+
+      <div className="flex justify-end mb-2">
+        <button
+          type="button"
+          onClick={startNewConversation}
+          disabled={loading}
+          className="text-xs text-primary-700 dark:text-primary-300 hover:underline disabled:opacity-50"
+        >
+          Nueva conversación
+        </button>
+      </div>
 
       <div className={`flex-1 overflow-y-auto space-y-3 mb-4 ${embedded ? '' : '-mx-4 px-4'}`}>
         {messages.map((msg, i) => (

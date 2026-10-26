@@ -24,7 +24,6 @@ export default function AssistantPanel() {
   const restricted = Object.keys(scope.criteria || {}).length > 0;
   const [searchAll, setSearchAll] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [resetKey, setResetKey] = useState(0);
   // Se mostró al menos una búsqueda (aunque vuelva vacía): así el botón de
   // limpiar sigue disponible cuando el filtro no encontró nada.
   const [searched, setSearched] = useState(false);
@@ -40,7 +39,6 @@ export default function AssistantPanel() {
   const clearFilter = () => {
     setResults([]);
     setSearched(false);
-    setResetKey((k) => k + 1);
   };
 
   // Al cerrar vuelve al tamaño chico: la próxima apertura no tapa la pantalla.
@@ -163,7 +161,6 @@ export default function AssistantPanel() {
                 chatResponse={chatResponse}
                 onChatConsumed={() => setChatResponse(null)}
                 onResults={applyResults}
-                resetKey={resetKey}
                 onExpand={() => setExpanded(true)}
                 embedded
               />

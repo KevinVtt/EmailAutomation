@@ -218,6 +218,8 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ message, conversationId, ...(scope ? { scope } : {}) }),
       }),
+    current: () => request('/api/chat/conversation'),
+    newConversation: () => request('/api/chat/conversation/new', { method: 'POST' }),
   },
   rewrite: {
     improve: (draft, context = {}) =>
