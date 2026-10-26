@@ -15,6 +15,7 @@ const EmailDetailPage = lazy(() => import('./pages/EmailDetailPage'));
 const Settings = lazy(() => import('./pages/Settings'));
 const Contacts = lazy(() => import('./pages/Contacts'));
 const Trash = lazy(() => import('./pages/Trash'));
+const Important = lazy(() => import('./pages/Important'));
 
 function PageFallback() {
   return (
@@ -54,6 +55,7 @@ export default function App() {
           <Route path="email/:id" element={<EmailDetailPage />} />
           <Route path="contacts" element={<Contacts />} />
           <Route path="trash" element={<Trash />} />
+          <Route path="important" element={<Important />} />
           <Route path="settings" element={<Settings />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { useWebSocket } from '../hooks/useWebSocket';
 import { useTheme } from '../context/ThemeContext';
 import { api } from '../lib/api';
 import {
   Sparkles, LogOut, Mail, Sun, Moon, Pencil,
-  LayoutDashboard, Inbox, Star, ShieldAlert, Send, Settings, Users, Trash2,
+  LayoutDashboard, Inbox, Star, ShieldAlert, Send, Settings, Users, Trash2, AlertTriangle,
 } from 'lucide-react';
 import clsx from 'clsx';
 import AssistantPanel from './assistant/AssistantPanel';
@@ -17,13 +18,15 @@ const SYNC_INTERVAL_MS = 120000;
 // Intervalo y foco pueden coincidir: sin esto salían dos POST /api/emails/sync.
 let syncInFlight = false;
 
+// counterKey: campo de /api/emails/stats con los no leídos de esa carpeta.
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
-  { to: '/inbox', label: 'Bandeja de entrada', icon: Inbox },
+  { to: '/inbox', label: 'Bandeja de entrada', icon: Inbox, counterKey: 'unread' },
+  { to: '/important', label: 'Importantes', icon: AlertTriangle, counterKey: 'importantUnread' },
   { to: '/starred', label: 'Destacados', icon: Star },
+  { to: '/spam', label: 'Spam', icon: ShieldAlert, counterKey: 'spamUnread' },
   { to: '/sent', label: 'Enviados', icon: Send },
-  { to: '/spam', label: 'Spam', icon: ShieldAlert },
-  { to: '/trash', label: 'Papelera', icon: Trash2 },
+  { to: '/trash', label: 'Papelera', icon: Trash2, counterKey: 'trashUnread' },
   { to: '/contacts', label: 'Contactos', icon: Users },
   { to: '/settings', label: 'Configuración', icon: Settings },
 ];
@@ -32,6 +35,20 @@ export default function Layout() {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [composing, setComposing] = useState(false);
+  const [counts, setCounts] = useState({});
+
+  const loadCounts = useCallback(() => {
+    api.emails.stats().then(setCounts).catch(() => {});
+  }, []);
+
+  useEffect(() => { loadCounts(); }, [loadCounts]);
+
+  useWebSocket(localStorage.getItem('accessToken'), {
+    onNotifications: (data) => {
+      if (data?.type !== 'notification') return;
+      if (['sync_complete', 'emails_changed'].includes(data.message)) loadCounts();
+    },
+  });
 
   // El Dashboard sincroniza una vez por sesión; acá corre un sync de fondo en
   // todas las páginas para que el correo nuevo no dependa de apretar nada.
@@ -123,7 +140,7 @@ export default function Layout() {
               <Pencil className="w-4 h-4" />
               Redactar
             </button>
-            {NAV_ITEMS.map(({ to, label, icon: Icon, end }) => (
+            {NAV_ITEMS.map(({ to, label, icon: Icon, end, counterKey }) => (
               <NavLink
                 key={to}
                 to={to}
@@ -136,7 +153,12 @@ export default function Layout() {
                 )}
               >
                 <Icon className="w-4 h-4 flex-shrink-0" />
-                <span className="truncate">{label}</span>
+                <span className="truncate flex-1">{label}</span>
+                {counterKey && counts[counterKey] > 0 && (
+                  <span className="text-xs font-semibold text-primary-700 dark:text-primary-300" aria-label={`${counts[counterKey]} no leídos`}>
+                    {counts[counterKey]}
+                  </span>
+                )}
               </NavLink>
             ))}
           </nav>

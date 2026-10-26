@@ -95,6 +95,8 @@ psql -U %POSTGRES_USER% -h %PGHOST% -p %PGPORT% -d %POSTGRES_DB% -v ON_ERROR_STO
 if errorlevel 1 ( echo ERROR en 07-chat-conversations.sql. & pause & exit /b 1 )
 psql -U %POSTGRES_USER% -h %PGHOST% -p %PGPORT% -d %POSTGRES_DB% -v ON_ERROR_STOP=1 -f "infrastructure\postgres\init\08-contact-manual.sql"
 if errorlevel 1 ( echo ERROR en 08-contact-manual.sql. & pause & exit /b 1 )
+psql -U %POSTGRES_USER% -h %PGHOST% -p %PGPORT% -d %POSTGRES_DB% -v ON_ERROR_STOP=1 -f "infrastructure\postgres\init\09-email-important.sql"
+if errorlevel 1 ( echo ERROR en 09-email-important.sql. & pause & exit /b 1 )
 
 echo.
 echo ============================================

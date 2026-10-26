@@ -395,13 +395,17 @@ public class EmailService {
                     }
                     case "isStarred" -> predicates.add(cb.equal(root.get("isStarred"), Boolean.parseBoolean(value)));
                     case "important" -> {
+                        // Importante = label IMPORTANT de Gmail o clasificado por la IA (is_important).
                         if (Boolean.parseBoolean(value)) {
-                            predicates.add(cb.like(root.get("labels"), "%IMPORTANT%"));
+                            predicates.add(cb.or(
+                                    cb.like(root.get("labels"), "%IMPORTANT%"),
+                                    cb.isTrue(root.get("isImportant"))));
                         } else {
                             // notLike is NULL-unsafe: rows without labels need the OR.
-                            predicates.add(cb.or(
-                                    cb.notLike(root.get("labels"), "%IMPORTANT%"),
-                                    cb.isNull(root.get("labels"))));
+                            predicates.add(cb.and(
+                                    cb.or(cb.notLike(root.get("labels"), "%IMPORTANT%"),
+                                            cb.isNull(root.get("labels"))),
+                                    cb.isFalse(root.get("isImportant"))));
                         }
                     }
                     case "destacados" -> predicates.add(cb.equal(root.get("isStarred"), true));
@@ -581,6 +585,9 @@ public class EmailService {
         result.put("unread", emailRepository.countUnreadByUserId(userId));
         result.put("starred", emailRepository.countStarredByUserId(userId));
         result.put("spam", emailRepository.countSpamByUserId(userId));
+        result.put("importantUnread", emailRepository.countUnreadImportant(userId));
+        result.put("spamUnread", emailRepository.countUnreadWithLabel(userId, "%SPAM%"));
+        result.put("trashUnread", emailRepository.countUnreadWithLabel(userId, "%TRASH%"));
         result.put("perDay", perDayList);
         return result;
     }
@@ -611,6 +618,7 @@ public class EmailService {
             if (!(classifications instanceof List<?> classList)) return;
 
             var urgentSubjects = new ArrayList<String>();
+            var importantIds = new ArrayList<String>();
             for (var entry : classList) {
                 if (!(entry instanceof Map<?, ?> cls)) continue;
                 var urgency = cls.get("urgency");
@@ -626,6 +634,10 @@ public class EmailService {
                         break;
                     }
                 }
+                if (id != null) importantIds.add(id.toString());
+            }
+            if (!importantIds.isEmpty()) {
+                emailRepository.markImportant(user.getId(), importantIds);
             }
 
             if (!urgentSubjects.isEmpty()) {

@@ -814,7 +814,9 @@ class EmailServiceTest {
         when(userPath.get("id")).thenReturn(mock(Path.class));
         when(root.get("labels")).thenReturn(labels);
         when(cb.equal(any(Expression.class), eq(userId))).thenReturn(mock(Predicate.class));
-        when(cb.and(any(Predicate[].class))).thenReturn(mock(Predicate.class));
+        var importantFlag = mock(Path.class);
+        when(root.get("isImportant")).thenReturn(importantFlag);
+        when(cb.and(any(), any())).thenReturn(mock(Predicate.class));
 
         var captor = ArgumentCaptor.forClass(Specification.class);
         verify(emailRepository).findAll(captor.capture(), any(Pageable.class));
@@ -822,6 +824,7 @@ class EmailServiceTest {
 
         verify(cb, atLeastOnce()).notLike(labels, "%IMPORTANT%");
         verify(cb, atLeastOnce()).isNull(labels);
+        verify(cb).isFalse(importantFlag);
     }
 
     @Test
@@ -945,6 +948,7 @@ class EmailServiceTest {
         emailService.syncEmailsAsync(user, "google").join();
 
         verify(webSocketService).sendNotification(userId.toString(), "urgent_emails:1:URGENT: Server down");
+        verify(emailRepository).markImportant(userId, List.of("new-1"));
         verify(contactService).rebuildInbound(userId);
     }
 

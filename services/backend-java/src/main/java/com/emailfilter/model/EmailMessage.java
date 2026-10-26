@@ -66,6 +66,9 @@ public class EmailMessage {
     @Column(name = "is_starred")
     private boolean isStarred;
 
+    @Column(name = "is_important", nullable = false)
+    private boolean isImportant;
+
     @Column(columnDefinition = "TEXT")
     private String labels;
 

@@ -147,6 +147,21 @@ public interface EmailRepository extends JpaRepository<EmailMessage, UUID>,
     @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId AND e.labels LIKE '%SPAM%'" + NOT_TRASH)
     long countSpamByUserId(@Param("userId") UUID userId);
 
+    // Contadores de no leídos por carpeta de la barra lateral. La papelera no se excluye acá: es el objetivo.
+    @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId AND e.isRead = false" +
+            " AND e.labels LIKE :pattern AND NOT EXISTS (SELECT 1 FROM Visto v WHERE v.user.id = :userId" +
+            " AND v.providerEmailId = e.providerEmailId AND v.visto = true)")
+    long countUnreadWithLabel(@Param("userId") UUID userId, @Param("pattern") String pattern);
+
+    @Query("SELECT COUNT(e) FROM EmailMessage e WHERE e.user.id = :userId AND e.isRead = false" +
+            " AND (e.labels LIKE '%IMPORTANT%' OR e.isImportant = true)" + NOT_SEEN)
+    long countUnreadImportant(@Param("userId") UUID userId);
+
+    @Modifying
+    @Transactional
+    @Query("UPDATE EmailMessage e SET e.isImportant = true WHERE e.user.id = :userId AND e.providerEmailId IN :ids")
+    int markImportant(@Param("userId") UUID userId, @Param("ids") Collection<String> ids);
+
     @Query("SELECT e.receivedAt FROM EmailMessage e WHERE e.user.id = :userId AND e.receivedAt >= :since" + NOT_TRASH)
     List<Instant> findReceivedAtByUserIdSince(@Param("userId") UUID userId, @Param("since") Instant since);
 
