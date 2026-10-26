@@ -541,6 +541,8 @@ public class GmailService {
         var gmail = buildGmailClient(accessToken);
         var added = new LinkedHashSet<String>();
         var deleted = new LinkedHashSet<String>();
+        var trashed = new LinkedHashSet<String>();
+        var untrashed = new LinkedHashSet<String>();
         boolean labelsChanged = false;
         String latestHistoryId = startHistoryId;
         String pageToken = null;
@@ -567,14 +569,14 @@ public class GmailService {
                                 }
                             }
                         }
-                        // Restaurado desde la papelera: vuelve a entrar si falta localmente.
+                        // Restaurado desde la papelera: se quita la marca local y, si falta, vuelve a entrar.
                         if (history.getLabelsRemoved() != null && !history.getLabelsRemoved().isEmpty()) {
                             labelsChanged = true;
                             for (var item : history.getLabelsRemoved()) {
                                 if (item.getMessage() != null && item.getLabelIds() != null
-                                        && item.getLabelIds().contains("TRASH") && isInboxOrSpam(item.getMessage())) {
-                                    deleted.remove(item.getMessage().getId());
-                                    added.add(item.getMessage().getId());
+                                        && item.getLabelIds().contains("TRASH")) {
+                                    untrashed.add(item.getMessage().getId());
+                                    if (isInboxOrSpam(item.getMessage())) added.add(item.getMessage().getId());
                                 }
                             }
                         }
@@ -583,13 +585,13 @@ public class GmailService {
                                 if (item.getMessage() != null) deleted.add(item.getMessage().getId());
                             }
                         }
-                        // "Eliminar" en Gmail = mover a papelera: llega como labelAdded TRASH.
+                        // "Eliminar" en Gmail = mover a papelera: llega como labelAdded TRASH. La fila se conserva, marcada.
                         if (history.getLabelsAdded() != null && !history.getLabelsAdded().isEmpty()) {
                             labelsChanged = true;
                             for (var item : history.getLabelsAdded()) {
                                 if (item.getMessage() != null && item.getLabelIds() != null
                                         && item.getLabelIds().contains("TRASH")) {
-                                    deleted.add(item.getMessage().getId());
+                                    trashed.add(item.getMessage().getId());
                                 }
                             }
                         }
@@ -607,7 +609,7 @@ public class GmailService {
         }
         log.info("history.list since {}: {} added, {} removed, labelsChanged={}, new cursor {}",
                 startHistoryId, added.size(), deleted.size(), labelsChanged, latestHistoryId);
-        return new GmailHistoryChanges(added, deleted, labelsChanged, latestHistoryId);
+        return new GmailHistoryChanges(added, deleted, trashed, untrashed, labelsChanged, latestHistoryId);
     }
 
     /** Enviados y borradores no van en email_messages: sólo bandeja y spam. */

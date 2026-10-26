@@ -61,6 +61,10 @@ Browser (React) ── REST /api/** + WebSocket /ws ──► Java Backend (8080
 - Full sync prunes rows of that provider that Gmail no longer lists, except locally trashed (`TRASH`) rows; never prune
   when the ID listing came back empty. Incremental sync refreshes starred/spam only when `history.list` reports label changes.
   `sync_jobs` is purged daily by `SyncJobService.purgeOldJobs`.
+- Papelera: mover a papelera conserva la fila y le pone label `TRASH` (en Gmail también); la history sync marca/desmarca
+  `TRASH` (`GmailHistoryChanges.trashedIds/untrashedIds`), y solo `messagesDeleted` borra la fila. `deleteForeverEmail`
+  rechaza mails fuera de la papelera (400). Borrado definitivo en Gmail (`messages.delete`) exige el scope
+  `https://mail.google.com/`, que hoy NO se pide: sin ese scope responde 403 y la fila local no se borra.
 - Provider HTTP calls (`markAsRead`, `toggleStar`, `moveToTrash`, `sendReply`, ...) must stay OUTSIDE a DB
   transaction: they can sleep on retry/backoff and would otherwise pin a pooled connection (pool size 10).
 - CORS is controlled by `FRONTEND_URL` (`CorsConfig`).

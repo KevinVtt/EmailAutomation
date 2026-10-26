@@ -1111,6 +1111,8 @@ public class EmailService {
             vistoRepository.deleteByUserIdAndProviderEmailIdIn(userId, deletedIds);
             log.info("History sync: removed {} emails for user={}", deletedIds.size(), userId);
         }
+        changes.trashedIds().forEach(id -> setTrashLabel(userId, id, true));
+        changes.untrashedIds().forEach(id -> setTrashLabel(userId, id, false));
 
         var existingIds = fetchAllProviderEmailIds(userId);
         var newIds = changes.addedIds().stream()
@@ -1358,6 +1360,12 @@ public class EmailService {
     }
 
     public void deleteForeverEmail(User user, String provider, String emailId) {
+        boolean inTrash = emailRepository.findByProviderEmailIdAndUserId(emailId, user.getId())
+                .map(e -> containsLabelToken(e.getLabels(), "TRASH"))
+                .orElse(true);
+        if (!inTrash) {
+            throw new IllegalArgumentException("Solo se puede eliminar definitivamente desde la papelera");
+        }
         deleteForever(user, provider, emailId);
     }
 

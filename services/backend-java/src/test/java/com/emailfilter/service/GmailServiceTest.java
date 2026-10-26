@@ -410,7 +410,8 @@ class GmailServiceTest {
 
         assertNotNull(changes);
         assertEquals(Set.of("added-1"), changes.addedIds());
-        assertEquals(Set.of("perm-1", "trashed-1"), changes.deletedIds());
+        assertEquals(Set.of("perm-1"), changes.deletedIds());
+        assertEquals(Set.of("trashed-1"), changes.trashedIds());
         assertTrue(changes.labelsChanged());
         assertEquals("2000", changes.latestHistoryId());
     }

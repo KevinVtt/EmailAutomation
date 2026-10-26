@@ -101,10 +101,10 @@ export default function EmailListView({
     ));
   }, []);
 
-  // Tras borrar, el mail ya no existe en la DB: hay que sacarlo de la lista o
+  // Tras mover, restaurar o borrar, el mail sale de esta vista: hay que sacarlo de la lista o
   // sigue visible hasta el próximo fetch.
   const handleEmailAction = useCallback((actionType) => {
-    if (actionType !== 'trash' || !selectedEmail) return;
+    if (!['trash', 'restore', 'delete'].includes(actionType) || !selectedEmail) return;
     setEmails(prev => prev.filter(e => e.id !== selectedEmail.id));
   }, [selectedEmail]);
 

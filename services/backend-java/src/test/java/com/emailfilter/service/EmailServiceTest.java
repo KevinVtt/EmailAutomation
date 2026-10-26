@@ -569,7 +569,7 @@ class EmailServiceTest {
         when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
                 .thenReturn(Optional.of(token));
         when(gmailService.listHistory("test-access-token", "1000")).thenReturn(
-                new GmailHistoryChanges(Set.of("new-1"), Set.of(), false, "2000"));
+                new GmailHistoryChanges(Set.of("new-1"), Set.of(), Set.of(), Set.of(), false, "2000"));
         when(emailRepository.findProviderEmailIdsByUserId(eq(userId), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.<String>of(), PageRequest.of(0, 1000), 0));
         when(gmailService.fetchMessagesByIds(any(), argThat(ids -> ids != null && ids.contains("new-1")),
@@ -1171,6 +1171,19 @@ class EmailServiceTest {
         verify(emailRepository, never()).deleteByUserIdAndProviderEmailIdIn(any(), any());
     }
 
+    @Test
+    void deleteForeverEmail_refusesAMailThatIsNotInTheTrash() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var email = EmailMessage.builder().providerEmailId("msg-1").labels("INBOX").user(user).build();
+        when(emailRepository.findByProviderEmailIdAndUserId("msg-1", userId)).thenReturn(Optional.of(email));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> emailService.deleteForeverEmail(user, "google", "msg-1"));
+
+        verify(gmailService, never()).deleteForever(any(), any());
+    }
+
     /**
      * Si Gmail falla por cuota/red (transitorio), la fila local NO se borra: el
      * mail sigue existiendo en Gmail y el usuario puede reintentar.
@@ -1250,7 +1263,7 @@ class EmailServiceTest {
         when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
                 .thenReturn(Optional.of(token));
         when(gmailService.listHistory("t", "1000")).thenReturn(
-                new GmailHistoryChanges(Set.of("new-1", "old-1"), Set.of("gone-1"), true, "2000"));
+                new GmailHistoryChanges(Set.of("new-1", "old-1"), Set.of("gone-1"), Set.of(), Set.of(), true, "2000"));
         when(emailRepository.findProviderEmailIdsByUserId(eq(userId), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of("old-1"), PageRequest.of(0, 1000), 1));
         var fetched = EmailMessage.builder()

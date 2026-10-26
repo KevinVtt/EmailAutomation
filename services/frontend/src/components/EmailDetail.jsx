@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Star, Mail, MailOpen, Trash2, ArrowLeft, Loader2, Reply, Paperclip } from 'lucide-react';
+import { X, Star, Mail, MailOpen, Trash2, ArrowLeft, Loader2, Reply, Paperclip, RotateCcw } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { api } from '../lib/api';
@@ -45,6 +45,7 @@ function formatSize(bytes) {
 }
 
 export default function EmailDetail({ email, onClose, onAction, onRead, readOnly = false }) {
+  const inTrash = (email?.labels || '').split(',').includes('TRASH');
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
@@ -108,6 +109,7 @@ export default function EmailDetail({ email, onClose, onAction, onRead, readOnly
 
   const handleAction = useCallback(async (actionType) => {
     if (!email || actionLoading) return;
+    if (actionType === 'delete' && !window.confirm('¿Eliminar definitivamente este mail? No se puede deshacer.')) return;
     setActionLoading(actionType);
     try {
       await api.emails.action(email.provider, email.providerEmailId, actionType);
@@ -119,8 +121,8 @@ export default function EmailDetail({ email, onClose, onAction, onRead, readOnly
         setDetail(prev => prev ? { ...prev, visto: true } : prev);
       } else if (actionType === 'unread') {
         setDetail(prev => prev ? { ...prev, visto: false } : prev);
-      } else if (actionType === 'trash') {
-        onAction?.('trash');
+      } else if (['trash', 'restore', 'delete'].includes(actionType)) {
+        onAction?.(actionType);
         onClose?.();
       }
     } catch (err) {
@@ -205,14 +207,35 @@ export default function EmailDetail({ email, onClose, onAction, onRead, readOnly
             >
               {detail?.visto ? <Mail className="w-4 h-4" /> : <MailOpen className="w-4 h-4" />}
             </button>
-            <button
-              onClick={() => handleAction('trash')}
-              disabled={actionLoading === 'trash'}
-              className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors disabled:opacity-50"
-              title="Eliminar"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
+            {inTrash ? (
+              <>
+                <button
+                  onClick={() => handleAction('restore')}
+                  disabled={actionLoading === 'restore'}
+                  className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-primary-700 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors disabled:opacity-50"
+                  title="Restaurar"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => handleAction('delete')}
+                  disabled={actionLoading === 'delete'}
+                  className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors disabled:opacity-50"
+                  title="Eliminar definitivamente"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => handleAction('trash')}
+                disabled={actionLoading === 'trash'}
+                className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors disabled:opacity-50"
+                title="Eliminar"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
           </div>
           )}
 
