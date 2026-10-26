@@ -28,6 +28,10 @@ ai:
     url: ${AI_SERVICE_URL:http://localhost:8000}
     token: ${AI_INTERNAL_TOKEN:}
 
+chat:
+  # Mensajes recientes que se envían a la IA; los más viejos quedan como resumen corto.
+  context-window: ${CHAT_CONTEXT_WINDOW:10}
+
 # Aliases used by AuthController (@Value("${google.client-id}") etc.), resolved
 # directly from the environment so the backend does not depend on relaxed binding.
 google:

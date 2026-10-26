@@ -3,6 +3,7 @@ package com.emailfilter.controller;
 import com.emailfilter.dto.ChatRequest;
 import com.emailfilter.dto.EmailDTO;
 import com.emailfilter.service.AIServiceClient;
+import com.emailfilter.service.ChatService;
 import com.emailfilter.service.EmailEmbeddingService;
 import com.emailfilter.service.EmailService;
 import com.emailfilter.service.FilterService;
@@ -54,6 +55,7 @@ public class ChatController {
     private final FilterService filterService;
     private final WebSocketService webSocketService;
     private final EmailService emailService;
+    private final ChatService chatService;
 
     @PostMapping
     public ResponseEntity<Map<String, Object>> chat(
@@ -64,9 +66,10 @@ public class ChatController {
                 userId, request.getMessage() != null ? request.getMessage().length() : 0, request.getConversationId());
 
         long t0 = System.currentTimeMillis();
+        var conversation = chatService.resolve(userId, request.getConversationId());
         Map<String, Object> aiResponse;
         try {
-            aiResponse = aiServiceClient.chat(request.getMessage(), request.getConversationId(), request.getScope());
+            aiResponse = askAi(conversation, request);
         } catch (RuntimeException e) {
             // 429 de Groq u otra caída del servicio IA: responder sin romper con un 5xx.
             log.warn("Chat IA no disponible: {}", e.getMessage());
@@ -77,9 +80,11 @@ public class ChatController {
         long t1 = System.currentTimeMillis();
         log.info("AI service respondió en {} ms (response_len={})", (t1-t0),
                 aiResponse.get("response") instanceof String s ? s.length() : 0);
+        aiResponse.put("conversation_id", conversation.getId().toString());
 
         long t2 = System.currentTimeMillis();
         var found = processChat(userId, request.getMessage(), aiResponse, request.getScope());
+        chatService.saveTurn(conversation.getId(), request.getMessage(), String.valueOf(aiResponse.get("response")));
         long t3 = System.currentTimeMillis();
         log.info("Filtros aplicados en {} ms. emails encontrados: {}", (t3-t2), found);
 
@@ -96,11 +101,14 @@ public class ChatController {
                 userId, request.getMessage() != null ? request.getMessage().length() : 0, request.getConversationId());
 
         try {
-            var aiResponse = aiServiceClient.chat(request.getMessage(), request.getConversationId(), request.getScope());
+            var conversation = chatService.resolve(userId, request.getConversationId());
+            var aiResponse = askAi(conversation, request);
             log.info("AI service respondió (WebSocket, response_len={})",
                     aiResponse.get("response") instanceof String s ? s.length() : 0);
 
+            aiResponse.put("conversation_id", conversation.getId().toString());
             var found = processChat(userId, request.getMessage(), aiResponse, request.getScope());
+            chatService.saveTurn(conversation.getId(), request.getMessage(), String.valueOf(aiResponse.get("response")));
             log.info("emails encontrados: {}", found);
 
             log.info("=== CHAT WEBSOCKET FIN === userId={}", userId);
@@ -114,6 +122,33 @@ public class ChatController {
                             "criteria", Map.of(),
                             "conversation_id", Objects.toString(request.getConversationId(), ""))));
         }
+    }
+
+    @GetMapping("/conversation")
+    public ResponseEntity<Map<String, Object>> currentConversation(Authentication auth) {
+        var conversation = chatService.latest(getUserId(auth));
+        if (conversation.isEmpty()) {
+            return ResponseEntity.ok(Map.of("conversationId", "", "messages", List.of()));
+        }
+        return ResponseEntity.ok(conversationBody(conversation.get()));
+    }
+
+    @PostMapping("/conversation/new")
+    public ResponseEntity<Map<String, Object>> newConversation(Authentication auth) {
+        return ResponseEntity.ok(conversationBody(chatService.createNew(getUserId(auth))));
+    }
+
+    private Map<String, Object> conversationBody(com.emailfilter.model.ChatConversation conversation) {
+        var messages = chatService.history(conversation.getId()).stream()
+                .map(m -> Map.<String, Object>of("role", m.getRole(), "content", m.getContent(),
+                        "createdAt", m.getCreatedAt().toString()))
+                .toList();
+        return Map.of("conversationId", conversation.getId().toString(), "messages", messages);
+    }
+
+    private Map<String, Object> askAi(com.emailfilter.model.ChatConversation conversation, ChatRequest request) {
+        return aiServiceClient.chat(request.getMessage(), conversation.getId().toString(), request.getScope(),
+                chatService.context(conversation));
     }
 
     /**

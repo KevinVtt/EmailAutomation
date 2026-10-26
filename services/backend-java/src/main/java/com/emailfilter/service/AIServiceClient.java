@@ -59,12 +59,13 @@ public class AIServiceClient {
         return result;
     }
 
-    public Map<String, Object> chat(String message, String conversationId, Map<String, Object> scope) {
+    public Map<String, Object> chat(String message, String conversationId, Map<String, Object> scope,
+                                    List<Map<String, String>> context) {
         var headers = jsonHeaders();
         var body = new java.util.HashMap<String, Object>();
         body.put("message", message);
         body.put("conversation_id", conversationId != null ? conversationId : "");
-        body.put("context", List.of());
+        body.put("context", context != null ? context : List.of());
         if (scope != null) {
             body.put("scope", scope);
         }

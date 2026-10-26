@@ -2,7 +2,9 @@ package com.emailfilter.controller;
 
 import com.emailfilter.dto.ChatRequest;
 import com.emailfilter.dto.EmailDTO;
+import com.emailfilter.model.ChatConversation;
 import com.emailfilter.service.AIServiceClient;
+import com.emailfilter.service.ChatService;
 import com.emailfilter.service.EmailService;
 import com.emailfilter.service.FilterService;
 import com.emailfilter.service.WebSocketService;
@@ -24,7 +26,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -40,12 +44,18 @@ class ChatControllerTest {
     private WebSocketService webSocketService;
     @Mock
     private EmailService emailService;
+    @Mock
+    private ChatService chatService;
+
+    private static final UUID CONVERSATION_ID = UUID.randomUUID();
 
     private ChatController chatController;
 
     @BeforeEach
     void setUp() {
-        chatController = new ChatController(aiServiceClient, filterService, webSocketService, emailService);
+        chatController = new ChatController(aiServiceClient, filterService, webSocketService, emailService, chatService);
+        lenient().when(chatService.resolve(any(), any()))
+                .thenReturn(ChatConversation.builder().id(CONVERSATION_ID).build());
     }
 
     private ChatRequest request(String message, String conversationId) {
@@ -73,7 +83,7 @@ class ChatControllerTest {
         var auth = mock(Authentication.class);
         when(auth.getName()).thenReturn(userId.toString());
         var aiResponse = aiResponseWithCriteria();
-        when(aiServiceClient.chat(eq("hola"), eq("c1"), any())).thenReturn(aiResponse);
+        when(aiServiceClient.chat(eq("hola"), any(), any(), any())).thenReturn(aiResponse);
         when(filterService.applyAiFilters(eq(userId), anyMap(), eq(0), eq(20)))
                 .thenReturn(new PageImpl<>(List.of(EmailDTO.builder().providerEmailId("e1").build()),
                         PageRequest.of(0, 20), 1));
@@ -84,8 +94,8 @@ class ChatControllerTest {
         assertEquals(1, ((List<?>) aiResponse.get("emails")).size());
         verify(webSocketService).sendEmailsToUser(eq(userId.toString()), any());
         verify(webSocketService).sendChatResponse(eq(userId.toString()), any());
-        // El contrato del AI service no se muta.
-        assertEquals("c1", aiResponse.get("conversation_id"));
+        // El id real de la conversación reemplaza al que devuelve la IA.
+        assertEquals(CONVERSATION_ID.toString(), aiResponse.get("conversation_id"));
         assertEquals("ok", aiResponse.get("response"));
     }
 
@@ -94,11 +104,29 @@ class ChatControllerTest {
         var userId = UUID.randomUUID();
         var auth = mock(Authentication.class);
         when(auth.getName()).thenReturn(userId.toString());
-        when(aiServiceClient.chat(eq("hola"), eq("c1"), any())).thenThrow(new RuntimeException("AI caída"));
+        when(aiServiceClient.chat(eq("hola"), any(), any(), any())).thenThrow(new RuntimeException("AI caída"));
 
         chatController.handleWebSocketChat(auth, request("hola", "c1"));
 
         verify(webSocketService).sendChatResponse(eq(userId.toString()), any());
+    }
+
+    @Test
+    void chat_sendsContextToAiAndSavesTheTurnInTheResolvedConversation() {
+        var userId = UUID.randomUUID();
+        var auth = mock(Authentication.class);
+        when(auth.getName()).thenReturn(userId.toString());
+        var context = List.of(Map.of("role", "user", "content", "mails de factura"));
+        when(chatService.context(any())).thenReturn(context);
+        when(aiServiceClient.chat(eq("hola"), eq(CONVERSATION_ID.toString()), any(), eq(context)))
+                .thenReturn(aiResponseWithCriteria());
+        when(filterService.applyAiFilters(eq(userId), anyMap(), eq(0), eq(20)))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
+
+        var response = chatController.chat(auth, request("hola", null));
+
+        assertEquals(CONVERSATION_ID.toString(), response.getBody().get("conversation_id"));
+        verify(chatService).saveTurn(eq(CONVERSATION_ID), eq("hola"), anyString());
     }
 
     @Test
@@ -109,7 +137,7 @@ class ChatControllerTest {
         var aiResponse = new HashMap<String, Object>();
         aiResponse.put("response", "ok");
         aiResponse.put("criteria", Map.of("dateFrom", "ayer", "label", "IMPORTANT"));
-        when(aiServiceClient.chat(eq("hola"), eq("c1"), any())).thenReturn(aiResponse);
+        when(aiServiceClient.chat(eq("hola"), any(), any(), any())).thenReturn(aiResponse);
         when(filterService.applyAiFilters(eq(userId), anyMap(), eq(0), eq(20)))
                 .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
 
@@ -127,7 +155,7 @@ class ChatControllerTest {
         var auth = mock(Authentication.class);
         when(auth.getName()).thenReturn(userId.toString());
         var aiResponse = aiResponseWithCriteria();
-        when(aiServiceClient.chat(eq("hola"), eq("c1"), any())).thenReturn(aiResponse);
+        when(aiServiceClient.chat(eq("hola"), any(), any(), any())).thenReturn(aiResponse);
         when(filterService.applyAiFilters(eq(userId), anyMap(), eq(0), eq(20)))
                 .thenReturn(new PageImpl<>(List.of(EmailDTO.builder().providerEmailId("e1").build()),
                         PageRequest.of(0, 20), 1));
@@ -149,7 +177,7 @@ class ChatControllerTest {
         aiResponse.put("response", "ok");
         aiResponse.put("criteria", Map.of("bodyContains", "steam"));
         aiResponse.put("conversation_id", "c1");
-        when(aiServiceClient.chat(eq("hola"), eq("c1"), any())).thenReturn(aiResponse);
+        when(aiServiceClient.chat(eq("hola"), any(), any(), any())).thenReturn(aiResponse);
         when(filterService.applyAiFilters(eq(userId), anyMap(), eq(0), eq(20)))
                 .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
 
@@ -176,7 +204,7 @@ class ChatControllerTest {
         var auth = mock(Authentication.class);
         when(auth.getName()).thenReturn(userId.toString());
         var aiResponse = aiResponseWithCriteria();
-        when(aiServiceClient.chat(eq("hola"), eq("c1"), any())).thenReturn(aiResponse);
+        when(aiServiceClient.chat(eq("hola"), any(), any(), any())).thenReturn(aiResponse);
         when(filterService.applyAiFilters(eq(userId), anyMap(), eq(0), eq(20)))
                 .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
 
