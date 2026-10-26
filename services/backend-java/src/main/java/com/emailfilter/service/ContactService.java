@@ -39,12 +39,36 @@ public class ContactService {
     @Transactional
     public EmailContactDTO update(UUID userId, UUID contactId, ContactPatchDTO patch) {
         var contact = findOwned(userId, contactId);
+        applyFields(contact, patch);
+        return toDTO(contactRepository.save(contact));
+    }
 
-        // null means "not touched"; an empty string is the user clearing the field.
+    // null means "not touched"; an empty string is the user clearing the field.
+    private static void applyFields(EmailContact contact, ContactPatchDTO patch) {
+        if (patch.getDisplayName() != null) contact.setDisplayName(patch.getDisplayName());
+        if (patch.getPhone() != null) contact.setPhone(patch.getPhone());
         if (patch.getCompany() != null) contact.setCompany(patch.getCompany());
         if (patch.getTopic() != null) contact.setTopic(patch.getTopic());
         if (patch.getNotes() != null) contact.setNotes(patch.getNotes());
+    }
+
+    /** Alta manual. Si la dirección ya existe (oculta o no) la reusa: no duplica la fila. */
+    @Transactional
+    public EmailContactDTO create(UUID userId, ContactPatchDTO fields, String address) {
+        var normalized = normalizeAddress(address);
+        if (normalized == null) throw new IllegalArgumentException("invalid address");
+        var contact = findOrCreate(userId, normalized);
+        contact.setHidden(false);
+        applyFields(contact, fields);
         return toDTO(contactRepository.save(contact));
+    }
+
+    /** Borrado lógico: rebuildInbound volvería a crear la fila desde los mails. */
+    @Transactional
+    public void delete(UUID userId, UUID contactId) {
+        var contact = findOwned(userId, contactId);
+        contact.setHidden(true);
+        contactRepository.save(contact);
     }
 
     public EmailContact findOwned(UUID userId, UUID contactId) {
@@ -202,6 +226,7 @@ public class ContactService {
                 .id(c.getId())
                 .address(c.getAddress())
                 .displayName(c.getDisplayName())
+                .phone(c.getPhone())
                 .company(c.getCompany())
                 .topic(c.getTopic())
                 .notes(c.getNotes())

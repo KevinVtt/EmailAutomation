@@ -40,6 +40,21 @@ public class ContactController {
         return ResponseEntity.ok(contactService.update(getUserId(auth), id, patch));
     }
 
+    /** Alta manual: {@code address} obligatorio dentro del cuerpo además de los campos de la ficha. */
+    @PostMapping
+    public ResponseEntity<EmailContactDTO> create(
+            Authentication auth,
+            @RequestParam String address,
+            @Valid @RequestBody ContactPatchDTO fields) {
+        return ResponseEntity.ok(contactService.create(getUserId(auth), fields, address));
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(Authentication auth, @PathVariable UUID id) {
+        contactService.delete(getUserId(auth), id);
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping("/{id}/draft")
     public ResponseEntity<Map<String, Object>> draft(
             Authentication auth,

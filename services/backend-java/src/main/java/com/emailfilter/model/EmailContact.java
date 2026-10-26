@@ -37,6 +37,13 @@ public class EmailContact {
     @Column(columnDefinition = "TEXT")
     private String notes;
 
+    @Column(length = 50)
+    private String phone;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean hidden = false;
+
     @Column(name = "sent_count", nullable = false)
     @Builder.Default
     private int sentCount = 0;

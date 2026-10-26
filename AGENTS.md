@@ -165,7 +165,9 @@ WebSocket: connect /ws (SockJS)
                           (lastSync permite distinguir COMPLETED de FAILED; no confiar solo en syncing=false)
 Contacts:  Backend → UI   GET /api/contacts?limit=20 →
                           [{id, address, displayName, company, topic, notes, sentCount, receivedCount, lastActivityAt}]
-                          PATCH /api/contacts/{id} {company, topic, notes}
+                          PATCH /api/contacts/{id} {displayName?, phone?, company, topic, notes}
+                          POST  /api/contacts?address= {displayName?, phone?, company?, topic?, notes?} → alta manual
+                          DELETE /api/contacts/{id} → 204 (borrado lógico: hidden=true, rebuildInbound no la recrea)
                           POST  /api/contacts/{id}/draft {instruction} → {subject, body}
                           POST  /api/contacts/{id}/enrich → {company, topic}
 Compose:   Backend → UI   POST /api/emails/compose {to, subject, body, cc?, bcc?} → {status, messageId}

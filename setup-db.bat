@@ -93,6 +93,8 @@ psql -U %POSTGRES_USER% -h %PGHOST% -p %PGPORT% -d %POSTGRES_DB% -v ON_ERROR_STO
 if errorlevel 1 ( echo ERROR en 06-email-embeddings.sql ^(¿pgvector instalado?^). & pause & exit /b 1 )
 psql -U %POSTGRES_USER% -h %PGHOST% -p %PGPORT% -d %POSTGRES_DB% -v ON_ERROR_STOP=1 -f "infrastructure\postgres\init\07-chat-conversations.sql"
 if errorlevel 1 ( echo ERROR en 07-chat-conversations.sql. & pause & exit /b 1 )
+psql -U %POSTGRES_USER% -h %PGHOST% -p %PGPORT% -d %POSTGRES_DB% -v ON_ERROR_STOP=1 -f "infrastructure\postgres\init\08-contact-manual.sql"
+if errorlevel 1 ( echo ERROR en 08-contact-manual.sql. & pause & exit /b 1 )
 
 echo.
 echo ============================================
