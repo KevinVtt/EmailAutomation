@@ -620,10 +620,20 @@ public class GmailService {
         return sendEmail(accessToken, to, subject, body, null);
     }
 
+    public String sendEmail(String accessToken, String to, List<String> cc, List<String> bcc,
+                            String subject, String body) {
+        return sendEmail(accessToken, to, subject, body, null, cc, bcc);
+    }
+
     public String sendEmail(String accessToken, String to, String subject, String body, String threadId) {
+        return sendEmail(accessToken, to, subject, body, threadId, List.of(), List.of());
+    }
+
+    private String sendEmail(String accessToken, String to, String subject, String body, String threadId,
+                             List<String> cc, List<String> bcc) {
         var gmail = buildGmailClient(accessToken);
         var raw = Base64.getUrlEncoder().withoutPadding()
-                .encodeToString(buildMimeMessage(to, subject, body).getBytes(StandardCharsets.UTF_8));
+                .encodeToString(buildMimeMessage(to, cc, bcc, subject, body).getBytes(StandardCharsets.UTF_8));
         var message = new Message().setRaw(raw);
         if (threadId != null && !threadId.isBlank()) {
             // Sin threadId Gmail abre un hilo nuevo y la respuesta queda suelta.
@@ -636,8 +646,14 @@ public class GmailService {
     }
 
     String buildMimeMessage(String to, String subject, String body) {
+        return buildMimeMessage(to, List.of(), List.of(), subject, body);
+    }
+
+    String buildMimeMessage(String to, List<String> cc, List<String> bcc, String subject, String body) {
         return "From: me\r\n"
                 + "To: " + to + "\r\n"
+                + (cc.isEmpty() ? "" : "Cc: " + String.join(", ", cc) + "\r\n")
+                + (bcc.isEmpty() ? "" : "Bcc: " + String.join(", ", bcc) + "\r\n")
                 + "Subject: " + encodeHeader(subject) + "\r\n"
                 + "Content-Type: text/plain; charset=UTF-8\r\n"
                 + "\r\n"

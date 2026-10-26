@@ -1516,7 +1516,8 @@ class EmailServiceTest {
                 .build();
         when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
                 .thenReturn(Optional.of(token));
-        when(gmailService.sendEmail("test-access-token", "a@x.com", "Asunto", "Cuerpo")).thenReturn("m1");
+        when(gmailService.sendEmail("test-access-token", "a@x.com", List.of(), List.of(), "Asunto", "Cuerpo"))
+                .thenReturn("m1");
 
         var result = emailService.composeAndSend(user,
                 com.emailfilter.dto.ComposeRequest.builder()
@@ -1525,6 +1526,25 @@ class EmailServiceTest {
         assertEquals("sent", result.get("status"));
         verify(contactService).upsertSent(userId, "a@x.com");
         verify(webSocketService).sendNotification(userId.toString(), "emails_changed");
+    }
+
+    @Test
+    void composeAndSend_passesCcAndBccAndRejectsInvalidAddresses() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).provider("google").build();
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
+                .thenReturn(Optional.of(OAuthToken.builder().accessToken("test-access-token")
+                        .expiresAt(Instant.now().plusSeconds(3600)).build()));
+        when(gmailService.sendEmail("test-access-token", "a@x.com", List.of("c@x.com", "d@x.com"),
+                List.of("b@x.com"), "Asunto", "Cuerpo")).thenReturn("m1");
+
+        emailService.composeAndSend(user, com.emailfilter.dto.ComposeRequest.builder()
+                .to("a@x.com").cc("c@x.com, d@x.com").bcc("b@x.com").subject("Asunto").body("Cuerpo").build());
+
+        var bad = com.emailfilter.dto.ComposeRequest.builder()
+                .to("a@x.com").cc("c@x.com,\r\nBcc: evil@x.com").subject("Asunto").body("Cuerpo").build();
+        assertThrows(IllegalArgumentException.class, () -> emailService.composeAndSend(user, bad));
+        verify(gmailService, times(1)).sendEmail(eq("test-access-token"), eq("a@x.com"), any(), any(), any(), any());
     }
 
     @Test
@@ -1538,7 +1558,7 @@ class EmailServiceTest {
         when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
                 .thenReturn(Optional.of(token));
         doThrow(new RuntimeException("boom"))
-                .when(gmailService).sendEmail("test-access-token", "a@x.com", "Asunto", "Cuerpo");
+                .when(gmailService).sendEmail("test-access-token", "a@x.com", List.of(), List.of(), "Asunto", "Cuerpo");
 
         assertThrows(RuntimeException.class, () -> emailService.composeAndSend(user,
                 com.emailfilter.dto.ComposeRequest.builder()

@@ -965,12 +965,14 @@ public class EmailService {
         // El token y el envío están fuera de transacción: Gmail puede dormir en un retry
         // y no debe sostener una conexión del pool.
         var provider = user.getProvider();
+        var cc = parseAddressList(request.getCc());
+        var bcc = parseAddressList(request.getBcc());
         var token = getToken(user, provider);
         String messageId;
         if ("google".equals(provider)) {
-            messageId = gmailService.sendEmail(token, request.getTo(), request.getSubject(), request.getBody());
+            messageId = gmailService.sendEmail(token, request.getTo(), cc, bcc, request.getSubject(), request.getBody());
         } else if ("outlook".equals(provider)) {
-            messageId = outlookService.sendEmail(token, request.getTo(), request.getSubject(), request.getBody());
+            messageId = outlookService.sendEmail(token, request.getTo(), cc, bcc, request.getSubject(), request.getBody());
         } else {
             throw new IllegalArgumentException("Unsupported provider: " + provider);
         }
@@ -979,6 +981,23 @@ public class EmailService {
         recordSent(user, provider, messageId, request.getTo(), request.getSubject(), request.getBody());
         webSocketService.sendNotification(user.getId().toString(), "emails_changed");
         return Map.of("status", "sent", "messageId", messageId != null ? messageId : "");
+    }
+
+    private static final java.util.regex.Pattern ADDRESS = java.util.regex.Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
+
+    /** Lista "a@x.com, b@y.com" → direcciones validadas. Vacío o nulo → lista vacía. */
+    static List<String> parseAddressList(String raw) {
+        if (raw == null || raw.isBlank()) return List.of();
+        var addresses = new java.util.ArrayList<String>();
+        for (var part : raw.split(",")) {
+            var address = part.trim();
+            if (address.isEmpty()) continue;
+            if (!ADDRESS.matcher(address).matches()) {
+                throw new IllegalArgumentException("invalid address: " + address);
+            }
+            addresses.add(address);
+        }
+        return addresses;
     }
 
     public Map<String, Object> bulkAction(User user, BulkActionRequest request) {

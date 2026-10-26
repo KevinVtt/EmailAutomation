@@ -19,6 +19,15 @@ public class ComposeRequest {
     @Pattern(regexp = "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", message = "invalid address")
     private String to;
 
+    // Lista separada por comas; cada dirección se valida en EmailService antes de enviar.
+    @Size(max = 2000)
+    @Pattern(regexp = "^[^\\r\\n]*$", message = "cc cannot contain line breaks")
+    private String cc;
+
+    @Size(max = 2000)
+    @Pattern(regexp = "^[^\\r\\n]*$", message = "bcc cannot contain line breaks")
+    private String bcc;
+
     @NotBlank
     @Size(max = 998)
     @Pattern(regexp = "^[^\\r\\n]*$", message = "subject cannot contain line breaks")

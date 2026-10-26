@@ -297,6 +297,16 @@ class GmailServiceTest {
     }
 
     @Test
+    void buildMimeMessage_addsCcAndBccHeadersOnlyWhenPresent() {
+        var mime = gmailService.buildMimeMessage("to@example.com", java.util.List.of("c@example.com"),
+                java.util.List.of("b@example.com"), "Hola", "Cuerpo");
+
+        assertTrue(mime.contains("Cc: c@example.com\r\n"));
+        assertTrue(mime.contains("Bcc: b@example.com\r\n"));
+        assertFalse(gmailService.buildMimeMessage("to@example.com", "Hola", "Cuerpo").contains("Cc:"));
+    }
+
+    @Test
     void sendEmail_encodesMimeAndCallsSend() throws Exception {
         var sendRequest = mock(Gmail.Users.Messages.Send.class);
         when(gmail.users().messages().send(eq("me"), any(Message.class))).thenReturn(sendRequest);
