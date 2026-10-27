@@ -115,9 +115,13 @@ export default function EmailListView({
   // Tras mover, restaurar o borrar, el mail sale de esta vista: hay que sacarlo de la lista o
   // sigue visible hasta el próximo fetch.
   const handleEmailAction = useCallback((actionType) => {
-    if (!['trash', 'restore', 'delete'].includes(actionType) || !selectedEmail) return;
+    if (actionType.endsWith(':failed')) {
+      fetchEmails(page);
+      return;
+    }
+    if (!['trash', 'restore', 'delete', 'unspam'].includes(actionType) || !selectedEmail) return;
     setEmails(prev => prev.filter(e => e.id !== selectedEmail.id));
-  }, [selectedEmail]);
+  }, [selectedEmail, fetchEmails, page]);
 
   const handleCloseDetail = useCallback(() => {
     setSelectedEmail(null);

@@ -63,7 +63,8 @@ Browser (React) ── REST /api/** + WebSocket /ws ──► Java Backend (8080
   `sync_jobs` is purged daily by `SyncJobService.purgeOldJobs`.
 - Papelera: mover a papelera conserva la fila y le pone label `TRASH` (en Gmail también); la history sync marca/desmarca
   `TRASH` (`GmailHistoryChanges.trashedIds/untrashedIds`), y solo `messagesDeleted` borra la fila. `deleteForeverEmail`
-  rechaza mails fuera de la papelera (400). Borrado definitivo en Gmail (`messages.delete`) exige el scope
+  acepta mails en la papelera o en spam (400 en el resto); `unspam` (solo Gmail) quita `SPAM` y lo devuelve a INBOX.
+  Borrado definitivo en Gmail (`messages.delete`) exige el scope
   `https://mail.google.com/`, que hoy NO se pide: sin ese scope responde 403 y la fila local no se borra.
 - Importantes: `email_messages.is_important` (sql 09) lo pone `notifyUrgentEmails` cuando la IA da urgencia `high`
   (solo mails nuevos del sync incremental). El filtro `important` = label `IMPORTANT` OR `is_important`.

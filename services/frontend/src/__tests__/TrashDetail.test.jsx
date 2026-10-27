@@ -50,3 +50,37 @@ describe('EmailDetail in the trash', () => {
     expect(api.emails.action).toHaveBeenCalledWith('google', 'g1', 'restore');
   });
 });
+
+describe('EmailDetail in spam', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.emails.get.mockResolvedValue({ ...base, labels: 'SPAM', isStarred: false });
+    api.emails.action.mockResolvedValue({});
+  });
+
+  it('offers to remove it from spam and to delete it forever', async () => {
+    const onAction = vi.fn();
+    render(<EmailDetail email={{ ...base, labels: 'SPAM' }} onClose={() => {}} onAction={onAction} />);
+
+    expect(await screen.findByTitle('Quitar de spam')).toBeTruthy();
+    expect(screen.getByTitle('Eliminar definitivamente')).toBeTruthy();
+    expect(screen.queryByTitle('Eliminar')).toBeNull();
+
+    fireEvent.click(screen.getByTitle('Quitar de spam'));
+
+    await waitFor(() => expect(onAction).toHaveBeenCalledWith('unspam'));
+    expect(api.emails.action).toHaveBeenCalledWith('google', 'g1', 'unspam');
+  });
+
+  it('lists the mail immediately and refetches when the provider fails', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValueOnce(true);
+    api.emails.action.mockRejectedValueOnce(new Error('403'));
+    const onAction = vi.fn();
+    render(<EmailDetail email={{ ...base, labels: 'SPAM' }} onClose={() => {}} onAction={onAction} />);
+
+    fireEvent.click(await screen.findByTitle('Eliminar definitivamente'));
+
+    expect(onAction).toHaveBeenCalledWith('delete');
+    await waitFor(() => expect(onAction).toHaveBeenCalledWith('delete:failed'));
+  });
+});

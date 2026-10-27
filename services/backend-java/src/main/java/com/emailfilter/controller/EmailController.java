@@ -128,6 +128,7 @@ public class EmailController {
             case "unstar" -> emailService.toggleStar(user, provider, emailId, false);
             case "trash" -> emailService.moveToTrash(user, provider, emailId);
             case "restore" -> emailService.restoreEmail(user, provider, emailId);
+            case "unspam" -> emailService.unspamEmail(user, provider, emailId);
             case "delete" -> emailService.deleteForeverEmail(user, provider, emailId);
             default -> throw new IllegalArgumentException("Unknown action: " + actionType);
         }

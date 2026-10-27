@@ -1412,12 +1412,23 @@ public class EmailService {
         restoreOnly(user, provider, emailId);
     }
 
+    /** Saca el mail de spam (solo Gmail): le quita la etiqueta SPAM y lo devuelve a la bandeja. */
+    public void unspamEmail(User user, String provider, String emailId) {
+        if (!"google".equals(provider)) {
+            throw new IllegalArgumentException("Quitar de spam solo está disponible en Gmail");
+        }
+        gmailService.unspam(getToken(user, provider), emailId);
+        setLabel(user.getId(), emailId, "SPAM", false);
+        log.info("Email {} removed from spam for user={}", emailId, user.getId());
+    }
+
     public void deleteForeverEmail(User user, String provider, String emailId) {
-        boolean inTrash = emailRepository.findByProviderEmailIdAndUserId(emailId, user.getId())
-                .map(e -> containsLabelToken(e.getLabels(), "TRASH"))
+        // Definitivo solo desde papelera o spam: el resto de los mails se mueve a papelera primero.
+        boolean allowed = emailRepository.findByProviderEmailIdAndUserId(emailId, user.getId())
+                .map(e -> containsLabelToken(e.getLabels(), "TRASH") || containsLabelToken(e.getLabels(), "SPAM"))
                 .orElse(true);
-        if (!inTrash) {
-            throw new IllegalArgumentException("Solo se puede eliminar definitivamente desde la papelera");
+        if (!allowed) {
+            throw new IllegalArgumentException("Solo se puede eliminar definitivamente desde la papelera o spam");
         }
         deleteForever(user, provider, emailId);
     }
@@ -1468,10 +1479,14 @@ public class EmailService {
     }
 
     private void setTrashLabel(UUID userId, String providerEmailId, boolean trashed) {
+        setLabel(userId, providerEmailId, "TRASH", trashed);
+    }
+
+    private void setLabel(UUID userId, String providerEmailId, String token, boolean present) {
         emailRepository.findByProviderEmailIdAndUserId(providerEmailId, userId).ifPresent(email -> {
-            email.setLabels(trashed
-                    ? addLabelToken(email.getLabels(), "TRASH")
-                    : removeLabelToken(email.getLabels(), "TRASH"));
+            email.setLabels(present
+                    ? addLabelToken(email.getLabels(), token)
+                    : removeLabelToken(email.getLabels(), token));
             emailRepository.save(email);
         });
     }

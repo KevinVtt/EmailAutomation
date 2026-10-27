@@ -1209,6 +1209,45 @@ class EmailServiceTest {
         verify(gmailService, never()).deleteForever(any(), any());
     }
 
+    @Test
+    void deleteForeverEmail_allowsAMailInSpam() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var email = EmailMessage.builder().providerEmailId("msg-1").labels("INBOX,SPAM").user(user).build();
+        var token = OAuthToken.builder()
+                .accessToken("t")
+                .expiresAt(Instant.now().plusSeconds(3600))
+                .build();
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
+                .thenReturn(Optional.of(token));
+        when(emailRepository.findByProviderEmailIdAndUserId("msg-1", userId)).thenReturn(Optional.of(email));
+
+        emailService.deleteForeverEmail(user, "google", "msg-1");
+
+        verify(gmailService).deleteForever("t", "msg-1");
+        verify(emailRepository).deleteByUserIdAndProviderEmailIdIn(userId, List.of("msg-1"));
+    }
+
+    @Test
+    void unspamEmail_removesTheSpamLabelAndKeepsTheMail() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var email = EmailMessage.builder().providerEmailId("msg-1").labels("INBOX,SPAM,UNREAD").user(user).build();
+        var token = OAuthToken.builder()
+                .accessToken("t")
+                .expiresAt(Instant.now().plusSeconds(3600))
+                .build();
+        when(oauthTokenRepository.findFirstByUserIdAndProviderOrderByCreatedAtDesc(userId, "google"))
+                .thenReturn(Optional.of(token));
+        when(emailRepository.findByProviderEmailIdAndUserId("msg-1", userId)).thenReturn(Optional.of(email));
+
+        emailService.unspamEmail(user, "google", "msg-1");
+
+        verify(gmailService).unspam("t", "msg-1");
+        verify(emailRepository).save(argThat(saved -> "INBOX,UNREAD".equals(saved.getLabels())));
+        verify(emailRepository, never()).deleteByUserIdAndProviderEmailIdIn(any(), any());
+    }
+
     /**
      * Si Gmail falla por cuota/red (transitorio), la fila local NO se borra: el
      * mail sigue existiendo en Gmail y el usuario puede reintentar.

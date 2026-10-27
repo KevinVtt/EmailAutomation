@@ -46,6 +46,7 @@ function formatSize(bytes) {
 
 export default function EmailDetail({ email, onClose, onAction, onRead, readOnly = false }) {
   const inTrash = (email?.labels || '').split(',').includes('TRASH');
+  const inSpam = (email?.labels || '').split(',').includes('SPAM');
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
@@ -110,6 +111,17 @@ export default function EmailDetail({ email, onClose, onAction, onRead, readOnly
   const handleAction = useCallback(async (actionType) => {
     if (!email || actionLoading) return;
     if (actionType === 'delete' && !window.confirm('¿Eliminar definitivamente este mail? No se puede deshacer.')) return;
+    if (['trash', 'restore', 'delete', 'unspam'].includes(actionType)) {
+      // Optimista: la lista y el detalle reaccionan ya; si el proveedor falla, se avisa y se revierte.
+      onAction?.(actionType);
+      onClose?.();
+      api.emails.action(email.provider, email.providerEmailId, actionType)
+        .catch((err) => {
+          console.error('Action failed:', err);
+          onAction?.(`${actionType}:failed`);
+        });
+      return;
+    }
     setActionLoading(actionType);
     try {
       await api.emails.action(email.provider, email.providerEmailId, actionType);
@@ -207,13 +219,13 @@ export default function EmailDetail({ email, onClose, onAction, onRead, readOnly
             >
               {detail?.visto ? <Mail className="w-4 h-4" /> : <MailOpen className="w-4 h-4" />}
             </button>
-            {inTrash ? (
+            {inTrash || inSpam ? (
               <>
                 <button
-                  onClick={() => handleAction('restore')}
-                  disabled={actionLoading === 'restore'}
+                  onClick={() => handleAction(inTrash ? 'restore' : 'unspam')}
+                  disabled={actionLoading === 'restore' || actionLoading === 'unspam'}
                   className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-primary-700 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors disabled:opacity-50"
-                  title="Restaurar"
+                  title={inTrash ? 'Restaurar' : 'Quitar de spam'}
                 >
                   <RotateCcw className="w-4 h-4" />
                 </button>

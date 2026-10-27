@@ -510,6 +510,11 @@ public class GmailService {
         modifyMessage(accessToken, messageId, List.of(), List.of("TRASH"));
     }
 
+    /** Quita el mail de spam: le saca la etiqueta SPAM y lo devuelve a la bandeja. */
+    public void unspam(String accessToken, String messageId) {
+        modifyMessage(accessToken, messageId, List.of("INBOX"), List.of("SPAM"));
+    }
+
     /** Borrado definitivo (el mail ya no se puede recuperar). */
     public void deleteForever(String accessToken, String messageId) {
         var gmail = buildGmailClient(accessToken);
