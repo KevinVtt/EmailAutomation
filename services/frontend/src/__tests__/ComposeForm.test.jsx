@@ -29,6 +29,9 @@ describe('ComposeForm', () => {
   beforeEach(() => {
     localStorage.setItem('accessToken', 'test-token');
     global.fetch = vi.fn((url) => {
+      if (String(url).includes('/api/contacts?')) {
+        return Promise.resolve(jsonResponse([]));
+      }
       if (String(url).includes('/draft')) {
         return Promise.resolve(jsonResponse({ subject: 'Factura de octubre', body: 'Hola Ana' }));
       }
@@ -48,6 +51,22 @@ describe('ComposeForm', () => {
 
     await waitFor(() => expect(screen.getByLabelText(/Asunto/i).value).toBe('Factura de octubre'));
     expect(screen.getByLabelText(/Cuerpo/i).value).toBe('Hola Ana');
+  });
+
+  it('drafts with the AI in the global composer, without a contact', async () => {
+    render(<ComposeForm />);
+
+    fireEvent.change(screen.getByLabelText('Para'), { target: { value: 'b@x.com' } });
+    fireEvent.change(screen.getByLabelText(/Qué le querés decir/i), {
+      target: { value: 'confirmar la reunión del lunes' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Redactar con IA/i }));
+
+    await waitFor(() => expect(callsTo('/api/emails/compose/draft')).toHaveLength(1));
+    expect(JSON.parse(callsTo('/api/emails/compose/draft')[0][1].body).instruction)
+      .toBe('confirmar la reunión del lunes');
+    await waitFor(() => expect(screen.getByLabelText(/Asunto/i).value).toBe('Factura de octubre'));
+    expect(global.fetch.mock.calls.some(([url]) => String(url).endsWith('/api/emails/compose'))).toBe(false);
   });
 
   it('does not send anything until the confirmation is accepted', async () => {

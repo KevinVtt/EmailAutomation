@@ -29,9 +29,13 @@ export default function ComposeForm({ contact, onBack }) {
 
   const draft = async () => {
     setError('');
+    // Reemplazar texto ya escrito se confirma: el borrador del usuario no se pierde sin aviso.
+    if (body.trim() && !window.confirm('¿Reemplazar el asunto y el cuerpo con el borrador de la IA?')) return;
     setDrafting(true);
     try {
-      const result = await api.contacts.draft(contact.id, instruction, tone);
+      const result = contact
+        ? await api.contacts.draft(contact.id, instruction, tone)
+        : await api.emails.composeDraft({ instruction, subject, tone });
       if (result?.subject) setSubject(result.subject);
       if (result?.body) setBody(result.body);
     } catch {
@@ -152,7 +156,6 @@ export default function ComposeForm({ contact, onBack }) {
         </div>
       )}
 
-      {contact && (
       <div className="flex gap-1">
         <input
           type="text"
@@ -173,10 +176,7 @@ export default function ComposeForm({ contact, onBack }) {
           Redactar con IA
         </button>
       </div>
-      )}
 
-      {contact && (
-      <>
       <label htmlFor="compose-tone" className="text-xs text-gray-600 dark:text-gray-300">
         Tono
       </label>
@@ -190,8 +190,6 @@ export default function ComposeForm({ contact, onBack }) {
           <option key={t.id} value={t.id}>{t.label}</option>
         ))}
       </select>
-      </>
-      )}
 
       <label htmlFor="compose-subject" className="text-xs text-gray-600 dark:text-gray-300">
         Asunto

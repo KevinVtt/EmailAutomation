@@ -204,6 +204,11 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ to, cc, bcc, subject, body }),
       }),
+    composeDraft: ({ instruction, subject, tone }) =>
+      request('/api/emails/compose/draft', {
+        method: 'POST',
+        body: JSON.stringify({ instruction, subject, tone }),
+      }),
   },
   contacts: {
     list: (limit = 20) =>

@@ -305,6 +305,34 @@ public class EmailController {
         return ResponseEntity.ok(emailService.composeAndSend(user, request));
     }
 
+    /** Borrador con IA para el modal global "Redactar" (sin contacto). Devuelve asunto y cuerpo; nunca envía. */
+    @PostMapping("/compose/draft")
+    public ResponseEntity<Map<String, Object>> draftCompose(
+            Authentication auth,
+            @RequestBody Map<String, Object> request) {
+        var userId = getUserId(auth);
+        var user = userDetailsService.loadUserEntityById(userId);
+        var raw = request.get("instruction");
+        var instruction = raw == null ? "" : String.valueOf(raw).trim();
+        if (instruction.isEmpty() || instruction.length() > 1000) {
+            return ResponseEntity.badRequest().build();
+        }
+        var draft = aiServiceClient.compose(
+                instruction,
+                "",
+                "",
+                "",
+                "",
+                java.util.List.of(),
+                request.get("subject") == null ? "" : String.valueOf(request.get("subject")),
+                request.get("tone") == null ? null : String.valueOf(request.get("tone")),
+                null,
+                user.getName());
+        return ResponseEntity.ok(Map.of(
+                "subject", draft != null ? String.valueOf(draft.getOrDefault("subject", "")) : "",
+                "body", draft != null ? String.valueOf(draft.getOrDefault("body", "")) : ""));
+    }
+
     private UUID getUserId(Authentication auth) {
         return UUID.fromString(auth.getName());
     }
