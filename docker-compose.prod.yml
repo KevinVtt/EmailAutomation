@@ -19,7 +19,8 @@ services:
       - frontend
 
   postgres:
-    image: postgres:16-alpine
+    # pgvector: la 06 usa CREATE EXTENSION vector y columnas vector(384). postgres:16-alpine no lo trae.
+    image: pgvector/pgvector:pg16
     container_name: emailfilter-db
     restart: unless-stopped
     mem_limit: 512m
@@ -70,8 +71,13 @@ services:
       dockerfile: Dockerfile
     container_name: emailfilter-ai
     restart: unless-stopped
-    mem_limit: 512m
+    # 1g: el modelo de embeddings (fastembed/ONNX) necesita ~500 MB además de Python.
+    mem_limit: 1g
+    mem_reservation: 512m
     environment:
+      # Cache del modelo (~220 MB, paraphrase-multilingual-MiniLM-L12-v2) en el volumen:
+      # sin esto se descarga entero en cada arranque del contenedor.
+      FASTEMBED_CACHE_PATH: /models
       AI_API_KEY: ${AI_API_KEY:?define AI_API_KEY en .env}
       AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?define AI_INTERNAL_TOKEN en .env}
       AI_API_URL: ${AI_API_URL:-https://api.groq.com/openai/v1}
@@ -79,6 +85,8 @@ services:
       AI_PROVIDER: ${AI_PROVIDER:-openai}
     expose:
       - "8000"
+    volumes:
+      - fastembed_models:/models
 
   frontend:
     build:
@@ -98,3 +106,4 @@ volumes:
   postgres_data:
   caddy_data:
   caddy_config:
+  fastembed_models:
