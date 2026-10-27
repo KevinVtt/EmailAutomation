@@ -118,6 +118,8 @@ export default function EmailDetail({ email, onClose, onAction, onRead, readOnly
       api.emails.action(email.provider, email.providerEmailId, actionType)
         .catch((err) => {
           console.error('Action failed:', err);
+          // La fila vuelve sola (refetch); sin este aviso el fallo del proveedor era invisible.
+          window.alert(err?.message || 'No se pudo completar la acción en el correo.');
           onAction?.(`${actionType}:failed`);
         });
       return;

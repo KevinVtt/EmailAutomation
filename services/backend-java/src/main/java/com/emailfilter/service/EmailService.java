@@ -1471,6 +1471,12 @@ public class EmailService {
             if ("google".equals(provider)) gmailService.deleteForever(token, emailId);
             else outlookService.deleteForever(token, emailId);
         } catch (PermanentApiException e) {
+            if (e.getStatusCode() == 403) {
+                // Sin el permiso mail.google.com Gmail no permite el borrado definitivo.
+                throw new PermanentApiException(
+                        "Gmail rechazó el borrado definitivo: falta el permiso mail.google.com. "
+                                + "Cerrá sesión y volvé a entrar para autorizarlo.", e, 403);
+            }
             if (e.getStatusCode() != 404 && e.getStatusCode() != 410) throw e;
         }
         emailRepository.deleteByUserIdAndProviderEmailIdIn(user.getId(), List.of(emailId));

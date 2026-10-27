@@ -82,7 +82,8 @@ public class AuthController {
                     "client_id=" + googleClientId +
                     "&redirect_uri=" + googleRedirectUri +
                     "&response_type=code" +
-                    "&scope=email+profile+https://www.googleapis.com/auth/gmail.readonly+https://www.googleapis.com/auth/gmail.modify+https://www.googleapis.com/auth/gmail.send" +
+                    // mail.google.com es lo único que habilita el borrado definitivo (messages.delete).
+                    "&scope=email+profile+https://www.googleapis.com/auth/gmail.readonly+https://www.googleapis.com/auth/gmail.modify+https://www.googleapis.com/auth/gmail.send+https://mail.google.com/" +
                     "&access_type=offline" +
                     "&prompt=select_account+consent" +
                     "&state=" + state;

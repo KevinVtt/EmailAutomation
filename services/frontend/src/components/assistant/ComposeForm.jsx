@@ -120,7 +120,9 @@ export default function ComposeForm({ contact, onBack }) {
         </>
       ) : (
         <div>
-          <label htmlFor="compose-to" className="text-xs text-gray-600 dark:text-gray-300">Para</label>
+          <label htmlFor="compose-to" className="text-xs text-gray-600 dark:text-gray-300">
+            Para <span className="text-gray-400 dark:text-gray-500">— destinatario principal</span>
+          </label>
           <input
             id="compose-to"
             type="text"
@@ -135,22 +137,26 @@ export default function ComposeForm({ contact, onBack }) {
               <option key={c.id} value={c.address}>{c.displayName || ''}</option>
             ))}
           </datalist>
-          <label htmlFor="compose-cc" className="text-xs text-gray-600 dark:text-gray-300">Cc</label>
+          <label htmlFor="compose-cc" className="text-xs text-gray-600 dark:text-gray-300">
+            Cc <span className="text-gray-400 dark:text-gray-500">— con copia: todos lo ven</span>
+          </label>
           <input
             id="compose-cc"
             type="text"
             value={cc}
             onChange={(e) => setCc(e.target.value)}
-            placeholder="Separadas por coma (opcional)"
+            placeholder="correo@ejemplo.com, otro@ejemplo.com (opcional)"
             className="input w-full text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100"
           />
-          <label htmlFor="compose-bcc" className="text-xs text-gray-600 dark:text-gray-300">Cco</label>
+          <label htmlFor="compose-bcc" className="text-xs text-gray-600 dark:text-gray-300">
+            Cco <span className="text-gray-400 dark:text-gray-500">— copia oculta: nadie ve estas direcciones</span>
+          </label>
           <input
             id="compose-bcc"
             type="text"
             value={bcc}
             onChange={(e) => setBcc(e.target.value)}
-            placeholder="Separadas por coma (opcional)"
+            placeholder="correo@ejemplo.com, otro@ejemplo.com (opcional)"
             className="input w-full text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100"
           />
         </div>

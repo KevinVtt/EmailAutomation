@@ -65,7 +65,8 @@ Browser (React) ── REST /api/** + WebSocket /ws ──► Java Backend (8080
   `TRASH` (`GmailHistoryChanges.trashedIds/untrashedIds`), y solo `messagesDeleted` borra la fila. `deleteForeverEmail`
   acepta mails en la papelera o en spam (400 en el resto); `unspam` (solo Gmail) quita `SPAM` y lo devuelve a INBOX.
   Borrado definitivo en Gmail (`messages.delete`) exige el scope
-  `https://mail.google.com/`, que hoy NO se pide: sin ese scope responde 403 y la fila local no se borra.
+  `https://mail.google.com/`, que ahora sí se pide al iniciar sesión; los tokens emitidos antes siguen dando 403
+  (→ 502 con mensaje) hasta cerrar sesión y volver a entrar.
 - Importantes: `email_messages.is_important` (sql 09) lo pone `notifyUrgentEmails` cuando la IA da urgencia `high`
   (solo mails nuevos del sync incremental). El filtro `important` = label `IMPORTANT` OR `is_important`.
   `GET /api/emails/stats` agrega `importantUnread`, `spamUnread`, `trashUnread` (contadores de la barra lateral).

@@ -74,6 +74,7 @@ describe('EmailDetail in spam', () => {
 
   it('lists the mail immediately and refetches when the provider fails', async () => {
     vi.spyOn(window, 'confirm').mockReturnValueOnce(true);
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
     api.emails.action.mockRejectedValueOnce(new Error('403'));
     const onAction = vi.fn();
     render(<EmailDetail email={{ ...base, labels: 'SPAM' }} onClose={() => {}} onAction={onAction} />);
@@ -82,5 +83,6 @@ describe('EmailDetail in spam', () => {
 
     expect(onAction).toHaveBeenCalledWith('delete');
     await waitFor(() => expect(onAction).toHaveBeenCalledWith('delete:failed'));
+    expect(alertSpy).toHaveBeenCalled();
   });
 });

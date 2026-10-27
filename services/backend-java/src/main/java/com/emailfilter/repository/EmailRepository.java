@@ -23,11 +23,14 @@ public interface EmailRepository extends JpaRepository<EmailMessage, UUID>,
     /**
      * Bandeja de entrada: todo menos lo etiquetado SPAM. La lista genérica
      * mostraba el spam dos veces (en Bandeja y en Spam a la vez).
+     * También excluye TRASH: la fila se conserva al mover a papelera, y sin esto
+     * el refetch que sigue a la acción volvía a mostrar el mail eliminado.
      */
     @Query("""
             SELECT e FROM EmailMessage e
             WHERE e.user.id = :userId
               AND (e.labels IS NULL OR e.labels NOT LIKE '%SPAM%')
+              AND (e.labels IS NULL OR e.labels NOT LIKE '%TRASH%')
             ORDER BY e.receivedAt DESC
             """)
     Page<EmailMessage> findInboxByUserId(@Param("userId") UUID userId, Pageable pageable);

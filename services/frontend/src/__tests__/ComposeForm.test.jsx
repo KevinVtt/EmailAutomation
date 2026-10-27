@@ -56,7 +56,7 @@ describe('ComposeForm', () => {
   it('drafts with the AI in the global composer, without a contact', async () => {
     render(<ComposeForm />);
 
-    fireEvent.change(screen.getByLabelText('Para'), { target: { value: 'b@x.com' } });
+    fireEvent.change(screen.getByLabelText(/^Para/), { target: { value: 'b@x.com' } });
     fireEvent.change(screen.getByLabelText(/Qué le querés decir/i), {
       target: { value: 'confirmar la reunión del lunes' },
     });
