@@ -941,6 +941,8 @@ public class EmailService {
 
             // Step 3: Fetch new emails in batches of 50, send progress
             int fetched = 0;
+            int saved = 0;
+            int skipped = 0;
             int batchSize = 50;
             var allSavedEmails = new ArrayList<EmailMessage>();
             for (int i = 0; i < newIds.size(); i += batchSize) {
@@ -957,7 +959,7 @@ public class EmailService {
 
                 if (!batchEmails.isEmpty()) {
                     var batchNew = new ArrayList<EmailMessage>();
-                    saveEmails(batchEmails, user, provider, batchNew);
+                    saved += saveEmails(batchEmails, user, provider, batchNew);
                     allSavedEmails.addAll(batchNew);
                     // Acotar memoria: solo conservamos los últimos 20 (los que se pasan
                     // a notifyUrgentEmails al final); en syncs largas el resto era basura.
@@ -965,6 +967,13 @@ public class EmailService {
                         allSavedEmails = new ArrayList<>(
                                 allSavedEmails.subList(allSavedEmails.size() - 20, allSavedEmails.size()));
                     }
+                }
+                // Los mails que no se pudieron bajar se descartan uno por uno en GmailService:
+                // si no se cuentan, el sync termina "verde" habiendo guardado nada.
+                if (batchEmails.size() < batch.size()) {
+                    skipped += batch.size() - batchEmails.size();
+                    log.warn("Full sync: {} of {} messages in this batch could not be fetched ({} skipped so far)",
+                            batch.size() - batchEmails.size(), batch.size(), skipped);
                 }
 
                 fetched += batch.size();
@@ -983,6 +992,12 @@ public class EmailService {
                 }
             }
 
+            if (saved == 0) {
+                // Un sync que baja 0 de N mails no puede terminar en verde: eso era el "ya está todo" falso.
+                throw new IllegalStateException("No se pudo guardar ningún mail (" + skipped + " de "
+                        + newIds.size() + " fallaron al descargarse). Revisá el log del backend.");
+            }
+
             // Tras esperas largas por cuota el token pudo vencer: se renueva antes de las etapas finales.
             accessToken = getToken(user, provider);
             refreshLabelsAndStars(user, accessToken);
@@ -993,8 +1008,8 @@ public class EmailService {
             notifyUrgentEmails(user, allSavedEmails);
             syncJobService.complete(job.getId());
 
-            log.info("Full sync complete: {} new emails saved for user={} ({} total in Gmail)",
-                    fetched, userId, totalInGmail);
+            log.info("Full sync complete: {} new emails saved for user={} ({} fetched, {} skipped, {} total in Gmail)",
+                    saved, userId, fetched, skipped, totalInGmail);
             contactsChanged = true;
             webSocketService.sendNotification(userId.toString(), "sync_complete");
 

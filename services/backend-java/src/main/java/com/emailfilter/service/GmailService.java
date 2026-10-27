@@ -280,7 +280,8 @@ public class GmailService {
                         // Un fallo de red no puede dejar el mail afuera en silencio: el cursor no debe avanzar.
                         throw e;
                     } catch (Exception e) {
-                        log.warn("Failed to fetch message {}: {}", id, e.getMessage());
+                        // Con la traza: sin el tipo real, un fallo de parseo se veía como "no se pudo bajar".
+                        log.warn("Failed to fetch message {}: {}", id, e.toString(), e);
                         return null;
                     }
                 }, detailExecutor()))
@@ -319,16 +320,20 @@ public class GmailService {
     private com.emailfilter.model.EmailMessage mapToEmail(Message full) {
         var payload = full.getPayload();
 
-        var headers = payload.getHeaders();
+        // Gmail puede devolver mensajes sin payload o sin headers (mail raro, borrador, remitente
+        // sintético). Antes eso era un NPE que descartaba el mail en silencio durante el sync.
+        var headers = payload != null && payload.getHeaders() != null
+                ? payload.getHeaders()
+                : List.<MessagePartHeader>of();
         var subject = getHeader(headers, "Subject");
         var from = getHeader(headers, "From");
         var to = getHeader(headers, "To");
         var snippet = full.getSnippet();
 
         var body = "";
-        if (payload.getParts() != null) {
+        if (payload != null && payload.getParts() != null) {
             body = getBodyFromParts(payload.getParts());
-        } else if (payload.getBody() != null && payload.getBody().getData() != null) {
+        } else if (payload != null && payload.getBody() != null && payload.getBody().getData() != null) {
             body = decodePart(payload);
         }
 
