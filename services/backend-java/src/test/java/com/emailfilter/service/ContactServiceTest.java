@@ -56,6 +56,18 @@ class ContactServiceTest {
     }
 
     @Test
+    void list_passesThePageAndKeepsTheSizeBounded() {
+        var userId = UUID.randomUUID();
+        when(contactRepository.findMostActive(eq(userId), any())).thenReturn(List.of());
+        contactService.list(userId, 200, 1);
+        verify(contactRepository).findMostActive(userId, org.springframework.data.domain.PageRequest.of(1, 100));
+        contactService.list(userId, 0, -1);
+        verify(contactRepository).findMostActive(userId, org.springframework.data.domain.PageRequest.of(0, 1));
+        contactService.list(userId, 100, Integer.MAX_VALUE);
+        verify(contactRepository).findMostActive(userId, org.springframework.data.domain.PageRequest.of(10_000, 100));
+    }
+
+    @Test
     void update_ofAContactOwnedByAnotherUser_is404() {
         var userId = UUID.randomUUID();
         var otherUser = User.builder().id(UUID.randomUUID()).build();

@@ -36,6 +36,36 @@ describe('Contacts page', () => {
     expect(screen.getByText('Bruno')).toBeTruthy();
   });
 
+  it('shows a newly created contact beyond the first 100, including after reopening', async () => {
+    const active = Array.from({ length: 100 }, (_, i) => ({ id: `active-${i}`, address: `active${i}@example.com` }));
+    const created = { id: 'new', address: 'nuevo@example.com', displayName: 'Nuevo contacto guardado' };
+    let saved = false;
+    api.contacts.list.mockImplementation(async (_limit, page = 0) => page === 0 ? active : saved ? [created] : []);
+    api.contacts.create.mockImplementation(async () => { saved = true; return created; });
+    const view = render(<Contacts />);
+    await screen.findByText('active0@example.com', { selector: 'p.font-medium' });
+    fireEvent.click(screen.getByText('Nuevo contacto'));
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: created.address } });
+    fireEvent.change(screen.getByLabelText('Nombre'), { target: { value: created.displayName } });
+    fireEvent.click(screen.getByText('Guardar'));
+    await screen.findByText(created.displayName);
+    expect(api.contacts.create).toHaveBeenCalledWith(created.address, expect.objectContaining({ displayName: created.displayName }));
+    view.unmount();
+    render(<Contacts />);
+    await screen.findByText(created.displayName);
+  });
+
+  it('stops paging when the backend ignores the page parameter', async () => {
+    let call = 0;
+    api.contacts.list.mockImplementation(async () => {
+      call += 1;
+      return Array.from({ length: 100 }, (_, i) => ({ id: `c${call}-${i}`, address: `same${i}@example.com` }));
+    });
+    render(<Contacts />);
+    await waitFor(() => expect(api.contacts.list).toHaveBeenCalledTimes(50), { timeout: 20000 });
+    expect(screen.queryByText('Cargando…')).toBeNull();
+  });
+
   it('removes a contact only after confirmation', async () => {
     api.contacts.remove.mockResolvedValue(null);
     vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);

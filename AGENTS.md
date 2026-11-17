@@ -174,7 +174,7 @@ WebSocket: connect /ws (SockJS)
                             → Dashboard refreshes counters)
            GET /api/emails/sync/status → {syncing, lastSync?: {status, mode, fetched, total, error, updatedAt}}
                           (lastSync permite distinguir COMPLETED de FAILED; no confiar solo en syncing=false)
-Contacts:  Backend → UI   GET /api/contacts?limit=20 →
+Contacts:  Backend → UI   GET /api/contacts?limit=20&page=0 →
                           [{id, address, displayName, company, topic, notes, sentCount, receivedCount, lastActivityAt}]
                           PATCH /api/contacts/{id} {displayName?, phone?, company, topic, notes}
                           POST  /api/contacts?address= {displayName?, phone?, company?, topic?, notes?} → alta manual

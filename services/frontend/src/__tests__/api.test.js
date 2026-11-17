@@ -57,6 +57,18 @@ describe('api lib', () => {
     expect(result.totalElements).toBe(0);
   });
 
+  it('contacts.list sends the page and defaults to the first page', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      text: () => Promise.resolve('[]'),
+    });
+    await api.contacts.list(100, 1);
+    expect(global.fetch.mock.calls[0][0]).toContain('/api/contacts?limit=100&page=1');
+    await api.contacts.list();
+    expect(global.fetch.mock.calls[1][0]).toContain('/api/contacts?limit=20&page=0');
+  });
+
   it('emails.filter builds query params', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,

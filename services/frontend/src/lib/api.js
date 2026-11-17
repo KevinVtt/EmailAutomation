@@ -211,8 +211,8 @@ export const api = {
       }),
   },
   contacts: {
-    list: (limit = 20) =>
-      request(`/api/contacts?limit=${limit}`),
+    list: (limit = 20, page = 0) =>
+      request(`/api/contacts?limit=${limit}&page=${page}`),
     create: (address, fields) =>
       request(`/api/contacts?address=${encodeURIComponent(address)}`, {
         method: 'POST',

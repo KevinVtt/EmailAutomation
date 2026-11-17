@@ -31,9 +31,9 @@ public class ContactService {
     private final UserRepository userRepository;
     private final TransactionTemplate transactionTemplate;
 
-    public List<EmailContactDTO> list(UUID userId, int limit) {
-        var page = PageRequest.of(0, Math.max(1, Math.min(limit, 100)));
-        return contactRepository.findMostActive(userId, page).stream().map(this::toDTO).toList();
+    public List<EmailContactDTO> list(UUID userId, int limit, int page) {
+        var pageable = PageRequest.of(Math.max(0, Math.min(page, 10_000)), Math.max(1, Math.min(limit, 100)));
+        return contactRepository.findMostActive(userId, pageable).stream().map(this::toDTO).toList();
     }
 
     @Transactional

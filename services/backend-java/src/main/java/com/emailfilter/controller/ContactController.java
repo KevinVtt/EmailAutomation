@@ -28,8 +28,9 @@ public class ContactController {
     @GetMapping
     public ResponseEntity<List<EmailContactDTO>> list(
             Authentication auth,
-            @RequestParam(defaultValue = "20") int limit) {
-        return ResponseEntity.ok(contactService.list(getUserId(auth), limit));
+            @RequestParam(defaultValue = "20") int limit,
+            @RequestParam(defaultValue = "0") int page) {
+        return ResponseEntity.ok(contactService.list(getUserId(auth), limit, page));
     }
 
     @PatchMapping("/{id}")

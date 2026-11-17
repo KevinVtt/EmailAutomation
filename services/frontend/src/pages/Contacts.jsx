@@ -55,7 +55,15 @@ export default function Contacts() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      setContacts(await api.contacts.list(100));
+      const all = [];
+      let batch;
+      let page = 0;
+      do {
+        batch = await api.contacts.list(100, page++);
+        all.push(...batch);
+      // El tope corta el bucle si el backend ignora `page` (peticiones infinitas).
+      } while (batch.length === 100 && page < 50);
+      setContacts(all);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -73,9 +81,9 @@ export default function Contacts() {
   }, [contacts, query]);
 
   const saveNew = async (address, fields) => {
-    await api.contacts.create(address, fields);
+    const created = await api.contacts.create(address, fields);
     setCreating(false);
-    await load();
+    setContacts((current) => [created, ...current]);
   };
 
   const saveEdit = async (_address, fields) => {
