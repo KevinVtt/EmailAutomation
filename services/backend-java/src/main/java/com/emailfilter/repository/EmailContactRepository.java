@@ -19,8 +19,8 @@ public interface EmailContactRepository extends JpaRepository<EmailContact, UUID
 
     @Query("""
             SELECT c FROM EmailContact c
-            WHERE c.user.id = :userId
-            ORDER BY (c.sentCount + c.receivedCount) DESC, c.lastActivityAt DESC
+            WHERE c.user.id = :userId AND c.hidden = false
+            ORDER BY (c.sentCount + c.receivedCount) DESC, c.lastActivityAt DESC, c.id ASC
             """)
     List<EmailContact> findMostActive(@Param("userId") UUID userId, Pageable pageable);
 }

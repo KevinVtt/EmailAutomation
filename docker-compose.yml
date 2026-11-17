@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: emailfilter-db
     restart: unless-stopped
     mem_limit: 512m
@@ -66,10 +66,12 @@ services:
       dockerfile: Dockerfile
     container_name: emailfilter-ai
     restart: unless-stopped
-    mem_limit: 512m
-    mem_reservation: 256m
+    # 1g: el modelo de embeddings (fastembed/ONNX) necesita ~500 MB además de Python.
+    mem_limit: 1g
+    mem_reservation: 512m
     cpus: '1.0'
     environment:
+      FASTEMBED_CACHE_PATH: /models
       AI_API_KEY: ${AI_API_KEY}
       AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?define AI_INTERNAL_TOKEN en .env}
       AI_API_URL: ${AI_API_URL:-https://api.groq.com/openai/v1}
@@ -79,6 +81,8 @@ services:
     # (http://ai-python:8000). Exponerla sería un proxy Groq sin auth.
     expose:
       - "8000"
+    volumes:
+      - fastembed_models:/models
 
   frontend:
     build:
@@ -98,3 +102,4 @@ services:
 
 volumes:
   postgres_data:
+  fastembed_models:

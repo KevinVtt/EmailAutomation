@@ -1,7 +1,11 @@
 package com.emailfilter.controller;
 
 import com.emailfilter.dto.ChatRequest;
+import com.emailfilter.dto.EmailDTO;
 import com.emailfilter.service.AIServiceClient;
+import com.emailfilter.service.ChatService;
+import com.emailfilter.service.EmailEmbeddingService;
+import com.emailfilter.service.EmailService;
 import com.emailfilter.service.FilterService;
 import com.emailfilter.service.WebSocketService;
 import jakarta.validation.Valid;
@@ -15,7 +19,11 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
+import java.text.Normalizer;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Locale;
+import java.util.regex.Pattern;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -27,9 +35,27 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ChatController {
 
+    private static final int RAG_FRAGMENTS = 8;
+    private static final int FRAGMENT_CHARS = 2000;
+    private static final int ATTACHMENT_LIMIT = 50;
+
+    private record AttachmentKind(Pattern words, List<String> extensions) {}
+
+    private static final List<AttachmentKind> ATTACHMENT_KINDS = List.of(
+            new AttachmentKind(Pattern.compile("\\b(imagen|imagenes|foto|fotos|png|jpe?g|gif)\\b"),
+                    List.of(".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")),
+            new AttachmentKind(Pattern.compile("\\b(pdf)\\b"), List.of(".pdf")),
+            new AttachmentKind(Pattern.compile("\\b(word|docx?|documento)\\b"), List.of(".doc", ".docx")),
+            new AttachmentKind(Pattern.compile("\\b(excel|planilla|xlsx?|csv)\\b"), List.of(".xls", ".xlsx", ".csv")),
+            new AttachmentKind(Pattern.compile("\\b(powerpoint|presentacion|pptx?)\\b"), List.of(".ppt", ".pptx")),
+            new AttachmentKind(Pattern.compile("\\b(zip|rar|comprimido)\\b"), List.of(".zip", ".rar", ".7z")));
+    private static final Pattern ANY_ATTACHMENT = Pattern.compile("\\b(adjuntos?|archivos?)\\b");
+
     private final AIServiceClient aiServiceClient;
     private final FilterService filterService;
     private final WebSocketService webSocketService;
+    private final EmailService emailService;
+    private final ChatService chatService;
 
     @PostMapping
     public ResponseEntity<Map<String, Object>> chat(
@@ -40,13 +66,25 @@ public class ChatController {
                 userId, request.getMessage() != null ? request.getMessage().length() : 0, request.getConversationId());
 
         long t0 = System.currentTimeMillis();
-        var aiResponse = aiServiceClient.chat(request.getMessage(), request.getConversationId(), request.getScope());
+        var conversation = chatService.resolve(userId, request.getConversationId());
+        Map<String, Object> aiResponse;
+        try {
+            aiResponse = askAi(conversation, request);
+        } catch (RuntimeException e) {
+            // 429 de Groq u otra caída del servicio IA: responder sin romper con un 5xx.
+            log.warn("Chat IA no disponible: {}", e.getMessage());
+            aiResponse = new HashMap<>();
+            aiResponse.put("response", "La IA no está disponible en este momento. Probá de nuevo en unos segundos.");
+            aiResponse.put("criteria", new HashMap<String, Object>());
+        }
         long t1 = System.currentTimeMillis();
         log.info("AI service respondió en {} ms (response_len={})", (t1-t0),
                 aiResponse.get("response") instanceof String s ? s.length() : 0);
+        aiResponse.put("conversation_id", conversation.getId().toString());
 
         long t2 = System.currentTimeMillis();
-        var found = processChat(userId, aiResponse, request.getScope());
+        var found = processChat(userId, request.getMessage(), aiResponse, request.getScope());
+        chatService.saveTurn(conversation.getId(), request.getMessage(), String.valueOf(aiResponse.get("response")));
         long t3 = System.currentTimeMillis();
         log.info("Filtros aplicados en {} ms. emails encontrados: {}", (t3-t2), found);
 
@@ -63,11 +101,14 @@ public class ChatController {
                 userId, request.getMessage() != null ? request.getMessage().length() : 0, request.getConversationId());
 
         try {
-            var aiResponse = aiServiceClient.chat(request.getMessage(), request.getConversationId(), request.getScope());
+            var conversation = chatService.resolve(userId, request.getConversationId());
+            var aiResponse = askAi(conversation, request);
             log.info("AI service respondió (WebSocket, response_len={})",
                     aiResponse.get("response") instanceof String s ? s.length() : 0);
 
-            var found = processChat(userId, aiResponse, request.getScope());
+            aiResponse.put("conversation_id", conversation.getId().toString());
+            var found = processChat(userId, request.getMessage(), aiResponse, request.getScope());
+            chatService.saveTurn(conversation.getId(), request.getMessage(), String.valueOf(aiResponse.get("response")));
             log.info("emails encontrados: {}", found);
 
             log.info("=== CHAT WEBSOCKET FIN === userId={}", userId);
@@ -83,47 +124,118 @@ public class ChatController {
         }
     }
 
+    @GetMapping("/conversation")
+    public ResponseEntity<Map<String, Object>> currentConversation(Authentication auth) {
+        var conversation = chatService.latest(getUserId(auth));
+        if (conversation.isEmpty()) {
+            return ResponseEntity.ok(Map.of("conversationId", "", "messages", List.of()));
+        }
+        return ResponseEntity.ok(conversationBody(conversation.get()));
+    }
+
+    @PostMapping("/conversation/new")
+    public ResponseEntity<Map<String, Object>> newConversation(Authentication auth) {
+        return ResponseEntity.ok(conversationBody(chatService.createNew(getUserId(auth))));
+    }
+
+    private Map<String, Object> conversationBody(com.emailfilter.model.ChatConversation conversation) {
+        var messages = chatService.history(conversation.getId()).stream()
+                .map(m -> Map.<String, Object>of("role", m.getRole(), "content", m.getContent(),
+                        "createdAt", m.getCreatedAt().toString()))
+                .toList();
+        return Map.of("conversationId", conversation.getId().toString(), "messages", messages);
+    }
+
+    private Map<String, Object> askAi(com.emailfilter.model.ChatConversation conversation, ChatRequest request) {
+        return aiServiceClient.chat(request.getMessage(), conversation.getId().toString(), request.getScope(),
+                chatService.context(conversation));
+    }
+
     /**
      * Trabajo compartido por REST y WebSocket: extrae criteria, filtra, explica
      * resultados vacíos y empuja filtered_emails + chat_response. Devuelve el total
      * de emails encontrados (los handlers lo registran con su propio logging).
      */
-    private long processChat(UUID userId, Map<String, Object> aiResponse, Map<String, Object> scope) {
+    private long processChat(UUID userId, String message, Map<String, Object> aiResponse, Map<String, Object> scope) {
         var criteria = extractCriteria(aiResponse);
         applyScope(criteria, scope);
         dropInvalidDates(criteria);
         log.info("Criteria extraídos: {}", criteria.keySet());
-        if (criteria.isEmpty()) {
-            log.info("Enviando chat_response por WebSocket a usuario {}", userId);
-            webSocketService.sendChatResponse(userId.toString(), Map.of(
-                    "type", "chat_response",
-                    "data", aiResponse
-            ));
-            return 0;
-        }
 
         var size = extractSize(criteria);
-        var emails = filterService.applyAiFilters(userId, criteria, 0, size);
-        aiResponse.put("emails", emails.getContent());
+        List<EmailDTO> emails = List.of();
+        long total = 0;
+        if (!criteria.isEmpty()) {
+            var page = filterService.applyAiFilters(userId, criteria, 0, size);
+            emails = page.getContent();
+            total = page.getTotalElements();
+        }
+        var asked = message != null && !message.isBlank() ? requestedAttachments(message) : null;
+        // Pide adjuntos: lista esos mails. Si no, búsqueda por contenido: si encuentra fragmentos, responde sobre ellos.
+        if (asked != null) {
+            emails = emailService.findByAttachments(userId, asked, ATTACHMENT_LIMIT);
+            total = emails.size();
+            aiResponse.put("response", aiResponse.get("response") + "\n\nEncontré " + total + " mails con adjuntos"
+                    + (asked.isEmpty() ? "." : " de ese tipo."));
+        } else if (message != null && !message.isBlank()) {
+            var semantic = emailService.searchSemantic(userId, message, RAG_FRAGMENTS);
+            if (semantic.isPresent()) {
+                emails = semantic.get().emails();
+                total = emails.size();
+                aiResponse.put("response", answerFromFragments(message, semantic.get().hits(), aiResponse));
+            }
+        }
+        aiResponse.put("emails", emails);
 
-        // If no emails found, enhance response with explanation
-        if (emails.getTotalElements() == 0) {
+        if (total == 0 && !criteria.isEmpty()) {
             var explanation = buildNoResultsExplanation(criteria);
             aiResponse.put("response", aiResponse.get("response") + "\n\n" + explanation);
         }
 
-        log.info("Enviando filtered_emails por WebSocket a usuario {}", userId);
-        webSocketService.sendEmailsToUser(userId.toString(), Map.of(
-                "type", "filtered_emails",
-                "emails", emails.getContent()
-        ));
+        if (!criteria.isEmpty() || !emails.isEmpty()) {
+            log.info("Enviando filtered_emails por WebSocket a usuario {}", userId);
+            webSocketService.sendEmailsToUser(userId.toString(), Map.of(
+                    "type", "filtered_emails",
+                    "emails", emails
+            ));
+        }
 
         log.info("Enviando chat_response por WebSocket a usuario {}", userId);
         webSocketService.sendChatResponse(userId.toString(), Map.of(
                 "type", "chat_response",
                 "data", aiResponse
         ));
-        return emails.getTotalElements();
+        return total;
+    }
+
+    /** Extensiones de adjunto que pide el mensaje; null si no pide adjuntos, lista vacía si pide cualquiera. */
+    private static List<String> requestedAttachments(String message) {
+        var text = Normalizer.normalize(message, Normalizer.Form.NFD).replaceAll("\\p{M}", "").toLowerCase(Locale.ROOT);
+        var extensions = new ArrayList<String>();
+        boolean asked = ANY_ATTACHMENT.matcher(text).find();
+        for (var kind : ATTACHMENT_KINDS) {
+            if (kind.words().matcher(text).find()) {
+                asked = true;
+                extensions.addAll(kind.extensions());
+            }
+        }
+        return asked ? extensions : null;
+    }
+
+    /** Redacta la respuesta solo con los fragmentos recuperados; si la IA falla, queda la respuesta original. */
+    private String answerFromFragments(String message, List<EmailEmbeddingService.ChunkHit> hits, Map<String, Object> aiResponse) {
+        var fragments = hits.stream().map(h -> Map.<String, Object>of(
+                "subject", h.subject(),
+                "sender", h.sender(),
+                "date", h.date(),
+                "content", h.content().length() > FRAGMENT_CHARS ? h.content().substring(0, FRAGMENT_CHARS) : h.content()
+        )).toList();
+        try {
+            return aiServiceClient.answer(message, fragments);
+        } catch (RuntimeException e) {
+            log.warn("Respuesta con fragmentos omitida: {}", e.getMessage());
+            return aiResponse.get("response") + "\n\nEncontré estos mails por su contenido.";
+        }
     }
 
     private Map<String, String> extractCriteria(Map<String, Object> aiResponse) {

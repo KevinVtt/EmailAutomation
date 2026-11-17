@@ -26,7 +26,7 @@ describe('ChatPanel component', () => {
   it('renders input field and send button', () => {
     render(<ChatPanel onFiltersApplied={() => {}} />);
     expect(screen.getByPlaceholderText(/Escribe un filtro/i)).toBeTruthy();
-    expect(screen.getByRole('button')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Enviar' })).toBeTruthy();
   });
 
   it('sends message and displays response', async () => {
@@ -35,7 +35,7 @@ describe('ChatPanel component', () => {
 
     const input = screen.getByPlaceholderText(/Escribe un filtro/i);
     fireEvent.change(input, { target: { value: 'Show important emails' } });
-    fireEvent.click(screen.getByRole('button'));
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
 
     await waitFor(() => {
       expect(screen.getByText('Showing important emails.')).toBeTruthy();

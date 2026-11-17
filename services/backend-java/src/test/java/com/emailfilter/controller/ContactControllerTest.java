@@ -60,12 +60,22 @@ class ContactControllerTest {
                 .sentCount(10)
                 .receivedCount(5)
                 .build();
-        when(contactService.list(UUID.fromString(USER_ID), 20)).thenReturn(List.of(contact));
+        when(contactService.list(UUID.fromString(USER_ID), 20, 0)).thenReturn(List.of(contact));
 
         mockMvc.perform(get("/api/contacts"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].address").value("juan@x.com"))
                 .andExpect(jsonPath("$[0].sentCount").value(10));
+    }
+
+    @Test
+    @WithMockUser(username = USER_ID)
+    void list_forwardsTheRequestedPage() throws Exception {
+        var contact = EmailContactDTO.builder().address("nuevo@example.com").build();
+        when(contactService.list(UUID.fromString(USER_ID), 100, 1)).thenReturn(List.of(contact));
+        mockMvc.perform(get("/api/contacts").param("limit", "100").param("page", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].address").value("nuevo@example.com"));
     }
 
     @Test

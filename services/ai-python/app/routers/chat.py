@@ -16,7 +16,9 @@ async def chat(request: ChatRequest):
                 len(request.message or ""), request.conversation_id)
     try:
         t0 = time.time()
-        result = await process_chat_message(request.message, request.conversation_id, request.scope)
+        result = await process_chat_message(
+            request.message, request.conversation_id, request.scope, request.context
+        )
         t1 = time.time()
         logger.info("=== PYTHON CHAT FIN === response_len=%d, criteria_keys=%s, conversation_id=%s, tiempo=%.0fms",
                      len(result.get("response", "")), sorted((result.get("criteria") or {}).keys()),

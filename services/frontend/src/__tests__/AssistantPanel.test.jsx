@@ -99,7 +99,7 @@ describe('AssistantPanel', () => {
 
     await waitFor(() => expect(screen.getByText('Encontré 2 mails.')).toBeTruthy());
 
-    const chatCall = global.fetch.mock.calls.find(([url]) => String(url).includes('/api/chat'));
+    const chatCall = global.fetch.mock.calls.find(([url]) => String(url) === '/api/chat');
     const payload = JSON.parse(chatCall[1].body);
     expect(payload.scope).toEqual({ folder: 'spam', criteria: { label: 'SPAM' }, description: 'Spam' });
   });
@@ -126,7 +126,7 @@ describe('AssistantPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
 
     await waitFor(() => expect(screen.getByText('Encontré 2 mails.')).toBeTruthy());
-    const chatCall = global.fetch.mock.calls.find(([url]) => String(url).includes('/api/chat'));
+    const chatCall = global.fetch.mock.calls.find(([url]) => String(url) === '/api/chat');
     expect(JSON.parse(chatCall[1].body).scope).toBeUndefined();
   });
 
@@ -159,7 +159,7 @@ describe('AssistantPanel', () => {
 
     fireEvent.change(box, { target: { value: 'una consulta larga' } });
     fireEvent.keyDown(box, { key: 'Enter', shiftKey: true });
-    expect(global.fetch).not.toHaveBeenCalled();
+    expect(global.fetch.mock.calls.some(([url]) => String(url) === '/api/chat')).toBe(false);
 
     fireEvent.keyDown(box, { key: 'Enter' });
     await waitFor(() => expect(screen.getByText('Encontré 2 mails.')).toBeTruthy());
@@ -195,7 +195,7 @@ describe('AssistantPanel', () => {
     expect(panel).toHaveAttribute('data-expanded', 'false');
   });
 
-  it('limpia el filtro y la conversación para volver a empezar', async () => {
+  it('limpiar filtro no borra la conversación; solo "Nueva conversación" la borra', async () => {
     renderPanel();
     fireEvent.click(screen.getByRole('button', { name: 'Asistente' }));
     fireEvent.change(screen.getByPlaceholderText(/Escribe un filtro/i), {
@@ -205,17 +205,12 @@ describe('AssistantPanel', () => {
     await waitFor(() => expect(screen.getByText('Primera')).toBeTruthy());
 
     fireEvent.click(screen.getByRole('button', { name: 'Limpiar filtro' }));
+    expect(screen.getByText('el mail de la factura')).toBeTruthy();
 
-    expect(screen.queryByText('Primera')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Nueva conversación' }));
+    await waitFor(() => expect(screen.queryByText('el mail de la factura')).toBeNull());
     expect(screen.getByText(/Puedes pedirme que filtre/i)).toBeTruthy();
-
-    // La próxima consulta arranca un hilo nuevo, sin el criterio anterior.
-    fireEvent.change(screen.getByPlaceholderText(/Escribe un filtro/i), {
-      target: { value: 'otra cosa' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
-    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2));
-    expect(JSON.parse(global.fetch.mock.calls[1][1].body).conversationId).toBe('');
+    expect(global.fetch.mock.calls.some(([url]) => String(url).endsWith('/conversation/new'))).toBe(true);
   });
 
   it('deja limpiar el filtro aunque no haya resultados', async () => {

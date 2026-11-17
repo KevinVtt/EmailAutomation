@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { Maximize2, Minimize2, Star, Trash2, X } from 'lucide-react';
 import ChatPanel from '../ChatPanel';
 import AssistantButton from './AssistantButton';
-import ContactsTab from './ContactsTab';
 import { useScreenScope } from '../../context/ScreenScopeContext';
 import { api } from '../../lib/api';
 import { getStoredAuth } from '../../lib/auth';
@@ -11,7 +10,6 @@ import { useWebSocket } from '../../hooks/useWebSocket';
 
 export default function AssistantPanel() {
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState('chat');
   const [results, setResults] = useState([]);
   const [error, setError] = useState('');
   const [chatResponse, setChatResponse] = useState(null);
@@ -24,7 +22,6 @@ export default function AssistantPanel() {
   const restricted = Object.keys(scope.criteria || {}).length > 0;
   const [searchAll, setSearchAll] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [resetKey, setResetKey] = useState(0);
   // Se mostró al menos una búsqueda (aunque vuelva vacía): así el botón de
   // limpiar sigue disponible cuando el filtro no encontró nada.
   const [searched, setSearched] = useState(false);
@@ -40,7 +37,6 @@ export default function AssistantPanel() {
   const clearFilter = () => {
     setResults([]);
     setSearched(false);
-    setResetKey((k) => k + 1);
   };
 
   // Al cerrar vuelve al tamaño chico: la próxima apertura no tapa la pantalla.
@@ -87,33 +83,8 @@ export default function AssistantPanel() {
         } max-w-[calc(100vw-2rem)] max-h-[calc(100vh-8rem)]`}
       >
         <div className="flex items-center justify-between pb-2 border-b border-primary-200 dark:border-gray-700">
-          <div className="flex gap-1" role="tablist">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === 'chat'}
-              onClick={() => setTab('chat')}
-              className={`px-3 py-1 rounded-lg text-sm font-medium ${
-                tab === 'chat'
-                  ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300'
-                  : 'text-gray-600 dark:text-gray-300'
-              }`}
-            >
-              Chat
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === 'contacts'}
-              onClick={() => setTab('contacts')}
-              className={`px-3 py-1 rounded-lg text-sm font-medium ${
-                tab === 'contacts'
-                  ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300'
-                  : 'text-gray-600 dark:text-gray-300'
-              }`}
-            >
-              Contactos
-            </button>
+          <div className="px-3 py-1 rounded-lg text-sm font-medium bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300">
+            Chat
           </div>
           {/* Los dos íconos van juntos: justify-between con tres hijos los separaba. */}
           <div className="flex items-center gap-1">
@@ -151,19 +122,13 @@ export default function AssistantPanel() {
           </div>
         )}
 
-        {tab === 'contacts' ? (
-          <div className="flex flex-col flex-1 min-h-0 pt-2">
-            <ContactsTab />
-          </div>
-        ) : (
-          <div className="flex flex-col gap-2 pt-2 flex-1 min-h-0">
+        <div className="flex flex-col gap-2 pt-2 flex-1 min-h-0">
             <div className="flex-1 min-h-0">
               <ChatPanel
                 scope={searchAll ? null : scope}
                 chatResponse={chatResponse}
                 onChatConsumed={() => setChatResponse(null)}
                 onResults={applyResults}
-                resetKey={resetKey}
                 onExpand={() => setExpanded(true)}
                 embedded
               />
@@ -231,7 +196,6 @@ export default function AssistantPanel() {
 
             {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
           </div>
-        )}
       </div>
     </>
   );

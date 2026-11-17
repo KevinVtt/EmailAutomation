@@ -5,7 +5,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import health, analyze, chat, rewrite, compose
+from app.routers import health, analyze, chat, rewrite, compose, extract, embed, answer
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -41,3 +41,6 @@ app.include_router(chat.router, prefix="/chat", tags=["chat"], dependencies=auth
 app.include_router(rewrite.router, prefix="/rewrite", tags=["rewrite"], dependencies=auth)
 app.include_router(compose.compose_router, prefix="/compose", tags=["compose"], dependencies=auth)
 app.include_router(compose.profile_router, prefix="/contact-profile", tags=["contact-profile"], dependencies=auth)
+app.include_router(extract.router, prefix="/extract", tags=["extract"], dependencies=auth)
+app.include_router(embed.router, prefix="/embed", tags=["embed"], dependencies=auth)
+app.include_router(answer.router, prefix="/answer", tags=["answer"], dependencies=auth)

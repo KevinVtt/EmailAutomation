@@ -24,7 +24,7 @@ Browser (React) ── REST /api/** + WebSocket /ws ──► Java Backend (8080
 ```
 1. **OAuth login**: `/api/auth/oauth2/{provider}` (issues a CSRF `state`) → Google/Microsoft →
    frontend `/auth/callback` → `POST /api/auth/callback/{provider}` with `{authorizationCode, provider, state}` → JWT in localStorage.
-2. **Email sync**: `POST /api/emails/sync` → GmailService paginates inbox + spam → dedup by (userId, providerEmailId).
+2. **Email sync**: `POST /api/emails/sync` → GmailService paginates the whole mailbox (`in:anywhere` minus sent/drafts/trash) → dedup by (userId, providerEmailId).
 3. **AI chat filter**: message → `/api/chat` → Python `/chat` → `{response, criteria}` → JPA Specifications → WebSocket push of filtered emails.
 4. **Stats**: `GET /api/emails/stats` returns the dashboard counters + 7-day activity in one call.
 5. **Assistant (global panel)**: `/api/contacts` lists the people you actually exchange mail with (`email_contact`
@@ -56,8 +56,22 @@ Browser (React) ── REST /api/** + WebSocket /ws ──► Java Backend (8080
   with a `visto=true` row for that user (the app's own read state), because `saveEmails` overwrites `is_read`
   with the provider's flag on every sync.
 - Use the `application-dev.yml` profile locally (DDL auto-update + SQL logging).
-- Gmail: keep `GmailService.fetchAllEmails()` paginated (queries `in:inbox` + `in:spam`, 100 per page);
+- Gmail: keep `GmailService.fetchAllEmails()` paginated (query `GmailService.MAILBOX_QUERY`, 100 per page);
   do not replace it with one bulk call. `OutlookService` is less tested: test both providers when touching auth or sync.
+- Full sync prunes rows of that provider that Gmail no longer lists, except locally trashed (`TRASH`) rows; never prune
+  when the ID listing came back empty. Incremental sync refreshes starred/spam only when `history.list` reports label changes.
+  `sync_jobs` is purged daily by `SyncJobService.purgeOldJobs`.
+- Papelera: mover a papelera conserva la fila y le pone label `TRASH` (en Gmail también); la history sync marca/desmarca
+  `TRASH` (`GmailHistoryChanges.trashedIds/untrashedIds`), y solo `messagesDeleted` borra la fila. `deleteForeverEmail`
+  acepta mails en la papelera o en spam (400 en el resto); `unspam` (solo Gmail) quita `SPAM` y lo devuelve a INBOX.
+  Borrado definitivo en Gmail (`messages.delete`) exige el scope
+  `https://mail.google.com/`, que ahora sí se pide al iniciar sesión; los tokens emitidos antes siguen dando 403
+  (→ 502 con mensaje) hasta cerrar sesión y volver a entrar.
+- Importantes: `email_messages.is_important` (sql 09) lo pone `notifyUrgentEmails` cuando la IA da urgencia `high`
+  (solo mails nuevos del sync incremental). El filtro `important` = label `IMPORTANT` OR `is_important`.
+  `GET /api/emails/stats` agrega `importantUnread`, `spamUnread`, `trashUnread` (contadores de la barra lateral).
+- Buscador de carpeta: `GET /api/emails/search?q=&folder=&page=` (folder: inbox|starred|important|spam|trash) hace ILIKE
+  sobre asunto, remitente y snippet (`bodyPreview`), sin IA. Con texto de búsqueda los filtros de la vista no se aplican.
 - Provider HTTP calls (`markAsRead`, `toggleStar`, `moveToTrash`, `sendReply`, ...) must stay OUTSIDE a DB
   transaction: they can sleep on retry/backoff and would otherwise pin a pooled connection (pool size 10).
 - CORS is controlled by `FRONTEND_URL` (`CorsConfig`).
@@ -138,6 +152,10 @@ Chat:      Backend → AI   POST /chat  { message, conversation_id, context: [..
                                         scope?: {folder, criteria, description} }
            AI → Backend   { response, criteria: {...}, conversation_id }
            Backend → UI   { response, criteria, conversation_id, emails: [...] }  (emails = list, not a Page)
+           Historial: la conversación vive en `chat_conversation` / `chat_message` (07-chat-conversations.sql).
+           `context` = resumen de lo viejo + últimos `chat.context-window` (env `CHAT_CONTEXT_WINDOW`, default 10) mensajes.
+           Solo `POST /api/chat/conversation/new` crea una conversación nueva; "Limpiar filtro" no toca el chat.
+           GET  /api/chat/conversation → { conversationId, messages: [{role, content, createdAt}] } (vacío si no hay)
 Rewrite:   Backend → AI   POST /rewrite { draft, original_subject, original_from, original_body,
                                           tone, language, custom_rules, user_name }
            user_name is the authenticated user's name, injected by the backend (never taken from the
@@ -150,14 +168,23 @@ JWT:       Authorization: Bearer <token>; access + refresh, HMAC-SHA; principal 
 WebSocket: connect /ws (SockJS)
            subscribe /user/queue/emails | chat | notifications
            publish   /app/chat.send
-           notifications: sync_complete | sync_progress:<n>:<total> | sync_error | urgent_emails:<n>:<subjects>
-                          | emails_changed (email action done → Dashboard refreshes counters)
-Contacts:  Backend → UI   GET /api/contacts?limit=20 →
+           notifications: sync_started:incremental|full | sync_complete | sync_progress:<n>:<total>
+                          | sync_error | urgent_emails:<n>:<subjects>
+                          | emails_changed (email action done, y cada 1000 correos de un full sync
+                            → Dashboard refreshes counters)
+           GET /api/emails/sync/status → {syncing, lastSync?: {status, mode, fetched, total, error, updatedAt}}
+                          (lastSync permite distinguir COMPLETED de FAILED; no confiar solo en syncing=false)
+Contacts:  Backend → UI   GET /api/contacts?limit=20&page=0 →
                           [{id, address, displayName, company, topic, notes, sentCount, receivedCount, lastActivityAt}]
-                          PATCH /api/contacts/{id} {company, topic, notes}
+                          PATCH /api/contacts/{id} {displayName?, phone?, company, topic, notes}
+                          POST  /api/contacts?address= {displayName?, phone?, company?, topic?, notes?} → alta manual
+                          DELETE /api/contacts/{id} → 204 (borrado lógico: hidden=true, rebuildInbound no la recrea)
                           POST  /api/contacts/{id}/draft {instruction} → {subject, body}
                           POST  /api/contacts/{id}/enrich → {company, topic}
-Compose:   Backend → UI   POST /api/emails/compose {to, subject, body} → {status, messageId}
+Compose:   Backend → UI   POST /api/emails/compose {to, subject, body, cc?, bcc?} → {status, messageId}
+           cc/bcc: listas separadas por coma, opcionales, sin saltos de línea; 400 si alguna dirección es inválida.
+           POST /api/emails/compose/draft {instruction, subject?, tone?} → {subject, body} (borrador IA sin
+           contacto, para el modal global "Redactar"; nunca envía).
 Bulk:      Backend → UI   POST /api/emails/bulk-action {provider, emailIds[], action} → {applied, failed: [ids]}
            action ∈ star|unstar|read|unread|trash   (max 100 ids)
 AI drafts: Backend → AI   POST /compose {instruction, contact_*, recent_subjects, tone, language, user_name}

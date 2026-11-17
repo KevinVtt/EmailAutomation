@@ -16,6 +16,7 @@ export default function Spam() {
     <EmailListView
       title="Spam"
       filters={SPAM_FILTERS}
+      folder="spam"
       emptyMessage="No hay spam"
     />
   );

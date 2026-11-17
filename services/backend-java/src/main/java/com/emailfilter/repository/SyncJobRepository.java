@@ -16,6 +16,8 @@ public interface SyncJobRepository extends JpaRepository<SyncJob, UUID> {
     @Query("SELECT j FROM SyncJob j WHERE j.user.id = :userId AND j.status = 'RUNNING'")
     Optional<SyncJob> findActiveByUserId(@Param("userId") UUID userId);
 
+    Optional<SyncJob> findTopByUserIdOrderByStartedAtDesc(UUID userId);
+
     @Modifying
     @Transactional
     @Query("UPDATE SyncJob j SET j.status = 'FAILED', j.errorMessage = 'Stale job: sin progreso', j.updatedAt = CURRENT_TIMESTAMP " +
@@ -36,4 +38,10 @@ public interface SyncJobRepository extends JpaRepository<SyncJob, UUID> {
     @Transactional
     @Query("UPDATE SyncJob j SET j.status = 'FAILED', j.errorMessage = 'Stale job: backend restarted', j.updatedAt = CURRENT_TIMESTAMP WHERE j.status = 'RUNNING' AND j.startedAt < :cutoff")
     int failStaleRunningJobs(@Param("cutoff") Instant cutoff);
+
+    /** El auto-sync cada 2 min deja ~720 filas/día por usuario: sin purga la tabla crece sin fin. */
+    @Modifying
+    @Transactional
+    @Query("DELETE FROM SyncJob j WHERE j.updatedAt < :cutoff")
+    int deleteOlderThan(@Param("cutoff") Instant cutoff);
 }

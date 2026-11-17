@@ -26,7 +26,8 @@ public class AIServiceClient {
     private static RestTemplate createRestTemplate() {
         var factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(5000);
-        factory.setReadTimeout(30000);
+        // Embeddings en CPU (lotes de fragmentos) pueden tardar más de 30 s.
+        factory.setReadTimeout(120000);
         return new RestTemplate(factory);
     }
 
@@ -58,12 +59,13 @@ public class AIServiceClient {
         return result;
     }
 
-    public Map<String, Object> chat(String message, String conversationId, Map<String, Object> scope) {
+    public Map<String, Object> chat(String message, String conversationId, Map<String, Object> scope,
+                                    List<Map<String, String>> context) {
         var headers = jsonHeaders();
         var body = new java.util.HashMap<String, Object>();
         body.put("message", message);
         body.put("conversation_id", conversationId != null ? conversationId : "");
-        body.put("context", List.of());
+        body.put("context", context != null ? context : List.of());
         if (scope != null) {
             body.put("scope", scope);
         }
@@ -158,6 +160,51 @@ public class AIServiceClient {
                 aiServiceUrl, tone, instruction != null ? instruction.length() : 0);
         return restTemplate.exchange(
                 aiServiceUrl + "/compose",
+                HttpMethod.POST,
+                entity,
+                new ParameterizedTypeReference<Map<String, Object>>() {}
+        ).getBody();
+    }
+
+    /** Vectores de embedding (384 dims, modelo local) para fragmentos de mails o para una consulta. */
+    @SuppressWarnings("unchecked")
+    public List<List<Double>> embed(List<String> texts) {
+        var headers = jsonHeaders();
+        var entity = new HttpEntity<>(Map.of("texts", texts), headers);
+        var response = restTemplate.exchange(
+                aiServiceUrl + "/embed",
+                HttpMethod.POST,
+                entity,
+                new ParameterizedTypeReference<Map<String, Object>>() {}
+        ).getBody();
+        return (List<List<Double>>) response.get("vectors");
+    }
+
+    /** Respuesta redactada solo con fragmentos de mails recuperados (RAG). */
+    public String answer(String question, List<Map<String, Object>> fragments) {
+        var entity = new HttpEntity<>(Map.of("question", question, "fragments", fragments), jsonHeaders());
+        var response = restTemplate.exchange(
+                aiServiceUrl + "/answer",
+                HttpMethod.POST,
+                entity,
+                new ParameterizedTypeReference<Map<String, Object>>() {}
+        ).getBody();
+        return String.valueOf(response.get("response"));
+    }
+
+    /** Texto plano de un adjunto (PDF/DOCX/texto). Devuelve {text, truncated}; nunca lanza por formato. */
+    public Map<String, Object> extractDocument(String filename, String mimeType, String contentBase64) {
+        var headers = jsonHeaders();
+        var body = Map.of(
+                "filename", filename != null ? filename : "",
+                "mime_type", mimeType != null ? mimeType : "",
+                "content_base64", contentBase64);
+        var entity = new HttpEntity<>(body, headers);
+
+        log.info("AIServiceClient llamando a {}/extract filename={}, base64_len={}",
+                aiServiceUrl, filename, contentBase64.length());
+        return restTemplate.exchange(
+                aiServiceUrl + "/extract",
                 HttpMethod.POST,
                 entity,
                 new ParameterizedTypeReference<Map<String, Object>>() {}

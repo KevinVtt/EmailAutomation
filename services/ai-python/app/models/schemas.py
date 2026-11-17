@@ -99,3 +99,38 @@ class ContactProfileRequest(BaseModel):
 class ContactProfileResponse(BaseModel):
     company: str = ""
     topic: str = ""
+
+
+class ExtractRequest(BaseModel):
+    filename: str = Field(default="", max_length=255)
+    mime_type: str = Field(default="", max_length=120)
+    content_base64: str = Field(max_length=14_000_000)
+
+
+class ExtractResponse(BaseModel):
+    text: str = ""
+    truncated: bool = False
+
+
+class EmbedRequest(BaseModel):
+    texts: list[str] = Field(max_length=100)
+
+
+class EmbedResponse(BaseModel):
+    vectors: list[list[float]]
+
+
+class AnswerFragment(BaseModel):
+    subject: str = Field(default="", max_length=500)
+    sender: str = Field(default="", max_length=300)
+    date: str = Field(default="", max_length=20)
+    content: str = Field(default="", max_length=4000)
+
+
+class AnswerRequest(BaseModel):
+    question: str = Field(max_length=1000)
+    fragments: list[AnswerFragment] = Field(max_length=20)
+
+
+class AnswerResponse(BaseModel):
+    response: str

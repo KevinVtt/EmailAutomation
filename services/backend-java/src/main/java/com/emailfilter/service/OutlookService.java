@@ -93,15 +93,38 @@ public class OutlookService {
     }
 
     public void moveToTrash(String accessToken, String messageId) {
+        move(accessToken, messageId, "deleteditems");
+    }
+
+    public void untrash(String accessToken, String messageId) {
+        move(accessToken, messageId, "inbox");
+    }
+
+    /** DELETE en Graph = mover a Elementos eliminados; el mail sigue recuperable allá. */
+    public void deleteForever(String accessToken, String messageId) {
         var headers = new HttpHeaders();
         headers.setBearerAuth(accessToken);
-        var entity = new HttpEntity<>(headers);
+
+        retryTemplateExecute(() -> {
+            restTemplate.exchange(
+                    "https://graph.microsoft.com/v1.0/me/messages/" + messageId,
+                    HttpMethod.DELETE,
+                    new HttpEntity<>(headers),
+                    Void.class
+            );
+            return null;
+        });
+    }
+
+    private void move(String accessToken, String messageId, String destinationId) {
+        var headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken);
 
         retryTemplateExecute(() -> {
             restTemplate.exchange(
                     "https://graph.microsoft.com/v1.0/me/messages/" + messageId + "/move",
                     HttpMethod.POST,
-                    new HttpEntity<>(Map.of("destinationId", "deleteditems"), headers),
+                    new HttpEntity<>(Map.of("destinationId", destinationId), headers),
                     Map.class
             );
             return null;
@@ -109,18 +132,23 @@ public class OutlookService {
     }
 
     public String sendEmail(String accessToken, String to, String subject, String body) {
+        return sendEmail(accessToken, to, List.of(), List.of(), subject, body);
+    }
+
+    public String sendEmail(String accessToken, String to, List<String> cc, List<String> bcc,
+                            String subject, String body) {
         var headers = new HttpHeaders();
         headers.setBearerAuth(accessToken);
         headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
 
-        var payload = Map.of(
-                "message", Map.of(
-                        "subject", subject,
-                        "body", Map.of("contentType", "Text", "content", body),
-                        "toRecipients", List.of(Map.of("emailAddress", Map.of("address", to)))
-                ),
-                "saveToSentItems", true
-        );
+        var message = new java.util.HashMap<String, Object>(Map.of(
+                "subject", subject,
+                "body", Map.of("contentType", "Text", "content", body),
+                "toRecipients", List.of(Map.of("emailAddress", Map.of("address", to)))
+        ));
+        if (!cc.isEmpty()) message.put("ccRecipients", recipients(cc));
+        if (!bcc.isEmpty()) message.put("bccRecipients", recipients(bcc));
+        var payload = Map.of("message", message, "saveToSentItems", true);
 
         retryTemplateExecute(() -> {
             restTemplate.exchange(
@@ -136,6 +164,10 @@ public class OutlookService {
         var messageId = UUID.randomUUID().toString();
         log.info("Outlook message sent: id={}, to={}, subject={}", messageId, to, subject);
         return messageId;
+    }
+
+    private static List<Map<String, Object>> recipients(List<String> addresses) {
+        return addresses.stream().map(a -> Map.<String, Object>of("emailAddress", Map.of("address", a))).toList();
     }
 
     private void patchMessage(String accessToken, String messageId, Map<String, Object> updates) {

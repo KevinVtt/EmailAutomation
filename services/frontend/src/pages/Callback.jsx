@@ -34,7 +34,9 @@ export default function Callback() {
       .then(() => navigate('/', { replace: true }))
       .catch((err) => {
         console.error('Auth callback failed', err);
-        setError('Authentication failed. Please try again.');
+        // Mensaje real: "VITE_API_URL falta" o el error del backend explica
+        // el fallo; "Authentication failed" genérico no decía nada.
+        setError(err?.message || 'No se pudo iniciar sesión. Probá de nuevo.');
       });
   }, []);
 

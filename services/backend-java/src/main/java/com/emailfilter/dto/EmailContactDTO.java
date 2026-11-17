@@ -16,6 +16,7 @@ public class EmailContactDTO {
     private UUID id;
     private String address;
     private String displayName;
+    private String phone;
     private String company;
     private String topic;
     private String notes;

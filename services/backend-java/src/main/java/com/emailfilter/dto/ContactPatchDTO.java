@@ -7,6 +7,10 @@ import lombok.Data;
 @Data
 public class ContactPatchDTO {
     @Size(max = 255)
+    private String displayName;
+    @Size(max = 50)
+    private String phone;
+    @Size(max = 255)
     private String company;
     private String topic;
     private String notes;

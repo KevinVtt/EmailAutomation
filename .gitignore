@@ -86,3 +86,6 @@ backups/
 # graphify: only the graph artifact is committed; cache and views are regenerable
 graphify-out/*
 !graphify-out/graph.json
+
+# Logs locales (logs.ps1)
+logs/

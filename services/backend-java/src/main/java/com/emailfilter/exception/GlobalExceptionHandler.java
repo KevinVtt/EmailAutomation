@@ -24,6 +24,12 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(error(e));
     }
 
+    /** El proveedor rechazó la operación: 502 con su mensaje, no un 500 sin explicación. */
+    @ExceptionHandler(PermanentApiException.class)
+    public ResponseEntity<Map<String, String>> handleProviderError(PermanentApiException e) {
+        return ResponseEntity.status(502).body(error(e));
+    }
+
     private static Map<String, String> error(Exception e) {
         return Map.of("error", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
     }

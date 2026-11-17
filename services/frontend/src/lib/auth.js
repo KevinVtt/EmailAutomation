@@ -34,4 +34,9 @@ export function clearAuth() {
   localStorage.removeItem('accessToken');
   localStorage.removeItem('refreshToken');
   localStorage.removeItem('user');
+  // sessionStorage es por pestaña, no por usuario: si queda la bandera, la
+  // segunda cuenta que entra no auto-sincroniza y ve la bandeja vacía.
+  sessionStorage.removeItem('autoSynced');
+  sessionStorage.removeItem('oauthState');
+  sessionStorage.removeItem('oauthProvider');
 }

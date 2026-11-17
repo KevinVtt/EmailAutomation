@@ -25,6 +25,7 @@ import java.util.function.Consumer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
@@ -52,6 +53,18 @@ class ContactServiceTest {
             callback.accept(null);
             return null;
         }).when(transactionTemplate).executeWithoutResult(any());
+    }
+
+    @Test
+    void list_passesThePageAndKeepsTheSizeBounded() {
+        var userId = UUID.randomUUID();
+        when(contactRepository.findMostActive(eq(userId), any())).thenReturn(List.of());
+        contactService.list(userId, 200, 1);
+        verify(contactRepository).findMostActive(userId, org.springframework.data.domain.PageRequest.of(1, 100));
+        contactService.list(userId, 0, -1);
+        verify(contactRepository).findMostActive(userId, org.springframework.data.domain.PageRequest.of(0, 1));
+        contactService.list(userId, 100, Integer.MAX_VALUE);
+        verify(contactRepository).findMostActive(userId, org.springframework.data.domain.PageRequest.of(10_000, 100));
     }
 
     @Test
@@ -217,5 +230,45 @@ class ContactServiceTest {
                 .thenThrow(new org.springframework.dao.DataIntegrityViolationException("unique conflict"));
 
         contactService.upsertSent(userId, "a@x.com");
+    }
+
+    @Test
+    void create_reusesAHiddenRowAndUnhidesIt() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var hidden = EmailContact.builder().id(UUID.randomUUID()).user(user).address("a@x.com").hidden(true).build();
+        when(contactRepository.findByUserIdAndAddress(userId, "a@x.com")).thenReturn(Optional.of(hidden));
+        when(contactRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        var fields = new com.emailfilter.dto.ContactPatchDTO();
+        fields.setDisplayName("Ana");
+        fields.setPhone("+54 11 5555");
+
+        var dto = contactService.create(userId, fields, "A@X.com");
+
+        assertEquals(false, hidden.isHidden());
+        assertEquals("Ana", dto.getDisplayName());
+        assertEquals("+54 11 5555", dto.getPhone());
+        verify(contactRepository, org.mockito.Mockito.never()).save(argThat(c -> c != hidden));
+    }
+
+    @Test
+    void create_rejectsAnInvalidAddress() {
+        assertThrows(IllegalArgumentException.class,
+                () -> contactService.create(UUID.randomUUID(), new com.emailfilter.dto.ContactPatchDTO(), "no-es-mail"));
+        verify(contactRepository, org.mockito.Mockito.never()).save(any());
+    }
+
+    @Test
+    void delete_hidesTheRowInsteadOfRemovingIt() {
+        var userId = UUID.randomUUID();
+        var user = User.builder().id(userId).build();
+        var contact = EmailContact.builder().id(UUID.randomUUID()).user(user).address("a@b.com").build();
+        when(contactRepository.findById(contact.getId())).thenReturn(Optional.of(contact));
+
+        contactService.delete(userId, contact.getId());
+
+        assertEquals(true, contact.isHidden());
+        verify(contactRepository).save(contact);
+        verify(contactRepository, org.mockito.Mockito.never()).delete(any());
     }
 }

@@ -52,6 +52,21 @@ class EmailContactRepositoryTest {
     }
 
     @Test
+    void findMostActive_pagesIncludeContactsWithoutMailAndExcludeHiddenOrOtherUsers() {
+        var user = entityManager.persist(User.builder().email("pages@example.com").provider("google").build());
+        var other = entityManager.persist(User.builder().email("other@example.com").provider("google").build());
+        var active = contactRepository.save(EmailContact.builder().user(user).address("active@example.com").sentCount(1).build());
+        var manual = contactRepository.save(EmailContact.builder().user(user).address("manual@example.com").build());
+        contactRepository.save(EmailContact.builder().user(user).address("hidden@example.com").hidden(true).sentCount(10).build());
+        contactRepository.save(EmailContact.builder().user(other).address("foreign@example.com").sentCount(10).build());
+        entityManager.flush();
+        entityManager.clear();
+        assertEquals(active.getId(), contactRepository.findMostActive(user.getId(), PageRequest.of(0, 1)).get(0).getId());
+        assertEquals(manual.getId(), contactRepository.findMostActive(user.getId(), PageRequest.of(1, 1)).get(0).getId());
+        assertEquals(0, contactRepository.findMostActive(user.getId(), PageRequest.of(2, 1)).size());
+    }
+
+    @Test
     void findMostActive_ordersByCombinedTraffic() {
         var user = entityManager.persist(User.builder()
                 .email("traffic@example.com")

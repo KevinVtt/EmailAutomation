@@ -25,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -43,6 +44,8 @@ public class GmailService {
 
     private static final String APPLICATION_NAME = "Email Filter AI";
     private static final GsonFactory JSON_FACTORY = GsonFactory.getDefaultInstance();
+    private static final com.fasterxml.jackson.databind.ObjectMapper JSON =
+            new com.fasterxml.jackson.databind.ObjectMapper();
 
     private final RetryTemplate externalApiRetryTemplate;
 
@@ -80,16 +83,64 @@ public class GmailService {
         }
     }
 
+    /**
+     * Enviados: lista {@code in:sent} y baja el detalle de hasta {@code maxNew} mensajes que no
+     * estén en {@code knownIds}. La lista es barata (5 unidades por página); el detalle cuesta 20
+     * por mail, así que se limita por corrida: el barrido avanza de a tandas en cada sync.
+     */
+    public List<com.emailfilter.model.SentMessage> fetchSentEmails(String accessToken, java.util.Set<String> knownIds,
+                                                                   int maxNew) {
+        var gmail = buildGmailClient(accessToken);
+        var query = "in:sent";
+
+        var ids = new java.util.ArrayList<String>();
+        String pageToken = null;
+        do {
+            final String currentToken = pageToken;
+            var response = retryTemplateExecute(() -> {
+                var request = gmail.users().messages().list("me").setQ(query).setMaxResults(100L);
+                if (currentToken != null && !currentToken.isBlank()) {
+                    request.setPageToken(currentToken);
+                }
+                return request.execute();
+            });
+            if (response.getMessages() != null) {
+                response.getMessages().stream()
+                        .map(m -> m.getId())
+                        .filter(id -> !knownIds.contains(id))
+                        .forEach(ids::add);
+            }
+            // Ya hay suficiente trabajo: parar de listar (los viejos quedan para el próximo sync).
+            if (ids.size() >= maxNew) break;
+            pageToken = response.getNextPageToken();
+        } while (pageToken != null && !pageToken.isBlank());
+
+        var pending = ids.size() > maxNew ? ids.subList(0, maxNew) : ids;
+        log.info("Sent list: {} new messages to inspect (of {} unseen in this pass)", pending.size(), ids.size());
+        var sent = new java.util.ArrayList<com.emailfilter.model.SentMessage>();
+        for (int i = 0; i < pending.size(); i += 50) {
+            var batch = pending.subList(i, Math.min(i + 50, pending.size()));
+            for (var e : fetchMessagesByIds(gmail, batch, accessToken)) {
+                sent.add(com.emailfilter.model.SentMessage.builder()
+                        .provider("google")
+                        .providerEmailId(e.getProviderEmailId())
+                        .threadId(e.getThreadId())
+                        .toAddresses(e.getToAddresses())
+                        .subject(e.getSubject())
+                        .bodyPreview(e.getBodyPreview())
+                        .bodyHtml(e.getBodyHtml())
+                        .sentAt(e.getReceivedAt())
+                        .build());
+            }
+        }
+        return sent;
+    }
+
+    /** Todo el buzón (incluye spam, archivados, promociones y etiquetas) menos enviados, borradores y papelera. */
+    static final String MAILBOX_QUERY = "in:anywhere -in:sent -in:drafts -in:trash";
+
     public List<com.emailfilter.model.EmailMessage> fetchAllEmails(String accessToken, int maxResultsPerPage, int maxTotal) {
-        // Spam gets its own budget (previously it only got the inbox leftover, so it was never fetched)
-        var inbox = fetchEmailsByQuery(accessToken, maxResultsPerPage, "in:inbox", maxTotal);
-        var spam = fetchEmailsByQuery(accessToken, maxResultsPerPage, "in:spam", maxTotal);
-
-        var all = new java.util.LinkedHashMap<String, com.emailfilter.model.EmailMessage>();
-        for (var e : inbox) all.put(e.getProviderEmailId(), e);
-        for (var e : spam) all.putIfAbsent(e.getProviderEmailId(), e);
-
-        return new java.util.ArrayList<>(all.values());
+        return fetchEmailsByQuery(accessToken, maxResultsPerPage, MAILBOX_QUERY, maxTotal);
     }
 
     /**
@@ -112,20 +163,12 @@ public class GmailService {
         var dateFormatter = new java.text.SimpleDateFormat("yyyy/MM/dd");
         var sinceDate = dateFormatter.format(java.util.Date.from(since));
 
-        // Fetch BOTH inbox and spam (spam was previously never queried in incremental sync)
-        var inbox = fetchIncrementalByQuery(gmail, "in:inbox after:" + sinceDate, existingIds, accessToken, maxTotal);
-        var spam = inbox.size() >= maxTotal
-                ? List.<com.emailfilter.model.EmailMessage>of()
-                : fetchIncrementalByQuery(gmail, "in:spam after:" + sinceDate, existingIds,
-                        accessToken, maxTotal - inbox.size());
-
-        // Merge with dedup by providerEmailId (a message can appear in both inbox and spam)
-        var all = new java.util.LinkedHashMap<String, com.emailfilter.model.EmailMessage>();
-        for (var e : inbox) all.put(e.getProviderEmailId(), e);
-        for (var e : spam) all.putIfAbsent(e.getProviderEmailId(), e);
-
-        log.info("Incremental fetch: {} new emails found (skipped {} existing)", all.size(), existingIds.size());
-        return new java.util.ArrayList<>(all.values());
+        // Todo el buzón: antes solo inbox y spam, así que archivados, promociones y
+        // etiquetas nunca se sincronizaban.
+        var emails = fetchIncrementalByQuery(gmail, MAILBOX_QUERY + " after:" + sinceDate, existingIds,
+                accessToken, maxTotal);
+        log.info("Incremental fetch: {} new emails found (skipped {} existing)", emails.size(), existingIds.size());
+        return emails;
     }
 
     private List<com.emailfilter.model.EmailMessage> fetchIncrementalByQuery(
@@ -237,7 +280,8 @@ public class GmailService {
                         // Un fallo de red no puede dejar el mail afuera en silencio: el cursor no debe avanzar.
                         throw e;
                     } catch (Exception e) {
-                        log.warn("Failed to fetch message {}: {}", id, e.getMessage());
+                        // Con la traza: sin el tipo real, un fallo de parseo se veía como "no se pudo bajar".
+                        log.warn("Failed to fetch message {}: {}", id, e.toString(), e);
                         return null;
                     }
                 }, detailExecutor()))
@@ -263,19 +307,33 @@ public class GmailService {
         return detailExecutor;
     }
 
+    /**
+     * Gmail puede entregar bytes NUL (0x00) en asuntos o cuerpos mal formados. PostgreSQL los
+     * rechaza (SQLState 22021) y la fila entera se pierde, tirando el lote completo del sync.
+     * No se copia la cadena si no hace falta.
+     */
+    static String safe(String value) {
+        if (value == null || value.indexOf('\0') < 0) return value;
+        return value.replace("\0", "");
+    }
+
     private com.emailfilter.model.EmailMessage mapToEmail(Message full) {
         var payload = full.getPayload();
 
-        var headers = payload.getHeaders();
+        // Gmail puede devolver mensajes sin payload o sin headers (mail raro, borrador, remitente
+        // sintético). Antes eso era un NPE que descartaba el mail en silencio durante el sync.
+        var headers = payload != null && payload.getHeaders() != null
+                ? payload.getHeaders()
+                : List.<MessagePartHeader>of();
         var subject = getHeader(headers, "Subject");
         var from = getHeader(headers, "From");
         var to = getHeader(headers, "To");
         var snippet = full.getSnippet();
 
         var body = "";
-        if (payload.getParts() != null) {
+        if (payload != null && payload.getParts() != null) {
             body = getBodyFromParts(payload.getParts());
-        } else if (payload.getBody() != null && payload.getBody().getData() != null) {
+        } else if (payload != null && payload.getBody() != null && payload.getBody().getData() != null) {
             body = decodePart(payload);
         }
 
@@ -286,19 +344,57 @@ public class GmailService {
 
         var receivedAt = parseReceivedAt(full.getInternalDate(), getHeader(headers, "Date"));
 
+        var attachments = new ArrayList<Map<String, Object>>();
+        collectAttachments(payload, attachments);
+
         var email = new com.emailfilter.model.EmailMessage();
         email.setProviderEmailId(full.getId());
         email.setThreadId(full.getThreadId());
-        email.setSubject(subject);
-        email.setFromAddress(from);
-        email.setToAddresses(to);
-        email.setBodyPreview(snippet);
-        email.setBodyHtml(body);
+        email.setSubject(safe(subject));
+        email.setFromAddress(safe(from));
+        email.setToAddresses(safe(to));
+        email.setBodyPreview(safe(snippet));
+        email.setBodyHtml(safe(body));
         email.setLabels(labels);
         email.setRead(isRead);
         email.setStarred(isStarred);
         email.setReceivedAt(receivedAt);
+        email.setHasAttachment(!attachments.isEmpty());
+        if (!attachments.isEmpty()) {
+            try {
+                email.setAttachmentsJson(JSON.writeValueAsString(attachments));
+            } catch (IOException e) {
+                log.warn("No se pudo serializar los adjuntos de {}: {}", full.getId(), e.getMessage());
+            }
+        }
         return email;
+    }
+
+    /** Recorre el árbol MIME: cada parte con filename y attachmentId es un adjunto descargable. */
+    private void collectAttachments(MessagePart part, List<Map<String, Object>> out) {
+        if (part == null) return;
+        if (part.getFilename() != null && !part.getFilename().isBlank()
+                && part.getBody() != null && part.getBody().getAttachmentId() != null) {
+            out.add(Map.of(
+                    "filename", part.getFilename(),
+                    "mimeType", part.getMimeType() != null ? part.getMimeType() : "application/octet-stream",
+                    "size", part.getBody().getSize() != null ? part.getBody().getSize() : 0L,
+                    "attachmentId", part.getBody().getAttachmentId()));
+        }
+        if (part.getParts() != null) {
+            for (var child : part.getParts()) {
+                collectAttachments(child, out);
+            }
+        }
+    }
+
+    /** Bytes crudos de un adjunto. Gmail lo entrega en base64url. */
+    public byte[] fetchAttachment(String accessToken, String messageId, String attachmentId) {
+        var gmail = buildGmailClient(accessToken);
+        var attachment = retryTemplateExecute(() -> gmail.users().messages().attachments()
+                .get("me", messageId, attachmentId).execute());
+        var data = attachment.getData();
+        return data == null ? new byte[0] : Base64.getUrlDecoder().decode(data);
     }
 
     /**
@@ -414,6 +510,25 @@ public class GmailService {
         modifyMessage(accessToken, messageId, List.of("TRASH"), List.of());
     }
 
+    /** Saca de la papelera: Gmail lo devuelve a las etiquetas que tenía. */
+    public void untrash(String accessToken, String messageId) {
+        modifyMessage(accessToken, messageId, List.of(), List.of("TRASH"));
+    }
+
+    /** Quita el mail de spam: le saca la etiqueta SPAM y lo devuelve a la bandeja. */
+    public void unspam(String accessToken, String messageId) {
+        modifyMessage(accessToken, messageId, List.of("INBOX"), List.of("SPAM"));
+    }
+
+    /** Borrado definitivo (el mail ya no se puede recuperar). */
+    public void deleteForever(String accessToken, String messageId) {
+        var gmail = buildGmailClient(accessToken);
+        retryTemplateExecute(() -> {
+            gmail.users().messages().delete("me", messageId).execute();
+            return true;
+        });
+    }
+
     /**
      * Cursor actual del buzón ({@code users.getProfile}). Se guarda para usarlo
      * como {@code startHistoryId} en el próximo sync incremental.
@@ -436,6 +551,9 @@ public class GmailService {
         var gmail = buildGmailClient(accessToken);
         var added = new LinkedHashSet<String>();
         var deleted = new LinkedHashSet<String>();
+        var trashed = new LinkedHashSet<String>();
+        var untrashed = new LinkedHashSet<String>();
+        boolean labelsChanged = false;
         String latestHistoryId = startHistoryId;
         String pageToken = null;
         try {
@@ -461,13 +579,14 @@ public class GmailService {
                                 }
                             }
                         }
-                        // Restaurado desde la papelera: vuelve a entrar si falta localmente.
-                        if (history.getLabelsRemoved() != null) {
+                        // Restaurado desde la papelera: se quita la marca local y, si falta, vuelve a entrar.
+                        if (history.getLabelsRemoved() != null && !history.getLabelsRemoved().isEmpty()) {
+                            labelsChanged = true;
                             for (var item : history.getLabelsRemoved()) {
                                 if (item.getMessage() != null && item.getLabelIds() != null
-                                        && item.getLabelIds().contains("TRASH") && isInboxOrSpam(item.getMessage())) {
-                                    deleted.remove(item.getMessage().getId());
-                                    added.add(item.getMessage().getId());
+                                        && item.getLabelIds().contains("TRASH")) {
+                                    untrashed.add(item.getMessage().getId());
+                                    if (isInboxOrSpam(item.getMessage())) added.add(item.getMessage().getId());
                                 }
                             }
                         }
@@ -476,12 +595,13 @@ public class GmailService {
                                 if (item.getMessage() != null) deleted.add(item.getMessage().getId());
                             }
                         }
-                        // "Eliminar" en Gmail = mover a papelera: llega como labelAdded TRASH.
-                        if (history.getLabelsAdded() != null) {
+                        // "Eliminar" en Gmail = mover a papelera: llega como labelAdded TRASH. La fila se conserva, marcada.
+                        if (history.getLabelsAdded() != null && !history.getLabelsAdded().isEmpty()) {
+                            labelsChanged = true;
                             for (var item : history.getLabelsAdded()) {
                                 if (item.getMessage() != null && item.getLabelIds() != null
                                         && item.getLabelIds().contains("TRASH")) {
-                                    deleted.add(item.getMessage().getId());
+                                    trashed.add(item.getMessage().getId());
                                 }
                             }
                         }
@@ -497,9 +617,9 @@ public class GmailService {
                     startHistoryId, e.getMessage());
             return null;
         }
-        log.info("history.list since {}: {} added, {} removed, new cursor {}",
-                startHistoryId, added.size(), deleted.size(), latestHistoryId);
-        return new GmailHistoryChanges(added, deleted, latestHistoryId);
+        log.info("history.list since {}: {} added, {} removed, labelsChanged={}, new cursor {}",
+                startHistoryId, added.size(), deleted.size(), labelsChanged, latestHistoryId);
+        return new GmailHistoryChanges(added, deleted, trashed, untrashed, labelsChanged, latestHistoryId);
     }
 
     /** Enviados y borradores no van en email_messages: sólo bandeja y spam. */
@@ -512,10 +632,20 @@ public class GmailService {
         return sendEmail(accessToken, to, subject, body, null);
     }
 
+    public String sendEmail(String accessToken, String to, List<String> cc, List<String> bcc,
+                            String subject, String body) {
+        return sendEmail(accessToken, to, subject, body, null, cc, bcc);
+    }
+
     public String sendEmail(String accessToken, String to, String subject, String body, String threadId) {
+        return sendEmail(accessToken, to, subject, body, threadId, List.of(), List.of());
+    }
+
+    private String sendEmail(String accessToken, String to, String subject, String body, String threadId,
+                             List<String> cc, List<String> bcc) {
         var gmail = buildGmailClient(accessToken);
         var raw = Base64.getUrlEncoder().withoutPadding()
-                .encodeToString(buildMimeMessage(to, subject, body).getBytes(StandardCharsets.UTF_8));
+                .encodeToString(buildMimeMessage(to, cc, bcc, subject, body).getBytes(StandardCharsets.UTF_8));
         var message = new Message().setRaw(raw);
         if (threadId != null && !threadId.isBlank()) {
             // Sin threadId Gmail abre un hilo nuevo y la respuesta queda suelta.
@@ -528,8 +658,14 @@ public class GmailService {
     }
 
     String buildMimeMessage(String to, String subject, String body) {
+        return buildMimeMessage(to, List.of(), List.of(), subject, body);
+    }
+
+    String buildMimeMessage(String to, List<String> cc, List<String> bcc, String subject, String body) {
         return "From: me\r\n"
                 + "To: " + to + "\r\n"
+                + (cc.isEmpty() ? "" : "Cc: " + String.join(", ", cc) + "\r\n")
+                + (bcc.isEmpty() ? "" : "Bcc: " + String.join(", ", bcc) + "\r\n")
                 + "Subject: " + encodeHeader(subject) + "\r\n"
                 + "Content-Type: text/plain; charset=UTF-8\r\n"
                 + "\r\n"

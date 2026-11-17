@@ -15,6 +15,8 @@ export default function EmailListView({
   filters = {},
   emptyMessage,
   showDates = true,
+  sentMode = false,
+  folder = 'inbox',
 }) {
   const { user } = useAuth();
   const [emails, setEmails] = useState([]);
@@ -25,6 +27,14 @@ export default function EmailListView({
   const [totalPages, setTotalPages] = useState(0);
   const [dateFrom, setDateFrom] = useState(null);
   const [dateTo, setDateTo] = useState(null);
+  // Búsqueda de texto de la carpeta (sin IA): se aplica con 300 ms de demora.
+  const [query, setQuery] = useState('');
+  const [activeQuery, setActiveQuery] = useState('');
+
+  useEffect(() => {
+    const timer = setTimeout(() => setActiveQuery(query.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [query]);
 
   // La página actual también en ref: el refresh silencioso por WebSocket no debe
   // depender de la identidad de fetchEmails (si no, se re-suscribe en cada render).
@@ -60,7 +70,11 @@ export default function EmailListView({
     pageRef.current = pageNum;
     try {
       const merged = buildFilters();
-      const data = Object.keys(merged).length > 0
+      const data = sentMode
+        ? await api.emails.sent(pageNum)
+        : activeQuery
+        ? await api.emails.search(activeQuery, folder, pageNum)
+        : Object.keys(merged).length > 0
         ? await api.emails.filter(merged, pageNum)
         : await api.emails.list(pageNum);
       setEmails(data.content || []);
@@ -71,7 +85,7 @@ export default function EmailListView({
     } finally {
       setLoading(false);
     }
-  }, [buildFilters]);
+  }, [buildFilters, sentMode, activeQuery, folder]);
 
   useEffect(() => {
     fetchEmails(0);
@@ -98,12 +112,16 @@ export default function EmailListView({
     ));
   }, []);
 
-  // Tras borrar, el mail ya no existe en la DB: hay que sacarlo de la lista o
+  // Tras mover, restaurar o borrar, el mail sale de esta vista: hay que sacarlo de la lista o
   // sigue visible hasta el próximo fetch.
   const handleEmailAction = useCallback((actionType) => {
-    if (actionType !== 'trash' || !selectedEmail) return;
+    if (actionType.endsWith(':failed')) {
+      fetchEmails(page);
+      return;
+    }
+    if (!['trash', 'restore', 'delete', 'unspam'].includes(actionType) || !selectedEmail) return;
     setEmails(prev => prev.filter(e => e.id !== selectedEmail.id));
-  }, [selectedEmail]);
+  }, [selectedEmail, fetchEmails, page]);
 
   const handleCloseDetail = useCallback(() => {
     setSelectedEmail(null);
@@ -134,6 +152,16 @@ export default function EmailListView({
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
       <div className="flex gap-6 h-[calc(100vh-7rem)]">
         <div className={`flex flex-col min-w-0 ${selectedEmail ? 'w-[420px] xl:w-[480px]' : 'flex-1'}`}>
+          {!sentMode && (
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={`Buscar en ${title}`}
+              aria-label={`Buscar en ${title}`}
+              className="input w-full text-sm mb-2 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100"
+            />
+          )}
           <EmailList
             title={title}
             emails={emails}
@@ -154,11 +182,12 @@ export default function EmailListView({
             showDates={showDates}
             emptyMessage={emptyMessage}
             provider={user?.provider || 'google'}
+            showRecipient={sentMode}
           />
         </div>
         {selectedEmail && (
           <div className="flex-1 min-w-0">
-            <EmailDetail key={selectedEmail.id} email={selectedEmail} onClose={handleCloseDetail} onRead={handleEmailRead} onAction={handleEmailAction} />
+            <EmailDetail key={selectedEmail.id} email={selectedEmail} onClose={handleCloseDetail} onRead={handleEmailRead} onAction={handleEmailAction} readOnly={sentMode} />
           </div>
         )}
       </div>

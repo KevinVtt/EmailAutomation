@@ -19,9 +19,13 @@ INSTRUCCIONES:
 
 TONOS DISPONIBLES:
 - formal: profesional, respetuoso, corporativo
+- profesional_amistoso: profesional y amistoso a la vez; cordial y cálido sin sonar informal
 - casual: relajado, amigable, informal
 - amigable: cálido, cercano, personal
 - directo: conciso, al punto, sin rodeos
+- empatico: reconoce y valida la situación del destinatario antes de responder
+- persuasivo: orientado a que el destinatario haga algo, sin presionar
+- entusiasta: positivo y con energía, sin exagerar
 
 FORMATO DE RESPUESTA:
 Devuelve ÚNICAMENTE el texto mejorado, sin explicaciones adicionales ni formato markdown.
@@ -84,7 +88,8 @@ async def rewrite_email(
     if draft is None or draft.strip() == "":
         return {"rewritten": "", "original": draft or ""}
 
-    valid_tones = {"formal", "casual", "amigable", "directo"}
+    valid_tones = {"formal", "profesional_amistoso", "casual", "amigable", "directo",
+                   "empatico", "persuasivo", "entusiasta"}
     tone_norm = tone if isinstance(tone, str) and tone in valid_tones else "formal"
 
     system_prompt = REWRITE_SYSTEM_PROMPT

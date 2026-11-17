@@ -82,9 +82,10 @@ public class AuthController {
                     "client_id=" + googleClientId +
                     "&redirect_uri=" + googleRedirectUri +
                     "&response_type=code" +
-                    "&scope=email+profile+https://www.googleapis.com/auth/gmail.readonly+https://www.googleapis.com/auth/gmail.modify" +
+                    // mail.google.com es lo único que habilita el borrado definitivo (messages.delete).
+                    "&scope=email+profile+https://www.googleapis.com/auth/gmail.readonly+https://www.googleapis.com/auth/gmail.modify+https://www.googleapis.com/auth/gmail.send+https://mail.google.com/" +
                     "&access_type=offline" +
-                    "&prompt=consent" +
+                    "&prompt=select_account+consent" +
                     "&state=" + state;
             // User.Read es obligatorio para Graph /me: sin él el login moría en el callback.
             case "outlook" -> "https://login.microsoftonline.com/" + outlookTenant +

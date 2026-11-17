@@ -13,6 +13,7 @@ export default function EmailList({
   showDates = true,
   emptyMessage = 'Tus emails aparecerán aquí',
   provider = 'google',
+  showRecipient = false,
 }) {
   const [syncMenuOpen, setSyncMenuOpen] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
@@ -191,6 +192,7 @@ export default function EmailList({
               email={email}
               selected={email.id === selectedId}
               onSelect={() => onSelect(email)}
+              showRecipient={showRecipient}
             />
           ))
         )}

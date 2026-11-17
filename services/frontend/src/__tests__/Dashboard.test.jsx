@@ -63,6 +63,8 @@ describe('Dashboard', () => {
     vi.clearAllMocks();
     // Skip the auto-sync effect so tests don't trigger sync API calls.
     sessionStorage.setItem('autoSynced', 'true');
+    // El montaje consulta si hay un sync en curso.
+    api.emails.syncStatus.mockResolvedValue({ syncing: false });
   });
 
   it('shows a loading skeleton while stats are being fetched', () => {
@@ -100,13 +102,58 @@ describe('Dashboard', () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(50); });
       expect(screen.getByText('Sincronizando...')).toBeTruthy();
 
-      // El poll nunca ve terminar la sync; el timer de seguridad (10 min) debe
-      // sacar la UI de 'syncing' igual (antes quedaba pegada para siempre).
-      await act(async () => { await vi.advanceTimersByTimeAsync(600001); });
+      // El poll nunca ve terminar la sync; el timer de seguridad debe sacar la UI
+      // de 'syncing' igual (antes quedaba pegada para siempre). Es un first sync
+      // (count=0) → full, cuyo margen es 6 h porque 17k correos tardan ~2 h.
+      await act(async () => { await vi.advanceTimersByTimeAsync(21600001); });
       expect(screen.queryByText('Sincronizando...')).toBeNull();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('shows a progress card for an incremental sync and a banner when it finishes', async () => {
+    api.emails.stats.mockResolvedValue(statsFixture());
+    api.emails.summary.mockResolvedValue({ summary: 'Sin novedades.', emailCount: 0, date: '2026-09-09' });
+    api.emails.prioritySummary.mockResolvedValue({ urgentes: 0, destacadosSinLeer: 0, pendientesRespuesta: 0 });
+    api.emails.sync.mockResolvedValue({ status: 'syncing' });
+    api.emails.syncStatus.mockResolvedValue({ syncing: true });
+
+    renderDashboard();
+
+    expect(await screen.findByText('Total de emails')).toBeTruthy();
+    fireEvent.click(screen.getByText('Sincronizar'));
+    fireEvent.click(screen.getByText('Actualizar nuevos emails'));
+
+    expect(await screen.findByText('Buscando correos nuevos')).toBeTruthy();
+
+    const handlers = useWebSocket.mock.calls[0][1];
+    await act(async () => {
+      handlers.onNotifications({ type: 'notification', message: 'sync_complete' });
+    });
+
+    expect(await screen.findByText('Todos los correos están sincronizados.')).toBeTruthy();
+  });
+
+  it('shows a progress card for a background sync but no success banner', async () => {
+    api.emails.stats.mockResolvedValue(statsFixture());
+    api.emails.summary.mockResolvedValue({ summary: 'Sin novedades.', emailCount: 0, date: '2026-09-09' });
+    api.emails.prioritySummary.mockResolvedValue({ urgentes: 0, destacadosSinLeer: 0, pendientesRespuesta: 0 });
+
+    renderDashboard();
+    expect(await screen.findByText('Total de emails')).toBeTruthy();
+
+    const handlers = useWebSocket.mock.calls[0][1];
+    act(() => {
+      handlers.onNotifications({ type: 'notification', message: 'sync_started:incremental' });
+    });
+    expect(await screen.findByText('Buscando correos nuevos')).toBeTruthy();
+
+    await act(async () => {
+      handlers.onNotifications({ type: 'notification', message: 'sync_complete' });
+    });
+    // El incremental de fondo corre cada 2 min: un banner cada vez sería ruido.
+    await waitFor(() => expect(screen.queryByText('Todos los correos están sincronizados.')).toBeNull());
   });
 
   it('renders the stat cards and the 7-day chart from the single stats endpoint', async () => {    api.emails.stats.mockResolvedValue(statsFixture({ dayCount: 5 }));
